@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "herbal-botanicals": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "tsx",
+        "/home/mo/projects/SyntropyHealth/research/open-diet-data/mcp-herbal-botanicals/src/index.ts"
+      ],
+      "env": {}
+    }
+  }
+}

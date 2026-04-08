@@ -1,0 +1,29 @@
+# Local database
+data_local
+data_local_temp
+
+# Source data archives (large files, download separately)
+data/*.zip
+data/*.tar.gz
+data/*.gz
+
+# Build output
+build
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Coverage
+coverage
+*.lcov
+
+# Editor
+.idea
+.vscode
+.DS_Store

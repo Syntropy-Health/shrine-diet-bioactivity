@@ -1,0 +1,40 @@
+{
+  "name": "mcp-herbal-botanicals",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "mcp-herbal-botanicals": "./build/index.js"
+  },
+  "scripts": {
+    "build": "rm -rf build && tsc && chmod 755 build/index.js",
+    "download-data": "tsx scripts/download-sources.ts",
+    "convert-data": "tsx scripts/decompress-datasets.ts && tsx scripts/build-herbal-db.ts && rm -rf data_local_temp",
+    "audit": "tsx scripts/audit-herbal-data.ts",
+    "inspector": "tsc && npx @modelcontextprotocol/inspector npx tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "files": [
+    "build"
+  ],
+  "keywords": ["mcp", "herbal", "botanicals", "phytochemical", "nutrition"],
+  "author": "Syntropy Health",
+  "license": "ISC",
+  "description": "MCP server bridging herbal medicine to food nutrition via Dr. Duke's Phytochemical DB and FooDB. First-of-kind herb-compound-food bridge for AI dietitians.",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "better-sqlite3": "^11.7.0",
+    "papaparse": "^5.4.1",
+    "yauzl": "^3.2.0",
+    "zod": "^3.25.46"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.29",
+    "@types/papaparse": "^5.3.16",
+    "@types/yauzl": "^2.10.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3",
+    "vitest": "^4.0.18"
+  }
+}
