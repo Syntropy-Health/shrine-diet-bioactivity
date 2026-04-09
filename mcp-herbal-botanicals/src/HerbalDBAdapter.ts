@@ -13,7 +13,11 @@ import type {
   Compound,
   HerbCompound,
   CompoundFood,
+  CompoundTarget,
   HerbFoodOverlap,
+  FunctionalFood,
+  Symptom,
+  SymptomSearchResult,
   PaginatedResult,
 } from './types.js';
 
@@ -75,6 +79,8 @@ export class HerbalDBAdapter {
         species: r.species as string | null,
         usage_type: r.usage_type as string | null,
         alternate_names: parseJsonArray(r.alternate_names as string),
+        is_food_plant: !!(r.is_food_plant as number),
+        is_edible: !!(r.is_edible as number),
       })),
       total: countRow.cnt,
       page,
@@ -299,6 +305,8 @@ export class HerbalDBAdapter {
       species: row.species as string | null,
       usage_type: row.usage_type as string | null,
       alternate_names: parseJsonArray(row.alternate_names as string),
+      is_food_plant: !!(row.is_food_plant as number),
+      is_edible: !!(row.is_edible as number),
     };
 
     const compoundCount = (this.db.prepare(
@@ -339,20 +347,239 @@ export class HerbalDBAdapter {
   }
 
   // -------------------------------------------------------------------------
+  // search-by-symptom: find herbs, compounds, and foods for a symptom
+  // -------------------------------------------------------------------------
+
+  searchBySymptom(query: string, page = 1, pageSize = 10): SymptomSearchResult {
+    const pattern = `%${query}%`;
+
+    // Find matching symptoms
+    const symptoms = this.db.prepare(`
+      SELECT * FROM symptoms WHERE name LIKE ?
+      ORDER BY
+        CASE WHEN name LIKE ? THEN 0 ELSE 1 END,
+        name
+      LIMIT 20
+    `).all(pattern, pattern) as Array<Record<string, unknown>>;
+
+    const matchedSymptoms: SymptomSearchResult['symptoms_matched'] = symptoms.map((s) => ({
+      id: s.id as string,
+      name: s.name as string,
+      symptom_type: s.symptom_type as 'tcm' | 'modern' | 'bioactivity',
+      mm_symptom_id: s.mm_symptom_id as string | null,
+      description: s.description as string | null,
+    }));
+
+    if (matchedSymptoms.length === 0) {
+      return { symptoms_matched: [], herbs: [], compounds: [], functional_foods: [] };
+    }
+
+    const symptomIds = matchedSymptoms.map((s) => s.id);
+    const placeholders = symptomIds.map(() => '?').join(',');
+
+    // Find herbs linked to these symptoms (via herb_symptoms)
+    const herbs = this.db.prepare(`
+      SELECT DISTINCT h.id, h.common_name, h.scientific_name, h.is_food_plant,
+        (SELECT COUNT(DISTINCT compound_id) FROM herb_compounds WHERE herb_id = h.id) as compound_count
+      FROM herb_symptoms hs
+      JOIN herbs h ON hs.herb_id = h.id
+      WHERE hs.symptom_id IN (${placeholders})
+      ORDER BY compound_count DESC
+      LIMIT ?
+    `).all(...symptomIds, pageSize) as Array<Record<string, unknown>>;
+
+    const herbResults: SymptomSearchResult['herbs'] = herbs.map((h) => ({
+      id: h.id as string,
+      common_name: h.common_name as string | null,
+      scientific_name: h.scientific_name as string,
+      is_food_plant: !!(h.is_food_plant as number),
+      compound_count: h.compound_count as number,
+    }));
+
+    // Find compounds from those herbs that are linked to the bioactivity
+    const herbIds = herbResults.map((h) => h.id);
+    const herbPlaceholders = herbIds.length > 0 ? herbIds.map(() => '?').join(',') : "'__none__'";
+
+    const compounds = herbIds.length > 0
+      ? this.db.prepare(`
+          SELECT DISTINCT c.id, c.name, c.compound_class, c.bioactivities,
+            (SELECT COUNT(DISTINCT hc2.herb_id) FROM herb_compounds hc2 WHERE hc2.compound_id = c.id) as herb_count,
+            (SELECT COUNT(DISTINCT cf.food_name) FROM compound_foods cf WHERE cf.compound_id = c.id) as food_count
+          FROM herb_compounds hc
+          JOIN compounds c ON hc.compound_id = c.id
+          WHERE hc.herb_id IN (${herbPlaceholders})
+          ORDER BY food_count DESC
+          LIMIT 20
+        `).all(...herbIds) as Array<Record<string, unknown>>
+      : [];
+
+    const compoundResults: SymptomSearchResult['compounds'] = compounds.map((c) => ({
+      id: c.id as string,
+      name: c.name as string,
+      compound_class: c.compound_class as string | null,
+      bioactivities: parseJsonArray(c.bioactivities as string),
+      herb_count: c.herb_count as number,
+      food_count: c.food_count as number,
+    }));
+
+    // Find functional foods — foods from food plants that share compounds with matched herbs
+    const functionalFoods = herbIds.length > 0
+      ? this.db.prepare(`
+          SELECT cf.food_name, cf.food_group,
+            COUNT(DISTINCT cf.compound_id) as shared_compounds,
+            GROUP_CONCAT(DISTINCT c.name) as compound_names_csv
+          FROM herb_compounds hc
+          JOIN compound_foods cf ON hc.compound_id = cf.compound_id
+          JOIN compounds c ON cf.compound_id = c.id
+          WHERE hc.herb_id IN (${herbPlaceholders})
+          GROUP BY cf.food_name
+          ORDER BY shared_compounds DESC
+          LIMIT 15
+        `).all(...herbIds) as Array<Record<string, unknown>>
+      : [];
+
+    const foodResults: SymptomSearchResult['functional_foods'] = functionalFoods.map((f) => ({
+      food_name: f.food_name as string,
+      food_group: f.food_group as string | null,
+      shared_compounds: f.shared_compounds as number,
+      compound_names: (f.compound_names_csv as string || '').split(',').filter(Boolean),
+    }));
+
+    return {
+      symptoms_matched: matchedSymptoms,
+      herbs: herbResults,
+      compounds: compoundResults,
+      functional_foods: foodResults,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // get-compound-targets: molecular targets for a compound
+  // -------------------------------------------------------------------------
+
+  getCompoundTargets(compoundId: string): CompoundTarget[] {
+    const normalized = compoundId.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const rows = this.db.prepare(`
+      SELECT ct.compound_id, c.name as compound_name,
+        ct.target_id, t.name as target_name,
+        ct.activity_value, ct.activity_type, ct.interaction_type
+      FROM compound_targets ct
+      JOIN compounds c ON ct.compound_id = c.id
+      JOIN targets t ON ct.target_id = t.id
+      WHERE ct.compound_id = ? OR ct.compound_id = ?
+      ORDER BY ct.activity_value ASC NULLS LAST
+    `).all(compoundId, normalized) as CompoundTarget[];
+
+    return rows;
+  }
+
+  // -------------------------------------------------------------------------
+  // find-functional-foods: food plants with therapeutic compound profiles
+  // -------------------------------------------------------------------------
+
+  findFunctionalFoods(query: string, page = 1, pageSize = 20): PaginatedResult<FunctionalFood> {
+    const pattern = `%${query}%`;
+    const offset = (page - 1) * pageSize;
+
+    // Find herbs that are food plants matching the query
+    const countRow = this.db.prepare(`
+      SELECT COUNT(*) as cnt FROM herbs
+      WHERE (is_food_plant = 1 OR is_edible = 1)
+        AND (common_name LIKE ? OR scientific_name LIKE ? OR alternate_names LIKE ?)
+    `).get(pattern, pattern, pattern) as { cnt: number };
+
+    const herbs = this.db.prepare(`
+      SELECT h.id, h.common_name, h.scientific_name,
+        (SELECT COUNT(DISTINCT hc.compound_id) FROM herb_compounds hc WHERE hc.herb_id = h.id) as compound_count,
+        (SELECT GROUP_CONCAT(DISTINCT c.name)
+         FROM herb_compounds hc2 JOIN compounds c ON hc2.compound_id = c.id
+         WHERE hc2.herb_id = h.id
+         LIMIT 10) as compound_names_csv
+      FROM herbs h
+      WHERE (h.is_food_plant = 1 OR h.is_edible = 1)
+        AND (h.common_name LIKE ? OR h.scientific_name LIKE ? OR h.alternate_names LIKE ?)
+      ORDER BY compound_count DESC
+      LIMIT ? OFFSET ?
+    `).all(pattern, pattern, pattern, pageSize, offset) as Array<Record<string, unknown>>;
+
+    // For each food herb, find the top foods it shares compounds with
+    const results: FunctionalFood[] = [];
+    for (const herb of herbs) {
+      // Get foods that share compounds with this herb
+      const foods = this.db.prepare(`
+        SELECT cf.food_name, cf.food_group,
+          COUNT(DISTINCT cf.compound_id) as compound_count,
+          GROUP_CONCAT(DISTINCT c.name) as compound_names_csv
+        FROM herb_compounds hc
+        JOIN compound_foods cf ON hc.compound_id = cf.compound_id
+        JOIN compounds c ON cf.compound_id = c.id
+        WHERE hc.herb_id = ?
+        GROUP BY cf.food_name
+        ORDER BY compound_count DESC
+        LIMIT 3
+      `).all(herb.id as string) as Array<Record<string, unknown>>;
+
+      if (foods.length > 0) {
+        for (const food of foods) {
+          results.push({
+            food_name: food.food_name as string,
+            food_group: food.food_group as string | null,
+            herb_name: herb.common_name as string | null,
+            herb_scientific_name: herb.scientific_name as string,
+            compound_count: food.compound_count as number,
+            compound_names: (food.compound_names_csv as string || '').split(',').filter(Boolean).slice(0, 10),
+          });
+        }
+      } else {
+        results.push({
+          food_name: (herb.common_name as string) || (herb.scientific_name as string),
+          food_group: null,
+          herb_name: herb.common_name as string | null,
+          herb_scientific_name: herb.scientific_name as string,
+          compound_count: herb.compound_count as number,
+          compound_names: (herb.compound_names_csv as string || '').split(',').filter(Boolean).slice(0, 10),
+        });
+      }
+    }
+
+    return {
+      data: results,
+      total: countRow.cnt,
+      page,
+      pageSize,
+      hasMore: offset + pageSize < countRow.cnt,
+    };
+  }
+
+  // -------------------------------------------------------------------------
   // Database stats for health check
   // -------------------------------------------------------------------------
 
   getStats(): Record<string, number> {
+    const safeCount = (sql: string): number => {
+      try {
+        return (this.db.prepare(sql).get() as { cnt: number }).cnt;
+      } catch {
+        return 0;
+      }
+    };
+
     return {
-      herbs: (this.db.prepare('SELECT COUNT(*) as cnt FROM herbs').get() as { cnt: number }).cnt,
-      compounds: (this.db.prepare('SELECT COUNT(*) as cnt FROM compounds').get() as { cnt: number }).cnt,
-      herb_compounds: (this.db.prepare('SELECT COUNT(*) as cnt FROM herb_compounds').get() as { cnt: number }).cnt,
-      compound_foods: (this.db.prepare('SELECT COUNT(*) as cnt FROM compound_foods').get() as { cnt: number }).cnt,
-      bridge_compounds: (this.db.prepare(`
+      herbs: safeCount('SELECT COUNT(*) as cnt FROM herbs'),
+      compounds: safeCount('SELECT COUNT(*) as cnt FROM compounds'),
+      herb_compounds: safeCount('SELECT COUNT(*) as cnt FROM herb_compounds'),
+      compound_foods: safeCount('SELECT COUNT(*) as cnt FROM compound_foods'),
+      bridge_compounds: safeCount(`
         SELECT COUNT(DISTINCT c.id) as cnt FROM compounds c
         WHERE EXISTS (SELECT 1 FROM herb_compounds hc WHERE hc.compound_id = c.id)
           AND EXISTS (SELECT 1 FROM compound_foods cf WHERE cf.compound_id = c.id)
-      `).get() as { cnt: number }).cnt,
+      `),
+      symptoms: safeCount('SELECT COUNT(*) as cnt FROM symptoms'),
+      herb_symptoms: safeCount('SELECT COUNT(*) as cnt FROM herb_symptoms'),
+      targets: safeCount('SELECT COUNT(*) as cnt FROM targets'),
+      compound_targets: safeCount('SELECT COUNT(*) as cnt FROM compound_targets'),
+      food_plants: safeCount('SELECT COUNT(*) as cnt FROM herbs WHERE is_food_plant = 1'),
     };
   }
 }

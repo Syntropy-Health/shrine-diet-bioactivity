@@ -63,6 +63,22 @@ const GetHerbProfileSchema = z.object({
   herb_id: z.string().min(1, 'Herb ID is required'),
 });
 
+const SearchBySymptomSchema = z.object({
+  query: z.string().min(1, 'Symptom search query is required'),
+  page: z.number().min(1).optional().default(1),
+  pageSize: z.number().min(1).max(50).optional().default(10),
+});
+
+const GetCompoundTargetsSchema = z.object({
+  compound_id: z.string().min(1, 'Compound ID is required'),
+});
+
+const FindFunctionalFoodsSchema = z.object({
+  query: z.string().min(1, 'Search query is required'),
+  page: z.number().min(1).optional().default(1),
+  pageSize: z.number().min(1).max(50).optional().default(20),
+});
+
 // ---------------------------------------------------------------------------
 // MCP Server
 // ---------------------------------------------------------------------------
@@ -72,21 +88,23 @@ class HerbalBotanicalsMCPServer {
     {
       name: 'mcp-herbal-botanicals',
       version: '1.0.0',
-      description: `The first MCP server for dietary and phytochemical compound data. Bridges herbal medicine to food nutrition using Dr. Duke's Phytochemical Database and FooDB.
+      description: `Phytochemical knowledge graph MCP server. Bridges herbal medicine → active compounds → foods → health benefits using Dr. Duke's Phytochemical Database and FooDB, with symptom mapping derived from bioactivity data.
 
 Use this server when a query involves:
+- Health concerns or symptoms ("I'm tired", "chronic inflammation", "can't sleep")
 - Herbal supplements, botanicals, or medicinal plants
 - Phytochemical compounds (flavonoids, alkaloids, terpenoids, etc.)
 - Finding which foods share active compounds with specific herbs
-- Looking up bioactivities (anti-inflammatory, antioxidant, adaptogenic, etc.)
-- Connecting traditional herbal medicine to evidence-based food nutrition
+- Functional foods — food plants with therapeutic properties
+- Bioactivities (anti-inflammatory, antioxidant, adaptogenic, etc.)
 
 Example queries this server answers:
-- "What compounds are in ashwagandha?"
-- "What foods contain quercetin?"
-- "What foods have similar actives as turmeric?"
-- "Which herbs have anti-inflammatory compounds?"
-- "Give me a full profile of ginseng"
+- "What helps with inflammation?" → search-by-symptom
+- "What compounds are in ashwagandha?" → get-herb-compounds
+- "What foods contain quercetin?" → get-compound-foods
+- "What foods have similar actives as turmeric?" → get-herb-food-overlap
+- "Which food plants help with stress?" → find-functional-foods
+- "Give me a full profile of ginseng" → get-herb-profile
 
 Composable with mcp-opennutrition for complete food + herbal nutrition coverage.`,
     },
@@ -247,6 +265,69 @@ Requires a herb_id from search-herbs results.`,
         return {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
           structuredContent: { profile: result },
+        };
+      }
+    );
+
+    // === search-by-symptom ===
+    this.server.tool(
+      'search-by-symptom',
+      `Find herbs, compounds, and foods for a health concern or symptom. Returns matched symptoms, associated herbs (with food-plant flags), key compounds, and functional foods.
+
+Use when: User describes a health issue ("I'm tired", "chronic inflammation", "can't sleep") and wants to find herbal and food-based solutions.
+
+Examples:
+- search-by-symptom("inflammation") → Turmeric (curcumin), Ginger (gingerol) + foods with shared compounds
+- search-by-symptom("insomnia") → Valerian, Chamomile + calming foods
+- search-by-symptom("fatigue") → Ashwagandha, Ginseng + energy-supporting foods`,
+      SearchBySymptomSchema.shape,
+      { title: 'Search by symptom/health concern', readOnlyHint: true },
+      async (args) => {
+        const result = this.db.searchBySymptom(args.query, args.page, args.pageSize);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          structuredContent: { result },
+        };
+      }
+    );
+
+    // === get-compound-targets ===
+    this.server.tool(
+      'get-compound-targets',
+      `Get molecular targets for a specific compound. Returns target proteins with activity values and interaction types.
+
+Use when: User wants to understand WHY a compound has a particular health benefit, or needs molecular-level detail about a phytochemical's mechanism of action.
+
+Note: Target data is populated from CMAUP database. Returns empty array if no target data is available for the compound.`,
+      GetCompoundTargetsSchema.shape,
+      { title: 'Get compound molecular targets', readOnlyHint: true },
+      async (args) => {
+        const result = this.db.getCompoundTargets(args.compound_id);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          structuredContent: { targets: result },
+        };
+      }
+    );
+
+    // === find-functional-foods ===
+    this.server.tool(
+      'find-functional-foods',
+      `Search for food plants and edible herbs with therapeutic compound profiles. Returns herbs that are also foods (turmeric, ginger, garlic, etc.) along with common foods that share their active compounds.
+
+Use when: User wants food-based alternatives to supplements, asks about "functional foods", or wants to know which everyday foods have therapeutic compounds.
+
+Examples:
+- find-functional-foods("turmeric") → Turmeric (312 compounds) + foods sharing curcumin
+- find-functional-foods("ginger") → Ginger (245 compounds) + foods sharing gingerol
+- find-functional-foods("anti-inflammatory") → Food plants with anti-inflammatory compounds`,
+      FindFunctionalFoodsSchema.shape,
+      { title: 'Find functional food plants', readOnlyHint: true },
+      async (args) => {
+        const result = this.db.findFunctionalFoods(args.query, args.page, args.pageSize);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          structuredContent: { result },
         };
       }
     );
