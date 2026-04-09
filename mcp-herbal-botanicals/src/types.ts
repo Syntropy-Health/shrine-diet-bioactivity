@@ -9,6 +9,8 @@ export interface Herb {
   species: string | null;
   usage_type: string | null;
   alternate_names: string[];
+  is_food_plant: boolean;
+  is_edible: boolean;
 }
 
 export interface Compound {
@@ -60,4 +62,63 @@ export interface PaginatedResult<T> {
   page: number;
   pageSize: number;
   hasMore: boolean;
+}
+
+export interface Symptom {
+  id: string;
+  name: string;
+  symptom_type: 'tcm' | 'modern' | 'bioactivity';
+  mm_symptom_id: string | null;
+  description: string | null;
+}
+
+export interface Target {
+  id: string;
+  name: string;
+  uniprot_id: string | null;
+  gene_symbol: string | null;
+}
+
+export interface CompoundTarget {
+  compound_id: string;
+  compound_name: string;
+  target_id: string;
+  target_name: string;
+  activity_value: number | null;
+  activity_type: string | null;
+  interaction_type: string | null;
+}
+
+export interface SymptomSearchResult {
+  symptoms_matched: Symptom[];
+  herbs: Array<{
+    id: string;
+    common_name: string | null;
+    scientific_name: string;
+    is_food_plant: boolean;
+    compound_count: number;
+  }>;
+  compounds: Array<{
+    id: string;
+    name: string;
+    compound_class: string | null;
+    bioactivities: string[];
+    herb_count: number;
+    food_count: number;
+  }>;
+  functional_foods: Array<{
+    food_name: string;
+    food_group: string | null;
+    shared_compounds: number;
+    compound_names: string[];
+  }>;
+}
+
+export interface FunctionalFood {
+  food_name: string;
+  food_group: string | null;
+  herb_name: string | null;
+  herb_scientific_name: string;
+  compound_count: number;
+  compound_names: string[];
 }
