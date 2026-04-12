@@ -470,6 +470,68 @@ Note: Requires CTD data to be loaded. Returns empty if CTD data is not available
       }
     );
 
+    // === semantic-search (LightRAG bridge) ===
+    this.server.tool(
+      'semantic-search',
+      `Semantic knowledge graph search powered by LightRAG.
+Queries the unified diet KG (Neo4j) using natural language — supports multi-hop reasoning
+across herbs, compounds, foods, targets, diseases, and symptoms.
+
+Best for:
+- Natural language questions: "What foods help with inflammation?"
+- Multi-hop traversal: "Which herbs contain compounds that target COX-2?"
+- Discovery queries: "What dietary sources have anti-cancer bioactivity?"
+- Cross-domain: "Foods high in vitamin C that also contain antioxidant compounds?"
+
+Query modes:
+- local: Entity-focused retrieval (best for specific lookups)
+- global: Community-based broad knowledge (best for summarization)
+- hybrid: Combines local + global (best general-purpose)
+- mix: KG + vector retrieval with reranker (highest quality, requires reranker)
+
+Requires LightRAG server running (make lightrag-server).`,
+      {
+        query: z.string().min(3).describe('Natural language query about herbs, compounds, foods, diseases, or their relationships'),
+        mode: z.enum(['local', 'global', 'hybrid', 'mix', 'naive']).default('hybrid').describe('Retrieval mode'),
+        top_k: z.number().min(1).max(200).default(60).describe('Number of entities/relations to retrieve'),
+      },
+      { title: 'Semantic knowledge graph search', readOnlyHint: true },
+      async (args) => {
+        try {
+          const lightragUrl = process.env.LIGHTRAG_API_URL || 'http://localhost:9621';
+          const response = await fetch(`${lightragUrl}/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              query: args.query,
+              mode: args.mode,
+              top_k: args.top_k,
+            }),
+          });
+
+          if (!response.ok) {
+            const errText = await response.text();
+            return {
+              content: [{ type: 'text', text: `LightRAG query failed (${response.status}): ${errText}` }],
+              isError: true,
+            };
+          }
+
+          const result = await response.json();
+          return {
+            content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result, null, 2) }],
+            structuredContent: result,
+          };
+        } catch (error: unknown) {
+          const msg = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: 'text', text: `LightRAG server not reachable: ${msg}\nStart it with: make lightrag-server` }],
+            isError: true,
+          };
+        }
+      }
+    );
+
     // === get-health ===
     this.server.tool(
       'get-health',

@@ -30,6 +30,7 @@ from dotenv import load_dotenv
 from entity_schema import (
     DESCRIPTION_GENERATORS,
     ENTITY_TYPES,
+    QUERY_BUILDERS,
     RELATIONSHIP_TYPES,
     describe_relationship,
 )
@@ -86,7 +87,16 @@ def extract_entities(
         print(f"  ⚠ Table '{spec['source_table']}' not found, skipping {entity_type}")
         return []
 
-    rows = fetch_all(conn, spec["query"], limit=max_count)
+    # Resolve query — may be static string or dynamic builder
+    query = spec.get("query")
+    if query is None and "query_builder" in spec:
+        builder_name = spec["query_builder"]
+        query = QUERY_BUILDERS[builder_name](conn)
+    if query is None:
+        print(f"  ⚠ No query for {entity_type}, skipping")
+        return []
+
+    rows = fetch_all(conn, query, limit=max_count)
     entities = []
     seen_names: set[str] = set()
 
@@ -282,18 +292,38 @@ async def main() -> None:
 
     # --- Initialize LightRAG ---
     print("Initializing LightRAG...")
+    from functools import partial
+    from lightrag import LightRAG
+    from lightrag.utils import EmbeddingFunc
+
     embedding_binding = os.getenv("EMBEDDING_BINDING", "ollama")
+    embedding_model = os.getenv("EMBEDDING_MODEL", "nomic-embed-text:latest")
+    embedding_dim = int(os.getenv("EMBEDDING_DIM", "768"))
+    embedding_host = os.getenv("EMBEDDING_BINDING_HOST", "http://localhost:11434")
 
     if embedding_binding == "ollama":
         from lightrag.llm.ollama import ollama_embed, ollama_model_complete
         llm_func = ollama_model_complete
-        embed_func = ollama_embed
+        embed_func = EmbeddingFunc(
+            embedding_dim=embedding_dim,
+            max_token_size=8192,
+            func=partial(
+                ollama_embed.func,
+                embed_model=embedding_model,
+                host=embedding_host,
+            ),
+        )
     else:
         from lightrag.llm.openai import gpt_4o_mini_complete, openai_embed
         llm_func = gpt_4o_mini_complete
-        embed_func = openai_embed
-
-    from lightrag import LightRAG
+        embed_func = EmbeddingFunc(
+            embedding_dim=embedding_dim,
+            max_token_size=8192,
+            func=partial(
+                openai_embed.func,
+                model=embedding_model,
+            ),
+        )
 
     working_dir = os.getenv("WORKING_DIR", "./rag_storage_local")
     os.makedirs(working_dir, exist_ok=True)

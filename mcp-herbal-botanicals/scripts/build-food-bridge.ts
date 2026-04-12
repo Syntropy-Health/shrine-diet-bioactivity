@@ -25,7 +25,7 @@ interface BridgeMatch {
   foodb_food_name: string;
   opennutrition_id: string;
   opennutrition_name: string;
-  match_type: 'exact' | 'everyday_exact' | 'token' | 'prefix';
+  match_type: 'exact' | 'everyday_exact' | 'alternate_name' | 'token' | 'prefix';
   match_score: number;
 }
 
@@ -85,6 +85,13 @@ export function buildFoodBridge(): { matched: number; unmatched: number; total: 
   const everydayExact = onDb.prepare(
     `SELECT id, name FROM foods WHERE LOWER(name) = LOWER(?) AND type = 'everyday' LIMIT 1`
   );
+  // Strategy 3: Match against alternate_names JSON array
+  const alternateNameMatch = onDb.prepare(
+    `SELECT DISTINCT foods.id, foods.name FROM foods, json_each(foods.alternate_names) AS alt
+     WHERE LOWER(alt.value) = LOWER(?)
+     ORDER BY CASE foods.type WHEN 'everyday' THEN 0 WHEN 'prepared' THEN 1 ELSE 2 END
+     LIMIT 1`
+  );
   const prefixMatch = onDb.prepare(
     `SELECT id, name FROM foods WHERE LOWER(name) LIKE ? AND type = 'everyday' LIMIT 1`
   );
@@ -118,7 +125,15 @@ export function buildFoodBridge(): { matched: number; unmatched: number; total: 
         continue;
       }
 
-      // Strategy 3: Prefix match (ON name starts with FooDB name, everyday preferred)
+      // Strategy 3: Alternate names match (ON alternate_names JSON array)
+      row = alternateNameMatch.get(normalized) as { id: string; name: string } | undefined;
+      if (row) {
+        insertBridge.run(food_name, row.id, row.name, 'alternate_name', 0.92);
+        matches.push({ foodb_food_name: food_name, opennutrition_id: row.id, opennutrition_name: row.name, match_type: 'alternate_name' as BridgeMatch['match_type'], match_score: 0.92 });
+        continue;
+      }
+
+      // Strategy 4: Prefix match (ON name starts with FooDB name, everyday preferred)
       row = prefixMatch.get(`${normalized}%`) as { id: string; name: string } | undefined;
       if (row) {
         const score = normalized.length / normalizeFoodName(row.name).length;
@@ -127,7 +142,7 @@ export function buildFoodBridge(): { matched: number; unmatched: number; total: 
         continue;
       }
 
-      // Strategy 4: Token match (all tokens from FooDB name appear in ON name)
+      // Strategy 5: Token match (all tokens from FooDB name appear in ON name)
       const tokens = tokenize(food_name);
       if (tokens.length > 0) {
         const pattern = `%${tokens.join('%')}%`;
@@ -148,7 +163,7 @@ export function buildFoodBridge(): { matched: number; unmatched: number; total: 
   insertMany();
 
   // Print stats
-  const byType = { exact: 0, everyday_exact: 0, prefix: 0, token: 0 };
+  const byType = { exact: 0, everyday_exact: 0, alternate_name: 0, prefix: 0, token: 0 };
   for (const m of matches) {
     byType[m.match_type]++;
   }
@@ -158,6 +173,7 @@ export function buildFoodBridge(): { matched: number; unmatched: number; total: 
   console.error(`Matched:              ${matches.length} (${Math.round(matches.length / foodNames.length * 100)}%)`);
   console.error(`  exact:              ${byType.exact}`);
   console.error(`  everyday_exact:     ${byType.everyday_exact}`);
+  console.error(`  alternate_name:     ${byType.alternate_name}`);
   console.error(`  prefix:             ${byType.prefix}`);
   console.error(`  token:              ${byType.token}`);
   console.error(`Unmatched:            ${unmatched.length}`);

@@ -145,15 +145,31 @@ for r in s.run('MATCH (n) RETURN labels(n)[0] AS label, COUNT(n) AS count ORDER 
 for r in s.run('MATCH ()-[r]->() RETURN type(r) AS type, COUNT(r) AS count ORDER BY count DESC'): print(f'  Edges [{r[\"type\"]}]: {r[\"count\"]}'); \
 s.close(); d.close()"
 
-neo4j-status: ## Full KG analytics — node/edge breakdown, ingestion sources, growth rate
-	@NEO4J_URI=$(NEO4J_URI) NEO4J_USER=$(NEO4J_USER) NEO4J_PASSWORD=$(NEO4J_PASS) \
-	python3 graphiti/kg_status.py
+neo4j-status: ## Full KG analytics — node/edge breakdown by workspace
+	@python3 -c "\
+	from neo4j import GraphDatabase; \
+	d = GraphDatabase.driver('$(NEO4J_URI)', auth=('$(NEO4J_USER)', '$(NEO4J_PASS)')); \
+	s = d.session(); \
+	print('=== KG Status by Workspace ==='); \
+	for r in s.run('MATCH (n) RETURN labels(n) AS labels, COUNT(n) AS count ORDER BY count DESC'): print(f'  Nodes {r[\"labels\"]}: {r[\"count\"]}'); \
+	print(); \
+	for r in s.run('MATCH ()-[r]->() RETURN type(r) AS type, COUNT(r) AS count ORDER BY count DESC'): print(f'  Edges [{r[\"type\"]}]: {r[\"count\"]}'); \
+	total_n = s.run('MATCH (n) RETURN COUNT(n) AS c').single()['c']; \
+	total_r = s.run('MATCH ()-[r]->() RETURN COUNT(r) AS c').single()['c']; \
+	print(f'\nTotal: {total_n} nodes, {total_r} relationships'); \
+	s.close(); d.close()"
 
 neo4j-watch: ## Live-monitor KG growth (polls every 30s, Ctrl+C to stop)
 	@echo "Watching KG growth at $(NEO4J_URI) — Ctrl+C to stop"
 	@while true; do \
-		NEO4J_URI=$(NEO4J_URI) NEO4J_USER=$(NEO4J_USER) NEO4J_PASSWORD=$(NEO4J_PASS) \
-		python3 graphiti/kg_status.py 2>/dev/null | tail -1 || true; \
+		python3 -c "\
+	from neo4j import GraphDatabase; import datetime; \
+	d = GraphDatabase.driver('$(NEO4J_URI)', auth=('$(NEO4J_USER)', '$(NEO4J_PASS)')); \
+	s = d.session(); \
+	n = s.run('MATCH (n) RETURN COUNT(n) AS c').single()['c']; \
+	r = s.run('MATCH ()-[r]->() RETURN COUNT(r) AS c').single()['c']; \
+	print(f'{datetime.datetime.now():%H:%M:%S} — {n} nodes, {r} edges'); \
+	s.close(); d.close()" 2>/dev/null || true; \
 		sleep 30; \
 	done
 

@@ -33,31 +33,28 @@ ENTITY_TYPES = {
         "source_table": "compound_foods",
         "id_field": "food_name",
         "name_field": "food_name",
-        "query": (
-            "SELECT DISTINCT food_name, food_name_scientific, food_group, "
-            "nutrition_100g FROM compound_foods"
-        ),
+        # query is built dynamically in extract_entities to handle optional nutrition_100g column
+        "query": None,
+        "query_builder": "build_food_query",
     },
     "Target": {
         "source_table": "targets",
         "id_field": "id",
-        "name_field": "target_name",
-        "query": "SELECT * FROM targets",
+        "name_field": "name",
+        "query": "SELECT id, name, uniprot_id, gene_symbol, druggability_status FROM targets",
     },
     "Disease": {
         "source_table": None,  # aggregated from multiple tables
         "id_field": "disease_name",
         "name_field": "disease_name",
-        "query": (
-            "SELECT DISTINCT disease_name FROM target_diseases "
-            "UNION SELECT DISTINCT disease_name FROM chemical_diseases"
-        ),
+        "query": None,
+        "query_builder": "build_disease_query",
     },
     "Symptom": {
         "source_table": "symptoms",
         "id_field": "id",
-        "name_field": "symptom_name",
-        "query": "SELECT * FROM symptoms",
+        "name_field": "name",
+        "query": "SELECT id, name, symptom_type, description FROM symptoms",
     },
 }
 
@@ -95,7 +92,7 @@ RELATIONSHIP_TYPES = {
         "src_type": "Compound",
         "tgt_type": "Target",
         "query": (
-            "SELECT c.name as src_name, t.target_name as tgt_name, "
+            "SELECT c.name as src_name, t.name as tgt_name, "
             "ct.activity_value, ct.activity_type "
             "FROM compound_targets ct "
             "JOIN compounds c ON ct.compound_id = c.id "
@@ -107,7 +104,7 @@ RELATIONSHIP_TYPES = {
         "src_type": "Target",
         "tgt_type": "Disease",
         "query": (
-            "SELECT t.target_name as src_name, td.disease_name as tgt_name, "
+            "SELECT t.name as src_name, td.disease_name as tgt_name, "
             "td.evidence_layer as evidence "
             "FROM target_diseases td "
             "JOIN targets t ON td.target_id = t.id"
@@ -118,7 +115,7 @@ RELATIONSHIP_TYPES = {
         "src_type": "Herb",
         "tgt_type": "Symptom",
         "query": (
-            "SELECT h.scientific_name as src_name, s.symptom_name as tgt_name "
+            "SELECT h.scientific_name as src_name, s.name as tgt_name "
             "FROM herb_symptoms hs "
             "JOIN herbs h ON hs.herb_id = h.id "
             "JOIN symptoms s ON hs.symptom_id = s.id"
@@ -207,11 +204,13 @@ def describe_food(row: dict[str, Any]) -> str:
 
 def describe_target(row: dict[str, Any]) -> str:
     """Generate a rich description for a Target entity."""
-    parts = [row.get("target_name", "Unknown target")]
+    parts = [row.get("name", "Unknown target")]
     if row.get("uniprot_id"):
         parts.append(f"UniProt: {row['uniprot_id']}")
     if row.get("gene_symbol"):
         parts.append(f"Gene: {row['gene_symbol']}")
+    if row.get("druggability_status"):
+        parts.append(f"Druggability: {row['druggability_status']}")
     return ". ".join(parts)
 
 
@@ -222,12 +221,49 @@ def describe_disease(row: dict[str, Any]) -> str:
 
 def describe_symptom(row: dict[str, Any]) -> str:
     """Generate a description for a Symptom entity."""
-    parts = [row.get("symptom_name", "Unknown symptom")]
+    parts = [row.get("name", "Unknown symptom")]
     if row.get("symptom_type"):
         parts.append(f"Type: {row['symptom_type']}")
     if row.get("description"):
         parts.append(row["description"])
     return ". ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Dynamic query builders (for tables with optional columns)
+# ---------------------------------------------------------------------------
+
+
+def build_food_query(conn) -> str:
+    """Build Food entity query, including nutrition_100g only if it exists."""
+    import sqlite3
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(compound_foods)").fetchall()]
+    if "nutrition_100g" in cols:
+        return (
+            "SELECT DISTINCT food_name, food_name_scientific, food_group, "
+            "nutrition_100g FROM compound_foods"
+        )
+    return "SELECT DISTINCT food_name, food_name_scientific, food_group FROM compound_foods"
+
+
+def build_disease_query(conn) -> str:
+    """Build Disease entity query, handling missing tables."""
+    parts = []
+    for table, col in [("target_diseases", "disease_name"), ("chemical_diseases", "disease_name")]:
+        exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+        if exists:
+            parts.append(f"SELECT DISTINCT {col} AS disease_name FROM {table}")
+    if not parts:
+        return "SELECT 'none' AS disease_name WHERE 0"
+    return " UNION ".join(parts)
+
+
+QUERY_BUILDERS = {
+    "build_food_query": build_food_query,
+    "build_disease_query": build_disease_query,
+}
 
 
 DESCRIPTION_GENERATORS = {
