@@ -9,8 +9,14 @@
   "scripts": {
     "build": "rm -rf build && tsc && chmod 755 build/index.js",
     "download-data": "tsx scripts/download-sources.ts",
+    "download-all": "tsx scripts/download-sources.ts",
+    "download-cmaup": "tsx scripts/download-sources.ts --cmaup-only",
+    "download-ttd": "tsx scripts/download-sources.ts --ttd-only",
     "convert-data": "tsx scripts/decompress-datasets.ts && tsx scripts/build-herbal-db.ts && rm -rf data_local_temp",
     "migrate-kg": "tsx scripts/migrate-kg-expansion.ts",
+    "migrate-multi-source": "tsx scripts/migrate-multi-source.ts",
+    "build-food-bridge": "tsx scripts/build-food-bridge.ts",
+    "enrich-nutrition": "tsx scripts/enrich-nutrition.ts",
     "audit": "tsx scripts/audit-herbal-data.ts",
     "inspector": "tsc && npx @modelcontextprotocol/inspector npx tsx src/index.ts",
     "test": "vitest run"

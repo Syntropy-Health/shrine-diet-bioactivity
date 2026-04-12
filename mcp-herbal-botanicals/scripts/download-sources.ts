@@ -5,6 +5,8 @@
  *   tsx scripts/download-sources.ts
  *   tsx scripts/download-sources.ts --duke-only
  *   tsx scripts/download-sources.ts --foodb-only
+ *   tsx scripts/download-sources.ts --cmaup-only
+ *   tsx scripts/download-sources.ts --ttd-only
  */
 
 import * as fs from 'fs';
@@ -33,6 +35,48 @@ const SOURCES: Record<string, DownloadTarget> = {
     filename: 'foodb-csv.tar.gz',
     description: 'FooDB Compound-Food CSV (2020)',
     expectedMinSize: 100_000_000, // ~952 MB
+  },
+  cmaup_plants: {
+    url: 'https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Plants.txt',
+    filename: 'cmaup-plants.txt',
+    description: 'CMAUP v2.0 Plants',
+    expectedMinSize: 100_000,
+  },
+  cmaup_targets: {
+    url: 'https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Targets.txt',
+    filename: 'cmaup-targets.txt',
+    description: 'CMAUP v2.0 Targets',
+    expectedMinSize: 10_000,
+  },
+  cmaup_ingredients: {
+    url: 'https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Ingredients_All.txt',
+    filename: 'cmaup-ingredients.txt',
+    description: 'CMAUP v2.0 All Ingredients',
+    expectedMinSize: 1_000_000,
+  },
+  cmaup_ingredient_targets: {
+    url: 'https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Ingredient_Target_Associations_ActivityValues_References.txt',
+    filename: 'cmaup-ingredient-targets.txt',
+    description: 'CMAUP v2.0 Ingredient-Target Associations',
+    expectedMinSize: 1_000_000,
+  },
+  cmaup_plant_diseases: {
+    url: 'https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Plant_Human_Disease_Associations.txt',
+    filename: 'cmaup-plant-diseases.txt',
+    description: 'CMAUP v2.0 Plant-Disease Associations',
+    expectedMinSize: 10_000,
+  },
+  ttd_targets: {
+    url: 'https://ttd.idrblab.cn/files/download/P1-01-TTD_target_download.txt',
+    filename: 'ttd-targets.txt',
+    description: 'TTD Targets with Druggability',
+    expectedMinSize: 100_000,
+  },
+  ttd_drug_disease: {
+    url: 'https://ttd.idrblab.cn/files/download/P1-05-Drug_disease.txt',
+    filename: 'ttd-drug-disease.txt',
+    description: 'TTD Drug-Disease Associations',
+    expectedMinSize: 100_000,
   },
 };
 
@@ -99,14 +143,21 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const dukeOnly = args.includes('--duke-only');
   const foodbOnly = args.includes('--foodb-only');
+  const cmaupOnly = args.includes('--cmaup-only');
+  const ttdOnly = args.includes('--ttd-only');
 
   console.error('=== Downloading source data ===');
 
-  if (!foodbOnly) {
-    await downloadFile(SOURCES.duke);
-  }
-  if (!dukeOnly) {
-    await downloadFile(SOURCES.foodb);
+  // Determine which sources to download
+  const keysToDownload: string[] = [];
+  if (dukeOnly) keysToDownload.push('duke');
+  else if (foodbOnly) keysToDownload.push('foodb');
+  else if (cmaupOnly) keysToDownload.push(...Object.keys(SOURCES).filter(k => k.startsWith('cmaup')));
+  else if (ttdOnly) keysToDownload.push(...Object.keys(SOURCES).filter(k => k.startsWith('ttd')));
+  else keysToDownload.push(...Object.keys(SOURCES));
+
+  for (const key of keysToDownload) {
+    await downloadFile(SOURCES[key]);
   }
 
   console.error('=== Downloads complete ===');

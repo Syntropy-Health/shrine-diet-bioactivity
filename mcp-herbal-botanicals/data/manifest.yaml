@@ -1,0 +1,350 @@
+# Unified Phytochemical Knowledge Graph — Data Source Manifest
+# All datasets used by mcp-herbal-botanicals, with schemas, download info, and join keys.
+# Version: 2.0.0 | Updated: 2026-04-12
+
+datasets:
+  # ─────────────────────────────────────────────────────────────
+  # TIER 1 — Core (already integrated)
+  # ─────────────────────────────────────────────────────────────
+  duke:
+    name: "Dr. Duke's Phytochemical and Ethnobotanical Database"
+    version: "2023-figshare"
+    license: CC0
+    download_method: auto
+    url: https://ndownloader.figshare.com/files/43363335
+    filename: duke-source-csv.zip
+    format: CSV (ZIP archive)
+    description: >
+      Backbone herb-compound dataset. 2,376 herbs with taxonomy, 94K compounds
+      with bioactivity annotations, 99K herb-compound links with concentration data.
+    entity_types: [herb, compound, herb_compound]
+    row_counts:
+      herbs: 2376
+      compounds: 94512
+      herb_compounds: 99280
+    files:
+      - name: FNFTAX.csv
+        description: Herb taxonomy (id, scientific_name, family, genus, species)
+      - name: COMMON_NAMES.csv
+        description: Common names and synonyms
+      - name: CHEMICALS.csv
+        description: Compound names, CAS numbers, compound class
+      - name: FARMACY_NEW.csv
+        description: Herb-compound links with plant part and concentration (PPM)
+      - name: AGGREGAC.csv
+        description: Aggregated bioactivity data per compound
+    join_keys:
+      primary: herb.id (FNFNUM)
+      compound: compound.id → normalizeCompoundName(name)
+    normalization: normalizeCompoundName — lowercase, trim, strip non-alphanumeric
+
+  foodb:
+    name: FooDB
+    version: "2020_4_7"
+    license: CC BY-NC 4.0
+    download_method: auto
+    url: https://foodb.ca/public/system/downloads/foodb_2020_4_7_csv.tar.gz
+    filename: foodb-csv.tar.gz
+    format: CSV (tar.gz archive, 952 MB)
+    description: >
+      Compound-food bridge. 4.1M compound-food pairs with content values,
+      enabling herb→compound→food traversal.
+    entity_types: [compound_food]
+    row_counts:
+      compound_foods: 4149541
+    files:
+      - name: Content.csv
+        description: Compound-food associations with content values and units
+        columns: [id, source_id, source_type, food_id, orig_food_id, orig_food_common_name, orig_food_scientific_name, orig_food_part, orig_source_id, orig_source_name, orig_content, orig_min, orig_max, orig_unit, orig_citation, citation, citation_type, creator_id, updater_id, created_at, updated_at, orig_method, orig_unit_expression, standard_content, preparation_type]
+        notes: "5M+ rows — MUST stream line-by-line with batch transactions (10K per flush)"
+      - name: Compound.csv
+        description: FooDB compound metadata
+      - name: Food.csv
+        description: FooDB food metadata with food groups
+    join_keys:
+      compound: normalizeCompoundName(orig_source_name) → compounds.name_normalized
+    normalization: Same normalizeCompoundName as Duke
+
+  opennutrition:
+    name: OpenNutrition
+    version: "2025.1"
+    license: ODbL
+    download_method: submodule
+    path: ../mcp-opennutrition/data_local/opennutrition_foods.db
+    format: SQLite (single table, JSON columns)
+    description: >
+      Comprehensive macro/micronutrient profiles for 326K foods from USDA FDC,
+      Canadian CNF, Australian AUSNUT, and Danish FRIDA. Provides the nutrition
+      layer (calories, protein, vitamins, minerals, amino acids, fatty acids)
+      that bridges phytochemical compound-food associations to dietary guidance.
+    entity_types: [food, nutrient]
+    row_counts:
+      foods: 326759
+      food_types:
+        grocery: 313442
+        everyday: 5299
+        restaurant: 4182
+        prepared: 3836
+    schema:
+      table: foods
+      columns: [id, name, alternate_names, description, type, source, serving, nutrition_100g, ean_13, labels, package_size, ingredients, ingredient_analysis]
+      json_columns: [alternate_names, source, serving, nutrition_100g, labels, package_size, ingredient_analysis]
+    nutrient_keys:
+      macros: [calories, protein, carbohydrates, total_fat, dietary_fiber, total_sugars, saturated_fats, trans_fats, cholesterol, sodium]
+      vitamins: [vitamin_a, vitamin_c, vitamin_d, vitamin_e, vitamin_k, thiamin, riboflavin, niacin, vitamin_b6, folate_dfe, vitamin_b12, pantothenic_acid, biotin, choline]
+      minerals: [calcium, iron, magnesium, phosphorus, potassium, zinc, copper, manganese, selenium, chromium, molybdenum, iodine]
+      amino_acids: [tryptophan, threonine, isoleucine, leucine, lysine, methionine, cystine, phenylalanine, tyrosine, valine, arginine, histidine, alanine, aspartic_acid, glutamic_acid, glycine, proline, serine]
+      fatty_acids: [omega_3, omega_6, omega_9, linoleic_acid, linolenic_acid, eicosapentaenoic_acid, docosahexaenoic_acid]
+    join_keys:
+      primary: food name fuzzy match → compound_foods.food_name
+      secondary: source[].id (USDA FDC ID) for cross-reference
+    data_completeness:
+      calories: 95.5%
+      protein: 74.7%
+      carbohydrates: 90.2%
+      total_fat: 69.5%
+      dietary_fiber: 53.8%
+    notes: >
+      OpenNutrition is a sibling submodule at ../mcp-opennutrition/.
+      Food name matching uses fuzzy join (FooDB uses generic names like "Chicken",
+      OpenNutrition uses specific names like "Chicken Breast, Boneless Skinless").
+      Only the ~962 unique foods from FooDB compound_foods are bridged — not all 326K.
+
+  # ─────────────────────────────────────────────────────────────
+  # TIER 1 — Expansion (to be integrated)
+  # ─────────────────────────────────────────────────────────────
+  cmaup:
+    name: CMAUP v2.0 (Collective Molecular Activities of Useful Plants)
+    version: "2.0 (2024)"
+    license: Academic (NAR published)
+    download_method: auto
+    base_url: https://bidd.group/CMAUP/downloadFiles/
+    format: TSV (tab-separated text files)
+    description: >
+      Comprehensive plant-compound-target-disease database. Adds molecular targets,
+      compound-target activity values, and plant-disease associations. Key for
+      mechanistic reasoning (why does a compound help with a condition?).
+    entity_types: [plant, compound, target, disease, compound_target, plant_disease]
+    row_counts:
+      plants: 7865
+      ingredients_all: 60222
+      ingredients_active: 46171
+      targets: 758
+      diseases: 1399
+      ingredient_target_associations: 428737
+      plant_disease_associations: ~5000
+    files:
+      - name: CMAUPv2.0_download_Plants.txt
+        description: Plant taxonomy with food/edible/medicinal classification
+        columns: [Plant_ID, Latin_Name, Chinese_Name, English_Name, Family, Plant_Use_Class]
+        notes: "Plant_Use_Class contains 'food', 'edible', 'medicinal' categories"
+      - name: CMAUPv2.0_download_Ingredients_All.txt
+        description: All ingredients/compounds
+        columns: [Ingredient_ID, Ingredient_Name, Ingredient_SMILES, Ingredient_Formula, CAS, PubChem_CID]
+      - name: CMAUPv2.0_download_Targets.txt
+        description: Protein targets
+        columns: [Target_ID, Target_Name, UniProt_ID, Gene_Symbol, Target_Type]
+      - name: CMAUPv2.0_download_Ingredient_Target_Associations_ActivityValues_References.txt
+        description: Compound-target interactions with activity data
+        columns: [Ingredient_ID, Ingredient_Name, Target_ID, Target_Name, Activity_Value, Activity_Type, Reference]
+      - name: CMAUPv2.0_download_Plant_Ingredient_Associations_allIngredients.txt
+        description: Plant-ingredient links
+        columns: [Plant_ID, Plant_Latin_Name, Ingredient_ID, Ingredient_Name]
+      - name: CMAUPv2.0_download_Plant_Human_Disease_Associations.txt
+        description: Plant-disease associations
+        columns: [Plant_ID, Plant_Latin_Name, Disease_Name, Disease_ID, Evidence_Type]
+    join_keys:
+      compound: normalizeCompoundName(Ingredient_Name) → compounds.name_normalized
+      herb: Plant_Latin_Name → herbs.scientific_name (fuzzy match)
+      target: Target_ID (primary key), UniProt_ID (cross-reference)
+    normalization: normalizeCompoundName on Ingredient_Name for compound matching
+
+  symmap:
+    name: SymMap v2
+    version: "v2 (2023)"
+    license: Academic (NAR published)
+    download_method: manual_fallback
+    url: https://www.symmap.org/
+    format: CSV/TSV
+    description: >
+      TCM symptom-herb-compound mapping. Bridges traditional Chinese medicine
+      symptoms to modern medicine symptoms, herbs, and compounds.
+    entity_types: [tcm_symptom, mm_symptom, herb, ingredient, target, disease]
+    row_counts:
+      tcm_symptoms: 1717
+      mm_symptoms: 961
+      herbs: 499
+      ingredients: 19595
+      targets: 4302
+      diseases: 5235
+      herb_tcm_symptom_links: 6638
+      tcm_mm_symptom_mappings: 2978
+      herb_ingredient_links: 48372
+      mm_symptom_disease_links: 12107
+    files:
+      - name: symmap_herbs.csv
+        description: TCM herbs with properties
+      - name: symmap_symptoms_tcm.csv
+        description: TCM symptoms (SMSY##### IDs)
+      - name: symmap_symptoms_mm.csv
+        description: Modern medicine symptoms (SMMS##### IDs)
+      - name: symmap_herb_symptom.csv
+        description: Herb-TCM symptom links
+      - name: symmap_symptom_mapping.csv
+        description: TCM→MM symptom mapping
+    join_keys:
+      compound: normalizeCompoundName(Ingredient_Name) or PubChem_CID
+      herb: normalized scientific_name matching
+    notes: >
+      Server unreliable as of 2026-04. May require cached/archived data.
+      Current Phase 1 uses bioactivity-derived symptoms (47 entries) as placeholder.
+      Full SymMap integration adds 2,678 structured symptoms.
+
+  ctd:
+    name: CTD (Comparative Toxicogenomics Database)
+    version: "2025 update"
+    license: Academic (free with citation)
+    download_method: manual
+    url: https://ctdbase.org/downloads/
+    format: CSV.gz (gzipped CSV with # comment headers)
+    description: >
+      Chemical-disease and chemical-phenotype associations curated from 149K papers.
+      Adds the disease and phenotype layer — no other DB maps chemicals to observable
+      health phenotypes at this scale.
+    entity_types: [chemical, gene, disease, phenotype]
+    row_counts:
+      chemicals: 17700
+      genes: 55400
+      diseases: 7200
+      phenotypes: 6700
+      chemical_disease_direct: 3800000
+      chemical_disease_inferred: 94000000
+    files:
+      - name: CTD_chemicals_diseases.csv.gz
+        description: Chemical-disease associations (direct + inferred)
+        columns: [ChemicalName, ChemicalID, CasRN, DiseaseName, DiseaseID, DirectEvidence, InferenceGeneSymbol, InferenceScore, OmimIDs, PubMedIDs]
+        notes: "Large file (2GB+). Stream line-by-line. Filter to our compound universe."
+      - name: CTD_chem_phenotype_interactions.csv.gz
+        description: Chemical-phenotype interactions
+        columns: [ChemicalName, ChemicalID, CasRN, PhenotypeName, PhenotypeID, CoMentionedTerms, Interaction, InteractionActions, AnatomyTerms]
+      - name: CTD_chemicals.csv.gz
+        description: Chemical metadata
+    join_keys:
+      compound: normalizeCompoundName(ChemicalName) → compounds.name_normalized
+      compound_alt: CasRN → compounds.cas_number
+    notes: >
+      CAPTCHA required on download page — must download manually in browser.
+      Script checks for file existence and prints instructions if missing.
+      Filter to ONLY chemicals matching our compound universe (~17K of 94K).
+
+  herb_db:
+    name: HERB 2.0
+    version: "2.0 (2025)"
+    license: Free (academic use, no registration)
+    download_method: manual_fallback
+    url: https://herb.ac.cn/Download/
+    format: CSV/TSV
+    description: >
+      Meta-database integrating SymMap, TCMSP, TCMID. Adds clinical trial evidence
+      and meta-analysis links — no other TCM DB has this. 8,558 clinical trials.
+    entity_types: [herb, ingredient, target, disease, clinical_trial]
+    row_counts:
+      herbs: 7263
+      ingredients: 49258
+      targets: 12933
+      diseases: 28212
+      clinical_trials: 8558
+      meta_analyses: 8032
+    files:
+      - name: herb_herbs.csv
+        description: Herbs with TCM properties
+      - name: herb_ingredients.csv
+        description: Compounds/ingredients
+      - name: herb_targets.csv
+        description: Protein targets
+      - name: herb_diseases.csv
+        description: Disease associations
+      - name: herb_experiments.csv
+        description: High-throughput experiment data
+    join_keys:
+      compound: normalizeCompoundName or PubChem_CID
+      herb: scientific_name matching
+    notes: >
+      Server unreliable as of 2026-04. May require manual browser download.
+      HERB already subsumes TCMSP/SymMap/TCMID — adding HERB may reduce
+      need for separate SymMap integration.
+
+  ttd:
+    name: TTD (Therapeutic Target Database)
+    version: "2024 update"
+    license: Free (no login required)
+    download_method: auto
+    url: https://ttd.idrblab.cn/full-data-download
+    format: TSV (tab-separated text)
+    description: >
+      Target druggability classification. Categorizes targets as Successful
+      (FDA-approved drug), Clinical Trial, Preclinical, or Research. Critical
+      for prioritizing which herb-compound-target links have translational potential.
+    entity_types: [target, drug, disease]
+    row_counts:
+      targets_successful: 532
+      targets_clinical: 1442
+      targets_preclinical: 239
+      targets_research: 1517
+      drugs: 39862
+    files:
+      - name: P1-01-TTD_target_download.txt
+        description: Targets with druggability status
+        columns: [TargetID, Target_Name, Target_Type, UniProt_ID, Gene_Symbol, Druggability_Status]
+      - name: P1-02-TTD_drug_download.txt
+        description: Drug/compound data
+      - name: P1-03-TTD_crossmatching.txt
+        description: Cross-references to other DBs
+      - name: P1-05-TTD_drug_disease.txt
+        description: Drug-disease associations
+        columns: [DrugID, Drug_Name, DiseaseID, Disease_Name, Clinical_Status]
+    join_keys:
+      target: UniProt_ID → targets.uniprot_id, Gene_Symbol → targets.gene_symbol
+    notes: >
+      TTD uses a non-standard flat-file format in some files (key-value per record).
+      P1-01 is the most important — enriches targets with druggability.
+      Dedup targets by uniprot_id when merging with CMAUP.
+
+# ─────────────────────────────────────────────────────────────
+# Global normalization rules
+# ─────────────────────────────────────────────────────────────
+normalization:
+  compound_name:
+    function: normalizeCompoundName
+    implementation: "name.toLowerCase().trim().replace(/[^a-z0-9]/g, '')"
+    description: >
+      Strips all non-alphanumeric characters, lowercases, trims.
+      Used as the universal join key across ALL data sources.
+      Stored in compounds.name_normalized and compound_name_map.
+  cross_source_matching:
+    primary: name_normalized
+    fallbacks:
+      - cas_number (when available in both sources)
+      - pubchem_cid (when available in both sources)
+    tracking: compound_name_map table records (normalized_name, source, original_name, compound_id)
+
+# ─────────────────────────────────────────────────────────────
+# Deferred datasets (Tier 2-3)
+# ─────────────────────────────────────────────────────────────
+deferred:
+  tcmsp:
+    name: TCMSP
+    reason: "High compound overlap with CMAUP; unique ADME data but bulk download may require scripting"
+    unique_value: "ADME properties (OB, DL, BBB, Caco-2) for 29K ingredients"
+  stitch:
+    name: STITCH 5
+    reason: "200GB raw; needs pre-filtering to compound universe"
+    unique_value: "1.6B chemical-protein interactions with confidence scores"
+  disgenet:
+    name: DisGeNET
+    reason: "Free tier limited; full bulk requires subscription"
+    unique_value: "400K+ gene-disease associations"
+  batman_tcm:
+    name: BATMAN-TCM 2.0
+    reason: "No bulk download available"
+    unique_value: "2.3M predicted compound-target interactions"

@@ -79,6 +79,33 @@ const FindFunctionalFoodsSchema = z.object({
   pageSize: z.number().min(1).max(50).optional().default(20),
 });
 
+const SearchDiseasesSchema = z.object({
+  query: z.string().min(1, 'Disease search query is required'),
+  page: z.number().min(1).optional().default(1),
+  pageSize: z.number().min(1).max(50).optional().default(20),
+});
+
+const GetTargetDiseasesSchema = z.object({
+  target_id: z.string().min(1, 'Target ID is required'),
+  page: z.number().min(1).optional().default(1),
+  pageSize: z.number().min(1).max(50).optional().default(20),
+});
+
+const GetChemicalDiseasesSchema = z.object({
+  compound_id: z.string().min(1, 'Compound ID is required'),
+  page: z.number().min(1).optional().default(1),
+  pageSize: z.number().min(1).max(50).optional().default(20),
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function errorContent(error: unknown): { content: Array<{ type: 'text'; text: string }>; isError: true } {
+  const message = error instanceof Error ? error.message : 'Internal database error';
+  return { content: [{ type: 'text', text: message }], isError: true };
+}
+
 // ---------------------------------------------------------------------------
 // MCP Server
 // ---------------------------------------------------------------------------
@@ -137,11 +164,15 @@ Examples:
       SearchHerbsSchema.shape,
       { title: 'Search herbs by name', readOnlyHint: true },
       async (args) => {
-        const result = this.db.searchHerbs(args.query, args.page, args.pageSize);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          structuredContent: { result },
-        };
+        try {
+          const result = this.db.searchHerbs(args.query, args.page, args.pageSize);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: { result },
+          };
+        } catch (error: unknown) {
+          return errorContent(error);
+        }
       }
     );
 
@@ -156,11 +187,15 @@ Requires a herb_id from search-herbs results. Example: get-herb-compounds("2169"
       GetHerbCompoundsSchema.shape,
       { title: 'Get compounds for a herb', readOnlyHint: true },
       async (args) => {
-        const result = this.db.getHerbCompounds(args.herb_id);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          structuredContent: { compounds: result },
-        };
+        try {
+          const result = this.db.getHerbCompounds(args.herb_id);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: { compounds: result },
+          };
+        } catch (error: unknown) {
+          return errorContent(error);
+        }
       }
     );
 
@@ -177,11 +212,15 @@ Examples:
       SearchCompoundsSchema.shape,
       { title: 'Search compounds by name', readOnlyHint: true },
       async (args) => {
-        const result = this.db.searchCompounds(args.query, args.page, args.pageSize);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          structuredContent: { result },
-        };
+        try {
+          const result = this.db.searchCompounds(args.query, args.page, args.pageSize);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: { result },
+          };
+        } catch (error: unknown) {
+          return errorContent(error);
+        }
       }
     );
 
@@ -196,11 +235,15 @@ Requires a compound_id from search-compounds results.`,
       GetCompoundFoodsSchema.shape,
       { title: 'Get foods containing a compound', readOnlyHint: true },
       async (args) => {
-        const result = this.db.getCompoundFoods(args.compound_id, args.page, args.pageSize);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          structuredContent: { result },
-        };
+        try {
+          const result = this.db.getCompoundFoods(args.compound_id, args.page, args.pageSize);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: { result },
+          };
+        } catch (error: unknown) {
+          return errorContent(error);
+        }
       }
     );
 
@@ -215,11 +258,15 @@ Requires a herb_id from search-herbs results.`,
       GetHerbFoodOverlapSchema.shape,
       { title: 'Get food-herb compound overlap', readOnlyHint: true },
       async (args) => {
-        const result = this.db.getHerbFoodOverlap(args.herb_id, args.limit);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          structuredContent: { foods: result },
-        };
+        try {
+          const result = this.db.getHerbFoodOverlap(args.herb_id, args.limit);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: { foods: result },
+          };
+        } catch (error: unknown) {
+          return errorContent(error);
+        }
       }
     );
 
@@ -236,11 +283,15 @@ Examples:
       SearchByBioactivitySchema.shape,
       { title: 'Search by bioactivity/health benefit', readOnlyHint: true },
       async (args) => {
-        const result = this.db.searchByBioactivity(args.activity, args.page, args.pageSize);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          structuredContent: { result },
-        };
+        try {
+          const result = this.db.searchByBioactivity(args.activity, args.page, args.pageSize);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: { result },
+          };
+        } catch (error: unknown) {
+          return errorContent(error);
+        }
       }
     );
 
@@ -255,17 +306,21 @@ Requires a herb_id from search-herbs results.`,
       GetHerbProfileSchema.shape,
       { title: 'Get full herb profile', readOnlyHint: true },
       async (args) => {
-        const result = this.db.getHerbProfile(args.herb_id);
-        if (!result) {
+        try {
+          const result = this.db.getHerbProfile(args.herb_id);
+          if (!result) {
+            return {
+              content: [{ type: 'text', text: `Herb not found: ${args.herb_id}` }],
+              isError: true,
+            };
+          }
           return {
-            content: [{ type: 'text', text: `Herb not found: ${args.herb_id}` }],
-            isError: true,
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: { profile: result },
           };
+        } catch (error: unknown) {
+          return errorContent(error);
         }
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          structuredContent: { profile: result },
-        };
       }
     );
 
@@ -283,11 +338,15 @@ Examples:
       SearchBySymptomSchema.shape,
       { title: 'Search by symptom/health concern', readOnlyHint: true },
       async (args) => {
-        const result = this.db.searchBySymptom(args.query, args.page, args.pageSize);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          structuredContent: { result },
-        };
+        try {
+          const result = this.db.searchBySymptom(args.query, args.page, args.pageSize);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: { result },
+          };
+        } catch (error: unknown) {
+          return errorContent(error);
+        }
       }
     );
 
@@ -302,11 +361,15 @@ Note: Target data is populated from CMAUP database. Returns empty array if no ta
       GetCompoundTargetsSchema.shape,
       { title: 'Get compound molecular targets', readOnlyHint: true },
       async (args) => {
-        const result = this.db.getCompoundTargets(args.compound_id);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          structuredContent: { targets: result },
-        };
+        try {
+          const result = this.db.getCompoundTargets(args.compound_id);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: { targets: result },
+          };
+        } catch (error: unknown) {
+          return errorContent(error);
+        }
       }
     );
 
@@ -324,11 +387,86 @@ Examples:
       FindFunctionalFoodsSchema.shape,
       { title: 'Find functional food plants', readOnlyHint: true },
       async (args) => {
-        const result = this.db.findFunctionalFoods(args.query, args.page, args.pageSize);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          structuredContent: { result },
-        };
+        try {
+          const result = this.db.findFunctionalFoods(args.query, args.page, args.pageSize);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: { result },
+          };
+        } catch (error: unknown) {
+          return errorContent(error);
+        }
+      }
+    );
+
+    // === search-diseases ===
+    this.server.tool(
+      'search-diseases',
+      `Search diseases by name across all data sources (CMAUP plant-disease, TTD drug-disease). Returns diseases with associated targets and druggability status.
+
+Use when: User asks about diseases, conditions, or wants to find which targets/compounds are associated with a specific disease.
+
+Examples:
+- search-diseases("diabetes") → targets and compounds linked to diabetes
+- search-diseases("cancer") → oncology-related targets with druggability status`,
+      SearchDiseasesSchema.shape,
+      { title: 'Search diseases by name', readOnlyHint: true },
+      async (args) => {
+        try {
+          const result = this.db.searchDiseases(args.query, args.page, args.pageSize);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: { result },
+          };
+        } catch (error: unknown) {
+          return errorContent(error);
+        }
+      }
+    );
+
+    // === get-target-diseases ===
+    this.server.tool(
+      'get-target-diseases',
+      `Get diseases associated with a specific molecular target. Returns disease names with evidence type and druggability status.
+
+Use when: User wants to know what diseases a specific protein target is involved in, or wants to understand the therapeutic relevance of a target.
+
+Requires a target_id from get-compound-targets results.`,
+      GetTargetDiseasesSchema.shape,
+      { title: 'Get diseases for a target', readOnlyHint: true },
+      async (args) => {
+        try {
+          const result = this.db.getTargetDiseases(args.target_id, args.page, args.pageSize);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: { result },
+          };
+        } catch (error: unknown) {
+          return errorContent(error);
+        }
+      }
+    );
+
+    // === get-chemical-diseases ===
+    this.server.tool(
+      'get-chemical-diseases',
+      `Get disease associations for a compound from CTD (Comparative Toxicogenomics Database). Returns curated chemical-disease relationships with direct evidence and inference scores.
+
+Use when: User wants to know what diseases a specific compound is linked to, based on toxicogenomics literature.
+
+Note: Requires CTD data to be loaded. Returns empty if CTD data is not available.`,
+      GetChemicalDiseasesSchema.shape,
+      { title: 'Get CTD disease associations for a compound', readOnlyHint: true },
+      async (args) => {
+        try {
+          const result = this.db.getChemicalDiseases(args.compound_id, args.page, args.pageSize);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: { result },
+          };
+        } catch (error: unknown) {
+          return errorContent(error);
+        }
       }
     );
 
@@ -339,16 +477,20 @@ Examples:
       {},
       { title: 'Health check', readOnlyHint: true },
       async () => {
-        const stats = this.db.getStats();
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({ status: 'ok', ...stats }, null, 2),
-            },
-          ],
-          structuredContent: { status: 'ok', ...stats },
-        };
+        try {
+          const stats = this.db.getStats();
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({ status: 'ok', ...stats }, null, 2),
+              },
+            ],
+            structuredContent: { status: 'ok', ...stats },
+          };
+        } catch (error: unknown) {
+          return errorContent(error);
+        }
       }
     );
   }

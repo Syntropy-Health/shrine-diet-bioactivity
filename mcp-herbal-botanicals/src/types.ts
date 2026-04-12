@@ -45,6 +45,51 @@ export interface CompoundFood {
   content_max: number | null;
   content_unit: string | null;
   food_part: string | null;
+  nutrition_100g: NutrientProfile | null;
+}
+
+/** Per-100g nutrient profile from OpenNutrition (90 keys). */
+export interface NutrientProfile {
+  // Core macros
+  calories?: number;
+  protein?: number;
+  carbohydrates?: number;
+  total_fat?: number;
+  dietary_fiber?: number;
+  total_sugars?: number;
+  // Extended macros
+  saturated_fats?: number;
+  trans_fats?: number;
+  cholesterol?: number;
+  sodium?: number;
+  water?: number;
+  // Vitamins
+  vitamin_a?: number;
+  vitamin_c?: number;
+  vitamin_d?: number;
+  vitamin_e?: number;
+  vitamin_k?: number;
+  thiamin?: number;
+  riboflavin?: number;
+  niacin?: number;
+  vitamin_b6?: number;
+  folate_dfe?: number;
+  vitamin_b12?: number;
+  pantothenic_acid?: number;
+  biotin?: number;
+  choline?: number;
+  // Minerals
+  calcium?: number;
+  iron?: number;
+  magnesium?: number;
+  phosphorus?: number;
+  potassium?: number;
+  zinc?: number;
+  copper?: number;
+  manganese?: number;
+  selenium?: number;
+  // Allow additional nutrient keys (amino acids, fatty acids, etc.)
+  [key: string]: number | undefined;
 }
 
 export interface HerbFoodOverlap {
@@ -112,6 +157,31 @@ export interface SymptomSearchResult {
     shared_compounds: number;
     compound_names: string[];
   }>;
+}
+
+export interface ChemicalDisease {
+  compound_id: string;
+  chemical_name: string;
+  disease_name: string;
+  disease_id: string | null;
+  direct_evidence: string | null;
+  inference_score: number | null;
+}
+
+export interface ChemicalPhenotype {
+  compound_id: string;
+  chemical_name: string;
+  phenotype_name: string;
+  phenotype_id: string | null;
+  interaction: string | null;
+}
+
+export interface TargetDisease {
+  target_id: string;
+  target_name: string | null;
+  disease_name: string;
+  evidence: string | null;
+  source: string | null;
 }
 
 export interface FunctionalFood {
