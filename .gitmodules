@@ -1,6 +1,3 @@
-[submodule "usda-fdc-data"]
-	path = usda-fdc-data
-	url = https://github.com/mkayeterry/usda-fdc-data.git
 [submodule "mcp-opennutrition"]
 	path = mcp-opennutrition
 	url = https://github.com/deadletterq/mcp-opennutrition.git

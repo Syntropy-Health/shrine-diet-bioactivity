@@ -16,7 +16,6 @@ Data foundation for the [Diet Insight Engine](https://github.com/Syntropy-Health
   - `graphiti/` — Legacy Graphiti PoC (superseded by LightRAG)
 - `mcp-opennutrition/` — Git submodule: OpenNutrition MCP server (326k+ foods, 90 nutrient keys)
 - `lightrag/` — Git submodule: LightRAG framework (semantic KG + RAG)
-- `usda-fdc-data/` — Git submodule: USDA FoodData Central (Python, 900k+ foods)
 - `scripts/` — Setup and data automation (bash + Python)
 - `docs/` — Architecture docs, KG comparison, data schematics
 - `output/` — Generated data directory (gitignored)
@@ -106,8 +105,7 @@ After cloning, always run: `git submodule update --init --recursive`
 
 | Submodule | Purpose | Upstream |
 |---|---|---|
-| `usda-fdc-data` | USDA FoodData Central raw data | https://github.com/mkayeterry/usda-fdc-data |
-| `mcp-opennutrition` | OpenNutrition MCP server (326K foods) | https://github.com/deadletterq/mcp-opennutrition |
+| `mcp-opennutrition` | OpenNutrition MCP server (326K foods, includes USDA FDC) | https://github.com/deadletterq/mcp-opennutrition |
 | `lightrag` | LightRAG semantic KG framework | https://github.com/HKUDS/LightRAG |
 
 ## Active Branches & Features
