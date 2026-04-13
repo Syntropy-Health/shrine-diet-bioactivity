@@ -209,6 +209,12 @@ lightrag-ingest-prod: ## Ingest unified KG into LightRAG (production API embeddi
 lightrag-benchmark: ## Run 10 benchmark queries against LightRAG
 	cd lightrag && python3 query_benchmark.py --config local
 
+lightrag-metrics: ## Print KG metrics report (entity/relationship counts, data quality)
+	cd lightrag && python3 kg_metrics.py --config local
+
+lightrag-metrics-save: ## Save KG metrics report to data/kg-reports/
+	cd lightrag && python3 kg_metrics.py --config local --save --json
+
 lightrag-server: ## Start LightRAG API server (local config)
 	cd lightrag && lightrag-server
 

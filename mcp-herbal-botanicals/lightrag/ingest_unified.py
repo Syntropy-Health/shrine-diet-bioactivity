@@ -328,10 +328,25 @@ async def main() -> None:
     working_dir = os.getenv("WORKING_DIR", "./rag_storage_local")
     os.makedirs(working_dir, exist_ok=True)
 
+    # Read storage config from env (matches config_local.env / config_production.env)
+    graph_storage = os.getenv("LIGHTRAG_GRAPH_STORAGE", "NetworkXStorage")
+    kv_storage = os.getenv("LIGHTRAG_KV_STORAGE", "JsonKVStorage")
+    vector_storage = os.getenv("LIGHTRAG_VECTOR_STORAGE", "NanoVectorDBStorage")
+    doc_status_storage = os.getenv("LIGHTRAG_DOC_STATUS_STORAGE", "JsonDocStatusStorage")
+    workspace = os.getenv("WORKSPACE", "unified_diet_kg")
+
+    print(f"  Graph storage: {graph_storage}")
+    print(f"  Workspace: {workspace}")
+
     rag = LightRAG(
         working_dir=working_dir,
         llm_model_func=llm_func,
         embedding_func=embed_func,
+        graph_storage=graph_storage,
+        kv_storage=kv_storage,
+        vector_storage=vector_storage,
+        doc_status_storage=doc_status_storage,
+        workspace=workspace,
     )
     await rag.initialize_storages()
     print("LightRAG initialized\n")
@@ -373,6 +388,27 @@ async def main() -> None:
     print(f"{'=' * 50}")
 
     await rag.finalize_storages()
+
+    # Post-ingestion: add entity_type as Neo4j labels for visual exploration
+    if graph_storage == "Neo4JStorage":
+        print("\nAdding entity type labels to Neo4j nodes...")
+        try:
+            from neo4j import GraphDatabase as Neo4jGD
+
+            neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+            neo4j_user = os.getenv("NEO4J_USERNAME", "neo4j")
+            neo4j_pass = os.getenv("NEO4J_PASSWORD", "")
+            driver = Neo4jGD.driver(neo4j_uri, auth=(neo4j_user, neo4j_pass))
+            with driver.session() as neo_session:
+                for etype in ENTITY_TYPES:
+                    result = neo_session.run(
+                        f'MATCH (n:`{workspace}` {{entity_type: "{etype}"}}) '
+                        f"SET n:`{etype}` RETURN COUNT(n) AS count"
+                    ).single()
+                    print(f"  :{etype} → {result['count']} nodes")
+            driver.close()
+        except Exception as e:
+            print(f"  Warning: could not add labels — {e}")
 
 
 if __name__ == "__main__":

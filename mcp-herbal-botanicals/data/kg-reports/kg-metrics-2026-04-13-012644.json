@@ -1,0 +1,90 @@
+{
+  "timestamp": "2026-04-13T08:26:44.057051+00:00",
+  "neo4j_uri": "bolt://metro.proxy.rlwy.net:22971",
+  "entities": {
+    "Target": 4352,
+    "Disease": 2948,
+    "UNKNOWN": 285,
+    "Compound": 50,
+    "Symptom": 47,
+    "Herb": 20,
+    "Food": 20
+  },
+  "relationships": {
+    "DIRECTED": 795
+  },
+  "data_quality": {
+    "unknown_type_nodes": 285,
+    "empty_descriptions": 285,
+    "orphan_nodes": 7278
+  },
+  "totals": {
+    "nodes": 7722,
+    "edges": 795
+  },
+  "workspaces": [
+    "unified_diet_kg"
+  ],
+  "samples": {
+    "Target": [
+      {
+        "id": "Nuclear receptor ROR-beta",
+        "desc": "Nuclear receptor ROR-beta. UniProt: Q92753. Gene: RORB. Druggability: Patented-recorded"
+      },
+      {
+        "id": "Lysine-specific demethylase 4D-like",
+        "desc": "Lysine-specific demethylase 4D-like. UniProt: B2RXH2. Gene: KDM4E. Druggability: Patented-recorded"
+      }
+    ],
+    "Disease": [
+      {
+        "id": "#N/A",
+        "desc": "#N/A"
+      },
+      {
+        "id": "AIDS-related lymphoma",
+        "desc": "AIDS-related lymphoma"
+      }
+    ],
+    "UNKNOWN": [
+      {
+        "id": "QUERCETIN",
+        "desc": "UNKNOWN"
+      },
+      {
+        "id": "QUERCETIN-3-DIGLUCOSIDE",
+        "desc": "UNKNOWN"
+      }
+    ],
+    "Compound": [
+      {
+        "id": "(++)-CURINE-4'-METHYL-ETHER",
+        "desc": "(++)-CURINE-4'-METHYL-ETHER"
+      },
+      {
+        "id": "(+)-12-FORMYLOXYCORYNOLINE",
+        "desc": "(+)-12-FORMYLOXYCORYNOLINE"
+      }
+    ],
+    "Symptom": [
+      {
+        "id": "Aging",
+        "desc": "Aging. Type: bioactivity. Age-related decline"
+      },
+      {
+        "id": "Anxiety",
+        "desc": "Anxiety. Type: modern. Anxiety and stress"
+      }
+    ],
+    "Herb": [
+      {
+        "id": "Abelmoschus esculentus",
+        "desc": "Abelmoschus esculentus (Okra). Family: Malvaceae. Taxonomy: Abelmoschus esculentus. Use: F. Also known as: Okra"
+      },
+      {
+        "id": "Abelmoschus manihot",
+        "desc": "Abelmoschus manihot (Manioc Hibiscus). Family: Malvaceae. Taxonomy: Abelmoschus manihot. Use: F. Also known as: Manioc H"
+      }
+    ]
+  }
+}
