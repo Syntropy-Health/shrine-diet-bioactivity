@@ -1,0 +1,95 @@
+{
+  "timestamp": "2026-04-13T09:31:30.792572+00:00",
+  "neo4j_uri": "bolt://metro.proxy.rlwy.net:22971",
+  "entities": {
+    "Target": 4352,
+    "Disease": 2948,
+    "Compound": 251,
+    "Nutrient": 73,
+    "Symptom": 47,
+    "Herb": 29,
+    "Food": 22
+  },
+  "relationships": {
+    "DIRECTED": 795
+  },
+  "data_quality": {
+    "unknown_type_nodes": 0,
+    "empty_descriptions": 0,
+    "orphan_nodes": 7278
+  },
+  "totals": {
+    "nodes": 7722,
+    "edges": 795
+  },
+  "workspaces": [
+    "Compound",
+    "Disease",
+    "Herb",
+    "Symptom",
+    "Target",
+    "unified_diet_kg"
+  ],
+  "samples": {
+    "Target": [
+      {
+        "id": "Nuclear receptor ROR-beta",
+        "desc": "Nuclear receptor ROR-beta. UniProt: Q92753. Gene: RORB. Druggability: Patented-recorded"
+      },
+      {
+        "id": "Lysine-specific demethylase 4D-like",
+        "desc": "Lysine-specific demethylase 4D-like. UniProt: B2RXH2. Gene: KDM4E. Druggability: Patented-recorded"
+      }
+    ],
+    "Disease": [
+      {
+        "id": "#N/A",
+        "desc": "#N/A"
+      },
+      {
+        "id": "AIDS-related lymphoma",
+        "desc": "AIDS-related lymphoma"
+      }
+    ],
+    "Compound": [
+      {
+        "id": "(++)-CURINE-4'-METHYL-ETHER",
+        "desc": "(++)-CURINE-4'-METHYL-ETHER"
+      },
+      {
+        "id": "(+)-12-FORMYLOXYCORYNOLINE",
+        "desc": "(+)-12-FORMYLOXYCORYNOLINE"
+      }
+    ],
+    "Nutrient": [
+      {
+        "id": "RIBOFLAVIN",
+        "desc": "RIBOFLAVIN. Vitamin"
+      },
+      {
+        "id": "RHAMNOSE",
+        "desc": "RHAMNOSE. Macronutrient / carbohydrate"
+      }
+    ],
+    "Symptom": [
+      {
+        "id": "Aging",
+        "desc": "Aging. Type: bioactivity. Age-related decline"
+      },
+      {
+        "id": "Anxiety",
+        "desc": "Anxiety. Type: modern. Anxiety and stress"
+      }
+    ],
+    "Herb": [
+      {
+        "id": "Abelmoschus esculentus",
+        "desc": "Abelmoschus esculentus (Okra). Family: Malvaceae. Taxonomy: Abelmoschus esculentus. Use: F. Also known as: Okra"
+      },
+      {
+        "id": "Abelmoschus manihot",
+        "desc": "Abelmoschus manihot (Manioc Hibiscus). Family: Malvaceae. Taxonomy: Abelmoschus manihot. Use: F. Also known as: Manioc H"
+      }
+    ]
+  }
+}
