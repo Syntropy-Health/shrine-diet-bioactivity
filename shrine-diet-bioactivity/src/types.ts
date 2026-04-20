@@ -192,3 +192,11 @@ export interface FunctionalFood {
   compound_count: number;
   compound_names: string[];
 }
+
+/** Tenant scoping context extracted from MCP _meta. */
+export interface TenantContext {
+  /** Tenant identifier, e.g. "clinic-a". Null means shared-only query. */
+  tenantId: string | null;
+  /** Scope filter values for Neo4j queries. Always includes "shared". */
+  scopeFilter: string[];
+}

@@ -21,6 +21,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { HerbalDBAdapter } from './HerbalDBAdapter.js';
+import { extractTenantContext, validateTenantId, buildScopeParam } from './tenant.js';
 
 // ---------------------------------------------------------------------------
 // Zod Schemas
@@ -110,30 +111,29 @@ function errorContent(error: unknown): { content: Array<{ type: 'text'; text: st
 // MCP Server
 // ---------------------------------------------------------------------------
 
-class HerbalBotanicalsMCPServer {
+class ShrineDietBioactivityMCPServer {
   private readonly server = new McpServer(
     {
-      name: 'mcp-herbal-botanicals',
-      version: '1.0.0',
-      description: `Phytochemical knowledge graph MCP server. Bridges herbal medicine → active compounds → foods → health benefits using Dr. Duke's Phytochemical Database and FooDB, with symptom mapping derived from bioactivity data.
+      name: 'shrine-diet-bioactivity',
+      version: '2.0.0',
+      description: `Unified diet + bioactivity knowledge graph MCP server. Covers herbs, phytochemical compounds, foods (FooDB-linked + OpenNutrition 326K-food lookup), molecular targets, diseases, symptoms, and semantic graph traversal.
 
 Use this server when a query involves:
-- Health concerns or symptoms ("I'm tired", "chronic inflammation", "can't sleep")
-- Herbal supplements, botanicals, or medicinal plants
-- Phytochemical compounds (flavonoids, alkaloids, terpenoids, etc.)
-- Finding which foods share active compounds with specific herbs
-- Functional foods — food plants with therapeutic properties
-- Bioactivities (anti-inflammatory, antioxidant, adaptogenic, etc.)
+- Dietary/nutrition lookups (macros, micros, ingredients, barcodes, meal planning)
+- Herbal/phytochemical knowledge (compounds, bioactivities, herb profiles)
+- Cross-domain questions linking compounds to foods to health outcomes
+- Semantic/discovery queries over the knowledge graph
+- Functional foods and food-plant therapeutic properties
 
 Example queries this server answers:
 - "What helps with inflammation?" → search-by-symptom
 - "What compounds are in ashwagandha?" → get-herb-compounds
 - "What foods contain quercetin?" → get-compound-foods
-- "What foods have similar actives as turmeric?" → get-herb-food-overlap
-- "Which food plants help with stress?" → find-functional-foods
+- "Nutrition of almond milk" → search-food-by-name
+- "Anti-inflammatory foods ranked by protein" → search-foods (meta-tool, cross-backend)
 - "Give me a full profile of ginseng" → get-herb-profile
 
-Composable with mcp-opennutrition for complete food + herbal nutrition coverage.`,
+Tool catalog unifies the former mcp-herbal-botanicals and mcp-opennutrition servers plus one cross-backend search-foods meta-tool.`,
     },
     {
       capabilities: {
@@ -496,8 +496,11 @@ Requires LightRAG server running (make lightrag-server).`,
         top_k: z.number().min(1).max(200).default(60).describe('Number of entities/relations to retrieve'),
       },
       { title: 'Semantic knowledge graph search', readOnlyHint: true },
-      async (args) => {
+      async (args, extra) => {
         try {
+          const tenant = extractTenantContext(extra._meta as Record<string, unknown> | undefined);
+          validateTenantId(tenant.tenantId);
+
           const rawUrl = process.env.LIGHTRAG_API_URL || 'http://localhost:9621';
           let parsedUrl: URL;
           try {
@@ -515,6 +518,7 @@ Requires LightRAG server running (make lightrag-server).`,
               query: args.query,
               mode: args.mode,
               top_k: args.top_k,
+              ...buildScopeParam(tenant),
             }),
             signal: AbortSignal.timeout(30_000),
           });
@@ -530,10 +534,13 @@ Requires LightRAG server running (make lightrag-server).`,
           const result = await response.json();
           return {
             content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result, null, 2) }],
-            structuredContent: result,
+            structuredContent: { ...result, _tenant: { tenantId: tenant.tenantId, scopeFilter: tenant.scopeFilter } },
           };
         } catch (error: unknown) {
           const msg = error instanceof Error ? error.message : String(error);
+          if (msg.startsWith('Invalid tenant_id')) {
+            return { content: [{ type: 'text', text: msg }], isError: true };
+          }
           return {
             content: [{ type: 'text', text: `LightRAG server not reachable: ${msg}\nStart it with: make lightrag-server` }],
             isError: true,
@@ -579,9 +586,9 @@ Requires LightRAG server running (make lightrag-server).`,
 async function main(): Promise<void> {
   const db = new HerbalDBAdapter();
   const transport = new StdioServerTransport();
-  const server = new HerbalBotanicalsMCPServer(transport, db);
+  const server = new ShrineDietBioactivityMCPServer(transport, db);
   await server.connect();
-  console.error('mcp-herbal-botanicals MCP Server running on stdio');
+  console.error('shrine-diet-bioactivity MCP Server running on stdio');
 }
 
 main().catch((error) => {

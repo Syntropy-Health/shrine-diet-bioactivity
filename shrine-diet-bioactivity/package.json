@@ -1,10 +1,10 @@
 {
-  "name": "mcp-herbal-botanicals",
-  "version": "1.0.0",
+  "name": "shrine-diet-bioactivity",
+  "version": "2.0.0",
   "main": "index.js",
   "type": "module",
   "bin": {
-    "mcp-herbal-botanicals": "./build/index.js"
+    "shrine-diet-bioactivity": "./build/index.js"
   },
   "scripts": {
     "build": "rm -rf build && tsc && chmod 755 build/index.js",
@@ -24,10 +24,10 @@
   "files": [
     "build"
   ],
-  "keywords": ["mcp", "herbal", "botanicals", "phytochemical", "nutrition"],
+  "keywords": ["mcp", "diet", "bioactivity", "phytochemical", "nutrition", "knowledge-graph"],
   "author": "Syntropy Health",
   "license": "ISC",
-  "description": "MCP server bridging herbal medicine to food nutrition via Dr. Duke's Phytochemical DB and FooDB. First-of-kind herb-compound-food bridge for AI dietitians.",
+  "description": "Unified diet + bioactivity knowledge graph MCP server — herbs, compounds, foods (FooDB + OpenNutrition 326K-food lookup), targets, diseases, symptoms, semantic KG search, and a cross-backend search-foods meta-tool.",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "better-sqlite3": "^11.7.0",
