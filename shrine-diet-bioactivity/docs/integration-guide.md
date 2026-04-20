@@ -200,17 +200,27 @@ pipelines in `lightrag/ingest_unified.py`).
 - `lightrag/bootstrap_scope.py` — idempotent one-shot migration: tags every legacy node + relationship with `scope="shared"`, creates scope property indexes, fails closed on residual `NULL`. Run via `make lightrag-bootstrap-scope` (add `-dry-run` to preview).
 - 21 Python + 11 TS unit tests.
 
-**In flight (Phase A2):**
-- `scoped_server.py` — minimal FastAPI wrapper: sets the per-request `ContextVar` from the inbound `scope_filter` field, delegates to `rag.aquery()`.
-- `canary_smoke_test.py` — cross-tenant isolation CI gate: insert sentinel as `tenant:canary-a`, query as `tenant:canary-b`, assert empty.
-- `test_scope_enforcement.py` — live-Neo4j integration tests for `ScopedNeo4JStorage`.
-- **Per-tenant audit log** (new A2 deliverable — see below).
-- Vector-side isolation: currently only shared-scope embeddings exist; tenant embeddings land with Phase B ingest, and the NanoVectorDB metadata filter closes this gap.
+**Code landed, pending live verification (Phase A2):**
+- `lightrag/scoped_server.py` — FastAPI wrapper on port 9621. Accepts `scope_filter` in `POST /query`, validates every scope value, sets the `ContextVar`, delegates to `rag.aquery()`, resets on completion. Fails closed on missing/malformed scope. `make lightrag-server` now boots this (not upstream LightRAG).
+- `lightrag/audit_log.py` — append-only SQLite audit at `lightrag/audit/mcp_audit.db`. Context-manager API emits one row per tool call, defensive (an audit failure never breaks a query).
+- `lightrag/canary_smoke_test.py` — runnable cross-tenant canary. Inserts sentinel as `tenant:canary-a`, queries as `tenant:canary-b` via the scoped server, asserts the sentinel id does NOT appear. Cleanup guaranteed. `make lightrag-canary-test`.
+- `lightrag/test_scope_enforcement.py` — 8 unit tests against a fake async Neo4j driver confirming every overridden read method (`get_node`, `get_nodes_batch`, `node_degree`, `get_edge`, `get_node_edges`, `get_all_labels`, …) injects the `WHERE scope IN $scope_filter` predicate. Plus one integration test gated behind `LIGHTRAG_RUN_INTEGRATION=true` that runs the canary path from pytest.
+- Startup preflight: `scoped_server.py` refuses to boot if any node/relationship in the workspace still has `scope IS NULL` — forces `make lightrag-bootstrap-scope` first.
 
-Until A2 lands, `scope_filter` travels from MCP → LightRAG but the
-upstream binary silently ignores unknown fields — real filtering only
-kicks in when `make lightrag-server` boots `scoped_server.py`. Don't
-put clinical-private data in the graph before A2 merges.
+**To flip A2 from code-landed to live-verified** on a Neo4j instance:
+
+```bash
+make lightrag-bootstrap-scope       # one-shot migration against target Neo4j
+make lightrag-server                # boots scoped_server.py, preflight checks
+# in another shell:
+make lightrag-canary-test           # cross-tenant isolation pass/fail
+make lightrag-test-integration      # pytest integration path (gated)
+make audit-recent                   # sanity-check the audit table
+```
+
+**Still open:**
+- Vector-side isolation: currently only shared-scope embeddings exist; tenant embeddings will land with Phase B ingest, and the NanoVectorDB metadata filter closes the vector recall gap.
+- Per-MCP-tool audit (TS-side): the Python audit captures per-`/query` calls on the server; the TS MCP layer will add richer per-tool rows (tool name, MCP transport latency) in Phase D so the table has one row per MCP tool invocation.
 
 ### Observability — audit log for traceable / billable operation
 

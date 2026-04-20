@@ -45,3 +45,7 @@ data/batman-tcm/
 # Python bytecode
 __pycache__/
 *.py[cod]
+.pytest_cache/
+
+# Audit log — per-tenant append-only, runtime-local (Phase A2)
+lightrag/audit/

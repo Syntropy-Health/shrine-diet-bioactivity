@@ -25,9 +25,10 @@
         migrate-multi test build-ts check-types \
         food-bridge enrich-nutrition \
         lightrag-setup lightrag-dry-run lightrag-ingest-local lightrag-ingest-prod \
-        lightrag-benchmark lightrag-server \
+        lightrag-benchmark lightrag-server lightrag-server-upstream \
         lightrag-bootstrap-scope lightrag-bootstrap-scope-dry-run \
         lightrag-bootstrap-scope-prod lightrag-test-scope \
+        lightrag-canary-test lightrag-test-integration audit-recent \
         graphiti-setup graphiti-dry-run graphiti-ingest graphiti-ingest-direct \
         neo4j-check neo4j-shell neo4j-stats neo4j-status neo4j-watch neo4j-clear \
         embedding-check lms-models clean
@@ -217,7 +218,10 @@ lightrag-metrics: ## Print KG metrics report (entity/relationship counts, data q
 lightrag-metrics-save: ## Save KG metrics report to data/kg-reports/
 	cd lightrag && python3 kg_metrics.py --config local --save --json
 
-lightrag-server: ## Start LightRAG API server (local config)
+lightrag-server: ## Start the scoped LightRAG wrapper on port 9621 (Phase A2)
+	cd lightrag && uvicorn scoped_server:app --host 0.0.0.0 --port 9621
+
+lightrag-server-upstream: ## Start upstream LightRAG (NO tenant filtering — dev only)
 	cd lightrag && lightrag-server
 
 lightrag-bootstrap-scope-dry-run: ## Preview scope='shared' migration (no writes)
@@ -229,8 +233,21 @@ lightrag-bootstrap-scope: ## Tag legacy Neo4j nodes/edges with scope='shared' an
 lightrag-bootstrap-scope-prod: ## Run scope bootstrap against the production Neo4j
 	cd lightrag && python3 bootstrap_scope.py --config production
 
-lightrag-test-scope: ## Run scope unit tests (no live Neo4j required)
-	cd lightrag && python3 -m pytest test_scope_context.py test_bootstrap_scope.py -v
+lightrag-test-scope: ## Run all scope + audit unit tests (no live Neo4j required)
+	cd lightrag && python3 -m pytest \
+		test_scope_context.py test_bootstrap_scope.py \
+		test_audit_log.py test_scope_enforcement.py -v
+
+lightrag-canary-test: ## Run cross-tenant isolation canary (requires live Neo4j + scoped_server running)
+	cd lightrag && python3 canary_smoke_test.py --config local
+
+lightrag-test-integration: ## Run integration tests (live Neo4j + scoped_server on :9621)
+	cd lightrag && LIGHTRAG_RUN_INTEGRATION=true python3 -m pytest test_scope_enforcement.py -v -m integration
+
+audit-recent: ## Tail last 20 rows of the per-tenant audit log
+	sqlite3 lightrag/audit/mcp_audit.db \
+		"SELECT ts, tenant_id, tool, status, latency_ms, result_count \
+		 FROM mcp_audit ORDER BY id DESC LIMIT 20"
 
 # ─── Graphiti (Legacy) ─────────────────────────────────────
 
