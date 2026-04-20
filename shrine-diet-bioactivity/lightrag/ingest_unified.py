@@ -80,6 +80,10 @@ def extract_entities(
     spec = ENTITY_TYPES[entity_type]
     describe = DESCRIPTION_GENERATORS[entity_type]
 
+    # Tenant-only entity types have no SQLite source
+    if spec.get("source_table") is None and "query_builder" not in spec:
+        return []
+
     # Check source table exists (Disease is aggregated, has no single table)
     if spec["source_table"] and not table_exists(conn, spec["source_table"]):
         print(f"  ⚠ Table '{spec['source_table']}' not found, skipping {entity_type}")
@@ -110,6 +114,7 @@ def extract_entities(
             "entity_name": entity_name,
             "entity_type": entity_type,
             "description": description,
+            "scope": "shared",
             "source_id": f"sqlite-{entity_type.lower()}",
         })
 
@@ -128,6 +133,10 @@ def extract_relationships(
 ) -> list[dict]:
     """Extract relationships of a given type from SQLite as LightRAG edge dicts."""
     spec = RELATIONSHIP_TYPES[rel_type]
+
+    # Tenant-only relationship types have no SQLite source
+    if spec.get("source_table") is None:
+        return []
 
     if not table_exists(conn, spec["source_table"]):
         print(f"  ⚠ Table '{spec['source_table']}' not found, skipping {rel_type}")
@@ -149,6 +158,7 @@ def extract_relationships(
             "description": description,
             "keywords": keywords,
             "weight": 1.0,
+            "scope": "shared",
             "source_id": f"sqlite-{rel_type.lower()}",
         })
 

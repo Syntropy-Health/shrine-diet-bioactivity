@@ -68,6 +68,32 @@ ENTITY_TYPES = {
         "name_field": "name",
         "query": "SELECT id, name, symptom_type, description FROM symptoms",
     },
+    # -- Tenant entity types (clinical practice layer) --
+    # These have no SQLite source — ingested via tenant API (Phase 4).
+    "Protocol": {
+        "source_table": None,
+        "id_field": "name",
+        "name_field": "name",
+        "query": None,
+    },
+    "Intervention": {
+        "source_table": None,
+        "id_field": "name",
+        "name_field": "name",
+        "query": None,
+    },
+    "Outcome": {
+        "source_table": None,
+        "id_field": "name",
+        "name_field": "name",
+        "query": None,
+    },
+    "Biomarker": {
+        "source_table": None,
+        "id_field": "name",
+        "name_field": "name",
+        "query": None,
+    },
 }
 
 
@@ -132,6 +158,50 @@ RELATIONSHIP_TYPES = {
             "JOIN herbs h ON hs.herb_id = h.id "
             "JOIN symptoms s ON hs.symptom_id = s.id"
         ),
+    },
+    # -- Tenant relationship types (clinical practice layer) --
+    # These have no SQLite source — ingested via tenant API (Phase 4).
+    "INCLUDES": {
+        "source_table": None,
+        "src_type": "Protocol",
+        "tgt_type": "Intervention",
+        "query": None,
+    },
+    "USES": {
+        "source_table": None,
+        "src_type": "Intervention",
+        "tgt_type": "Compound",  # also Herb, Food
+        "query": None,
+    },
+    "RESULTED_IN": {
+        "source_table": None,
+        "src_type": "Intervention",
+        "tgt_type": "Outcome",
+        "query": None,
+    },
+    "MEASURED_BY": {
+        "source_table": None,
+        "src_type": "Outcome",
+        "tgt_type": "Biomarker",
+        "query": None,
+    },
+    "INDICATES": {
+        "source_table": None,
+        "src_type": "Biomarker",
+        "tgt_type": "Disease",  # also Symptom
+        "query": None,
+    },
+    "CONTRAINDICATES": {
+        "source_table": None,
+        "src_type": "Compound",  # also Intervention
+        "tgt_type": "Disease",   # also Symptom
+        "query": None,
+    },
+    "SYNERGIZES_WITH": {
+        "source_table": None,
+        "src_type": "Compound",  # also Intervention → Intervention
+        "tgt_type": "Compound",
+        "query": None,
     },
 }
 
@@ -242,6 +312,78 @@ def describe_symptom(row: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Tenant entity description generators (clinical practice layer)
+# ---------------------------------------------------------------------------
+
+
+def describe_protocol(row: dict[str, Any]) -> str:
+    """Generate a description for a Protocol entity (tenant-scoped)."""
+    parts = [row.get("name", "Unknown protocol")]
+    if row.get("description"):
+        parts.append(row["description"])
+    if row.get("phase"):
+        parts.append(f"Phase: {row['phase']}")
+    if row.get("target_conditions"):
+        try:
+            conditions = json.loads(row["target_conditions"]) if isinstance(
+                row["target_conditions"], str
+            ) else row["target_conditions"]
+            if conditions:
+                parts.append(f"Conditions: {', '.join(conditions[:5])}")
+        except (json.JSONDecodeError, TypeError):
+            pass
+    if row.get("duration"):
+        parts.append(f"Duration: {row['duration']}")
+    return ". ".join(parts)
+
+
+def describe_intervention(row: dict[str, Any]) -> str:
+    """Generate a description for an Intervention entity (tenant-scoped)."""
+    parts = [row.get("name", "Unknown intervention")]
+    if row.get("compound"):
+        parts.append(f"Compound: {row['compound']}")
+    if row.get("route"):
+        parts.append(f"Route: {row['route']}")
+    if row.get("dosage"):
+        parts.append(f"Dosage: {row['dosage']}")
+    if row.get("frequency"):
+        parts.append(f"Frequency: {row['frequency']}")
+    if row.get("form"):
+        parts.append(f"Form: {row['form']}")
+    return ". ".join(parts)
+
+
+def describe_outcome(row: dict[str, Any]) -> str:
+    """Generate a description for an Outcome entity (tenant-scoped)."""
+    parts = [row.get("name", "Unknown outcome")]
+    if row.get("observation"):
+        parts.append(row["observation"])
+    if row.get("direction"):
+        parts.append(f"Direction: {row['direction']}")
+    if row.get("magnitude"):
+        parts.append(f"Magnitude: {row['magnitude']}")
+    if row.get("timeframe"):
+        parts.append(f"Timeframe: {row['timeframe']}")
+    if row.get("condition"):
+        parts.append(f"Condition: {row['condition']}")
+    return ". ".join(parts)
+
+
+def describe_biomarker(row: dict[str, Any]) -> str:
+    """Generate a description for a Biomarker entity (tenant-scoped)."""
+    parts = [row.get("name", "Unknown biomarker")]
+    if row.get("category"):
+        parts.append(f"Category: {row['category']}")
+    if row.get("unit"):
+        parts.append(f"Unit: {row['unit']}")
+    if row.get("normal_range"):
+        parts.append(f"Normal range: {row['normal_range']}")
+    if row.get("target_gene"):
+        parts.append(f"Gene: {row['target_gene']}")
+    return ". ".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Dynamic query builders (for tables with optional columns)
 # ---------------------------------------------------------------------------
 
@@ -284,6 +426,11 @@ DESCRIPTION_GENERATORS = {
     "Target": describe_target,
     "Disease": describe_disease,
     "Symptom": describe_symptom,
+    # Tenant entity types (clinical practice layer)
+    "Protocol": describe_protocol,
+    "Intervention": describe_intervention,
+    "Outcome": describe_outcome,
+    "Biomarker": describe_biomarker,
 }
 
 
@@ -334,5 +481,66 @@ def describe_relationship(rel_type: str, row: dict[str, Any]) -> tuple[str, str]
     if rel_type == "TREATS_SYMPTOM":
         desc = f"{src} treats {tgt}"
         return desc, "herb symptom treatment traditional medicine"
+
+    # -- Tenant relationship types (clinical practice layer) --
+
+    if rel_type == "INCLUDES":
+        phase = row.get("phase", "")
+        order = row.get("order")
+        desc = f"{src} includes intervention {tgt}"
+        if phase:
+            desc += f" ({phase} phase)"
+        if order is not None:
+            desc += f" [step {order}]"
+        return desc, "protocol intervention treatment plan includes"
+
+    if rel_type == "USES":
+        route = row.get("route", "")
+        dosage = row.get("dosage", "")
+        desc = f"{src} uses {tgt}"
+        if route:
+            desc += f" via {route}"
+        if dosage:
+            desc += f" ({dosage})"
+        return desc, "intervention compound administration uses therapeutic"
+
+    if rel_type == "RESULTED_IN":
+        timeframe = row.get("timeframe", "")
+        desc = f"{src} resulted in {tgt}"
+        if timeframe:
+            desc += f" over {timeframe}"
+        return desc, "intervention outcome result clinical effect"
+
+    if rel_type == "MEASURED_BY":
+        value = row.get("value")
+        unit = row.get("unit", "")
+        desc = f"{src} measured by {tgt}"
+        if value is not None:
+            desc += f" ({value} {unit})"
+        return desc, "outcome biomarker measurement laboratory"
+
+    if rel_type == "INDICATES":
+        evidence_level = row.get("evidence_level", "")
+        desc = f"{src} indicates {tgt}"
+        if evidence_level:
+            desc += f" (evidence: {evidence_level})"
+        return desc, "biomarker disease indicator diagnostic marker"
+
+    if rel_type == "CONTRAINDICATES":
+        reason = row.get("reason", "")
+        severity = row.get("severity", "")
+        desc = f"{src} contraindicated with {tgt}"
+        if severity:
+            desc += f" (severity: {severity})"
+        if reason:
+            desc += f" — {reason}"
+        return desc, "contraindication warning interaction safety adverse"
+
+    if rel_type == "SYNERGIZES_WITH":
+        mechanism = row.get("mechanism", "")
+        desc = f"{src} synergizes with {tgt}"
+        if mechanism:
+            desc += f" via {mechanism}"
+        return desc, "synergy combination interaction enhancement potentiation"
 
     return f"{src} relates to {tgt}", rel_type.lower().replace("_", " ")

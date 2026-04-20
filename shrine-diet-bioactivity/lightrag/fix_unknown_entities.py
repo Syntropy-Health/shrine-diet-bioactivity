@@ -104,11 +104,30 @@ COMPOUND_INDICATORS = [
     "STEROL", "TERPINE", "PINENE",
 ]
 
+# Biomarker indicators — common clinical lab markers
+BIOMARKERS = {
+    "HSCRP", "HBA1C", "CORTISOL", "TSH", "INSULIN", "HOMOCYSTEINE",
+    "FERRITIN", "TESTOSTERONE", "ESTRADIOL", "DHEA", "IGF-1",
+    "CRP", "ESR", "FIBRINOGEN", "IL-6", "TNF-ALPHA",
+    "HEMOGLOBIN", "HEMATOCRIT", "CREATININE", "BUN",
+    "ALT", "AST", "GGT", "BILIRUBIN", "ALBUMIN",
+    "TRIGLYCERIDES", "LDL", "HDL", "VLDL",
+    "FASTING-GLUCOSE", "FASTING-INSULIN", "HOMA-IR",
+    "25-HYDROXYVITAMIN-D", "VITAMIN-D-25-OH",
+}
+
+# Tenant entity types — recognized but not from shared SQLite data
+TENANT_ENTITY_TYPES = {"Protocol", "Intervention", "Outcome", "Biomarker"}
+
 
 def classify_entity(entity_id: str) -> tuple[str, str]:
     """Classify an UNKNOWN entity and return (entity_type, description)."""
     eid = entity_id.strip()
     eid_upper = eid.upper().replace(" ", "-")
+
+    # Biomarker matches (before compound fallback)
+    if eid_upper in BIOMARKERS:
+        return "Biomarker", f"{eid}. Clinical laboratory biomarker"
 
     # Exact set matches
     if eid in MINERALS or eid_upper in MINERALS:

@@ -20,9 +20,13 @@ from entity_schema import (
     DESCRIPTION_GENERATORS,
     ENTITY_TYPES,
     RELATIONSHIP_TYPES,
+    describe_biomarker,
     describe_compound,
     describe_food,
     describe_herb,
+    describe_intervention,
+    describe_outcome,
+    describe_protocol,
     describe_relationship,
 )
 from ingest_unified import batch_items, extract_entities, extract_relationships, table_exists
@@ -102,6 +106,138 @@ class TestDescriptionGenerators:
         assert "Quercetin found in Apple" in desc
         assert "food" in kw
 
+    # -- Tenant entity description generators --
+
+    def test_describe_protocol_full(self):
+        row = {
+            "name": "Anti-Inflammation IV Protocol",
+            "description": "Targeted IV therapy for chronic inflammation",
+            "phase": "treatment",
+            "target_conditions": '["rheumatoid arthritis", "chronic fatigue"]',
+            "duration": "12 weeks",
+        }
+        desc = describe_protocol(row)
+        assert "Anti-Inflammation IV Protocol" in desc
+        assert "treatment" in desc
+        assert "rheumatoid arthritis" in desc
+        assert "12 weeks" in desc
+
+    def test_describe_protocol_minimal(self):
+        row = {"name": "Basic Protocol"}
+        desc = describe_protocol(row)
+        assert "Basic Protocol" in desc
+
+    def test_describe_protocol_bad_json_conditions(self):
+        row = {"name": "Test", "target_conditions": "not valid json ["}
+        desc = describe_protocol(row)
+        assert "Test" in desc  # should not crash
+
+    def test_describe_intervention_full(self):
+        row = {
+            "name": "Glutathione IV",
+            "compound": "Glutathione",
+            "route": "IV",
+            "dosage": "2000mg",
+            "frequency": "2x/week",
+            "form": "injection",
+        }
+        desc = describe_intervention(row)
+        assert "Glutathione IV" in desc
+        assert "IV" in desc
+        assert "2000mg" in desc
+        assert "2x/week" in desc
+
+    def test_describe_intervention_minimal(self):
+        row = {"name": "Turmeric supplement"}
+        desc = describe_intervention(row)
+        assert "Turmeric supplement" in desc
+
+    def test_describe_outcome_full(self):
+        row = {
+            "name": "hsCRP reduction post-protocol",
+            "observation": "Significant reduction in inflammatory markers",
+            "direction": "improved",
+            "magnitude": "40% decrease",
+            "timeframe": "12 weeks",
+            "condition": "chronic inflammation",
+        }
+        desc = describe_outcome(row)
+        assert "hsCRP reduction" in desc
+        assert "improved" in desc
+        assert "40% decrease" in desc
+        assert "12 weeks" in desc
+
+    def test_describe_biomarker_full(self):
+        row = {
+            "name": "hsCRP",
+            "category": "inflammatory",
+            "unit": "mg/L",
+            "normal_range": "<1.0",
+            "target_gene": "CRP",
+        }
+        desc = describe_biomarker(row)
+        assert "hsCRP" in desc
+        assert "inflammatory" in desc
+        assert "mg/L" in desc
+        assert "<1.0" in desc
+        assert "CRP" in desc
+
+    def test_describe_biomarker_minimal(self):
+        row = {"name": "Cortisol"}
+        desc = describe_biomarker(row)
+        assert "Cortisol" in desc
+
+    # -- Tenant relationship descriptions --
+
+    def test_describe_relationship_includes(self):
+        row = {"src_name": "Anti-Inflammation Protocol", "tgt_name": "Glutathione IV", "phase": "treatment", "order": 2}
+        desc, kw = describe_relationship("INCLUDES", row)
+        assert "includes intervention" in desc
+        assert "treatment" in desc
+        assert "protocol" in kw
+
+    def test_describe_relationship_uses(self):
+        row = {"src_name": "Glutathione IV", "tgt_name": "Glutathione", "route": "IV", "dosage": "2000mg"}
+        desc, kw = describe_relationship("USES", row)
+        assert "uses" in desc
+        assert "IV" in desc
+        assert "intervention" in kw
+
+    def test_describe_relationship_resulted_in(self):
+        row = {"src_name": "Glutathione IV", "tgt_name": "hsCRP reduction", "timeframe": "12 weeks"}
+        desc, kw = describe_relationship("RESULTED_IN", row)
+        assert "resulted in" in desc
+        assert "12 weeks" in desc
+        assert "outcome" in kw
+
+    def test_describe_relationship_measured_by(self):
+        row = {"src_name": "hsCRP reduction", "tgt_name": "hsCRP", "value": 0.8, "unit": "mg/L"}
+        desc, kw = describe_relationship("MEASURED_BY", row)
+        assert "measured by" in desc
+        assert "0.8" in desc
+        assert "biomarker" in kw
+
+    def test_describe_relationship_indicates(self):
+        row = {"src_name": "hsCRP", "tgt_name": "Chronic Inflammation", "evidence_level": "strong"}
+        desc, kw = describe_relationship("INDICATES", row)
+        assert "indicates" in desc
+        assert "strong" in desc
+        assert "biomarker" in kw
+
+    def test_describe_relationship_contraindicates(self):
+        row = {"src_name": "Warfarin", "tgt_name": "Bleeding disorders", "severity": "high", "reason": "anticoagulant interaction"}
+        desc, kw = describe_relationship("CONTRAINDICATES", row)
+        assert "contraindicated" in desc
+        assert "high" in desc
+        assert "contraindication" in kw
+
+    def test_describe_relationship_synergizes_with(self):
+        row = {"src_name": "Curcumin", "tgt_name": "Piperine", "mechanism": "bioavailability enhancement"}
+        desc, kw = describe_relationship("SYNERGIZES_WITH", row)
+        assert "synergizes" in desc
+        assert "bioavailability" in desc
+        assert "synergy" in kw
+
 
 class TestBatchItems:
     def test_batch_items_even(self):
@@ -140,6 +276,33 @@ class TestEntitySchema:
             assert "query" in spec, f"Missing query for {rt}"
             assert "src_type" in spec
             assert "tgt_type" in spec
+
+    def test_tenant_entity_types_have_no_source_table(self):
+        tenant_types = ["Protocol", "Intervention", "Outcome", "Biomarker"]
+        for et in tenant_types:
+            assert et in ENTITY_TYPES, f"Missing tenant entity type: {et}"
+            spec = ENTITY_TYPES[et]
+            assert spec["source_table"] is None, f"{et} should have no source_table"
+            assert spec["query"] is None, f"{et} should have no query"
+
+    def test_tenant_relationship_types_have_no_source_table(self):
+        tenant_rels = [
+            "INCLUDES", "USES", "RESULTED_IN", "MEASURED_BY",
+            "INDICATES", "CONTRAINDICATES", "SYNERGIZES_WITH",
+        ]
+        for rt in tenant_rels:
+            assert rt in RELATIONSHIP_TYPES, f"Missing tenant rel type: {rt}"
+            spec = RELATIONSHIP_TYPES[rt]
+            assert spec["source_table"] is None, f"{rt} should have no source_table"
+            assert spec["query"] is None, f"{rt} should have no query"
+
+    def test_shared_entity_types_count(self):
+        shared = [k for k, v in ENTITY_TYPES.items() if v.get("source_table") is not None or "query_builder" in v]
+        assert len(shared) == 6, f"Expected 6 shared entity types, got {len(shared)}: {shared}"
+
+    def test_shared_relationship_types_count(self):
+        shared = [k for k, v in RELATIONSHIP_TYPES.items() if v.get("source_table") is not None]
+        assert len(shared) == 5, f"Expected 5 shared rel types, got {len(shared)}: {shared}"
 
 
 # ---------------------------------------------------------------------------
