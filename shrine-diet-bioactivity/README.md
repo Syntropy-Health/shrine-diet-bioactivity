@@ -1,12 +1,18 @@
-# mcp-herbal-botanicals
+# shrine-diet-bioactivity
 
-The first MCP server for dietary and phytochemical compound data. Bridges herbal medicine to food nutrition using Dr. Duke's Phytochemical Database and FooDB.
+**LightRAG-driven semantic index + retrieval MCP server** over the
+diet + bioactivity knowledge graph. Specialized to the data ontology
+(herbs, phytochemical compounds, foods, targets, diseases, symptoms,
+plus tenant-scoped protocols / interventions / outcomes / biomarkers) —
+domain-agnostic in its tool surface. Multi-tenant by design, with
+per-request audit logging for traceability and billing.
 
-## What It Does
+Clinical-workflow verbs (*find protocols for a biomarker, compare
+interventions, check contraindications*) are **agent-layer**
+compositions on top of this MCP — see
+[`docs/clinical-integration-notes.md`](./docs/clinical-integration-notes.md).
 
-Given a herb (e.g., ashwagandha), returns its active phytochemical compounds, and which common foods share those same compounds. Enables AI agents to answer queries like:
-
-> "What foods give me the same benefits as ashwagandha?"
+For wiring a client, see [`docs/integration-guide.md`](./docs/integration-guide.md).
 
 ## Data Coverage
 
@@ -16,22 +22,25 @@ Given a herb (e.g., ashwagandha), returns its active phytochemical compounds, an
 | Compounds | 94,512 | Dr. Duke's + FooDB |
 | Herb-Compound links | 99,280 | Dr. Duke's |
 | Compound-Food links | 4,149,541 | FooDB |
-| Bridge compounds | 4,449 | Compounds in both herbs AND foods |
+| Bridge compounds | 4,449 | In both herbs AND foods |
+| Foods (structured nutrition) | 326,759 | OpenNutrition (90 nutrient keys) |
+| Targets / Diseases / Symptoms | 4,355 / 50K+ / 47 | CMAUP + TTD + curated |
 
-**92% of top-25 herbal supplements covered** with compound data and food overlap.
+## MCP Tools — post-pivot target (7 tools, domain-agnostic)
 
-## MCP Tools
+| # | Tool | Backed by | Purpose |
+|---|---|---|---|
+| 1 | `semantic-search` | LightRAG `/query` | Hybrid / local / global / mix / naive KG retrieval, scope-filtered |
+| 2 | `get-entity` | LightRAG graph routes | Look up an entity by id |
+| 3 | `get-neighbors` | LightRAG graph routes | 1–2-hop neighborhood, optional edge-type filter |
+| 4 | `list-entity-types` | LightRAG graph routes | Discover ontology labels + in-scope counts |
+| 5 | `get-structured-properties` | SQLite annex | Exact property lookup (nutrition_100g, LD50, dosage) |
+| 6 | `filter-by-property` | SQLite annex | Numeric / enum filters |
+| 7 | `ingest-tenant-knowledge` | LightRAG `/documents` + `ainsert_custom_kg` | Tenant write path; scope forced to `tenant:<id>` |
 
-| Tool | Description |
-|------|-------------|
-| `search-herbs` | Fuzzy search herbs by common/scientific name |
-| `get-herb-compounds` | Active compounds for a given herb with concentrations |
-| `search-compounds` | Search compounds by name, see herb + food associations |
-| `get-compound-foods` | Foods containing a specific compound |
-| `get-herb-food-overlap` | Foods sharing the most compounds with a herb |
-| `search-by-bioactivity` | Herbs/compounds by health benefit (anti-inflammatory, etc.) |
-| `get-herb-profile` | Full herb monograph (compounds, bioactivities, food overlap) |
-| `get-health` | Database stats and health check |
+The current codebase still ships the legacy 14-tool surface — see
+[`.claude/PRPs/plans/lightrag-thin-adapter-pivot.plan.md`](../.claude/PRPs/plans/lightrag-thin-adapter-pivot.plan.md)
+for the migration.
 
 ## Setup
 

@@ -1,34 +1,56 @@
 # shrine-diet-bioactivity — Integration Guide
 
 Audience: **Syntropy-Journals engineers** wiring ShrineAgent (or any other MCP
-client) to the diet + bioactivity knowledge graph. Covers the unified MCP
-tool catalog, tenant scoping contract, and the Clerk `org_id → tenant_id`
+client) to the diet + bioactivity knowledge graph. Covers the MCP tool
+catalog, the tenant scoping contract, and the Clerk `org_id → tenant_id`
 mapping rule.
 
-> Status as of 2026-04-19: the server identity, `TenantContext` extraction,
-> and client-side scope forwarding on `semantic-search` are **shipped**.
-> Server-side Cypher enforcement (`ScopedNeo4JStorage` + FastAPI wrapper)
-> and the `search-foods` cross-backend meta-tool are **in flight** under
-> the parallel plans `multi-tenant-enforcement-bootstrap` and
-> `shrine-diet-bioactivity-unification`. Sections below flag what is
-> live vs planned.
+For clinical-workflow composition patterns (which live in the agent
+layer, not this MCP), see
+[`clinical-integration-notes.md`](./clinical-integration-notes.md).
+
+> **Status as of 2026-04-20** — architectural pivot in progress.
+> The server is being refactored to a **thin adapter over LightRAG**
+> with a narrow SQLite annex for structured numeric filters. The old
+> 14-tool domain catalog retires; the new 7-tool surface is tracked in
+> [`lightrag-thin-adapter-pivot.plan.md`](../../.claude/PRPs/plans/lightrag-thin-adapter-pivot.plan.md).
+> Phase A1 of the multi-tenant enforcement work has shipped (scope
+> context, `ScopedNeo4JStorage`, bootstrap migration, Clerk mapper).
+> Phase A2 (FastAPI wrapper + audit log + cross-tenant canary) is
+> in flight.
 
 ---
 
 ## 1. What the server is
 
-One MCP server named `shrine-diet-bioactivity` exposes:
+One MCP server named `shrine-diet-bioactivity` is a **thin retrieval +
+tenancy + audit adapter** over LightRAG and a SQLite property annex.
+Specialised to the diet+bioactivity ontology — domain-agnostic in its
+query surface.
 
-| Domain | Backing store | How you query it |
-|---|---|---|
-| Herbs, phytochemical compounds, compound→food links | SQLite (`herbal_botanicals.db`) | 14 herbal tools |
-| Nutrition (326K foods, 90 nutrient keys) | SQLite (`opennutrition_foods.db`) | 8 nutrition tools *(planned — unification)* |
-| Semantic graph traversal over the unified KG | LightRAG + Neo4j | `semantic-search` tool |
-| Cross-backend food ranking (FooDB ∪ OpenNutrition) | Both SQLite DBs | `search-foods` meta-tool *(planned)* |
+**Target tool catalog (7 tools, post-pivot):**
 
-One `.mcp.json` entry, one tool catalog, one tenant contract — the two
-previous MCP servers (`mcp-herbal-botanicals`, `mcp-opennutrition`) are
-being collapsed into this unified server.
+| # | Tool | Backed by | Purpose |
+|---|---|---|---|
+| 1 | `semantic-search` | LightRAG `POST /query` | Hybrid / local / global / mix / naive KG retrieval, scope-filtered |
+| 2 | `get-entity` | LightRAG graph routes | Look up one entity by id, scope-filtered |
+| 3 | `get-neighbors` | LightRAG graph routes | Expand 1–2-hop neighborhood, optional edge-type filter, scope-filtered |
+| 4 | `list-entity-types` | LightRAG graph routes | Discover ontology labels + counts in scope |
+| 5 | `get-structured-properties` | SQLite annex | Exact property lookup (nutrition_100g, LD50, half-life, dosage) |
+| 6 | `filter-by-property` | SQLite annex | Numeric / enum filters (`protein_g > 20`, `class = flavonoid`) |
+| 7 | `ingest-tenant-knowledge` | LightRAG `/documents` + scoped `ainsert_custom_kg` | Tenant write path; scope forced to `tenant:<id>` |
+
+Why so few tools: LightRAG's API already serves semantic retrieval and
+graph traversal over the full ontology; reinventing domain verbs
+(`find-functional-foods`, `search-by-bioactivity`) locked the catalog
+into specific clinical / culinary workflows. Composition moves to the
+agent layer — see `clinical-integration-notes.md`.
+
+**Ontology (the only specialisation axis):**
+
+- Shared: `Herb`, `Compound`, `Food`, `Target`, `Disease`, `Symptom`, `Nutrient`
+- Tenant-only: `Protocol`, `Intervention`, `Outcome`, `Biomarker`
+- 12 relationship types spanning both (see `lightrag/entity_schema.py`)
 
 ## 2. Wiring ShrineAgent (`.mcp.json`)
 
@@ -166,26 +188,66 @@ Tenant writes land **exclusively** on `tenant:<id>` — the ingestion API
 refuses to tag writes as `shared` (that's reserved for the shared ETL
 pipelines in `lightrag/ingest_unified.py`).
 
-## 7. Enforcement — what's live vs planned
+## 7. Enforcement, observability, and the tool catalog — what's live vs planned
+
+### Tenant enforcement
 
 **Live today (Phase A1):**
 - `semantic-search` extracts `tenant_id` from `_meta`, validates, and forwards `scope_filter` to `POST /query` on LightRAG.
-- `slugifyClerkOrgId` + `slugifyClerkOrgIdSafe` utilities shipped in `src/clerkOrgMapping.ts` with 11 test cases.
-- `lightrag/scope_context.py` — per-request `ContextVar[tuple[str, ...]]` with `("shared",)` default, slug validator.
-- `lightrag/scoped_neo4j_storage.py` — `ScopedNeo4JStorage(Neo4JStorage)` subclass overrides every read method to inject `WHERE n.scope IN $scope_filter` (plus matching predicates on edge / endpoint scope). Writes pass through unchanged.
-- `lightrag/bootstrap_scope.py` — one-shot migration: tags every legacy node + relationship with `scope="shared"`, creates `scope` property indexes on nodes and relationships, idempotent, fails closed if residual `NULL` scope remains. Run via `make lightrag-bootstrap-scope` (add `-dry-run` to preview).
-- Scope and bootstrap unit tests (21 Python + 11 TS).
+- `slugifyClerkOrgId` + `slugifyClerkOrgIdSafe` — shipped in `src/clerkOrgMapping.ts`, 11 test cases.
+- `lightrag/scope_context.py` — per-request `ContextVar[tuple[str, ...]]` with `("shared",)` default + slug validator.
+- `lightrag/scoped_neo4j_storage.py` — `ScopedNeo4JStorage(Neo4JStorage)` subclass overrides 9 read methods to inject `WHERE n.scope IN $scope_filter` (plus matching predicates on edge / endpoint scope). Writes pass through unchanged.
+- `lightrag/bootstrap_scope.py` — idempotent one-shot migration: tags every legacy node + relationship with `scope="shared"`, creates scope property indexes, fails closed on residual `NULL`. Run via `make lightrag-bootstrap-scope` (add `-dry-run` to preview).
+- 21 Python + 11 TS unit tests.
 
 **In flight (Phase A2):**
-- `scoped_server.py` — minimal FastAPI wrapper over LightRAG that sets the per-request `ContextVar` from the inbound `scope_filter` field and delegates to `rag.aquery()`.
-- `canary_smoke_test.py` — CI canary: insert sentinel as `tenant:canary-a`, query as `tenant:canary-b`, assert empty.
-- `test_scope_enforcement.py` — live-Neo4j integration test for the `ScopedNeo4JStorage` overrides.
-- Vector-side isolation (NanoVectorDB metadata filter) — currently entity embeddings are shared-scope only, so tenant entity descriptions are not indexed; once tenant ingestion writes embeddings, this gap needs closing.
+- `scoped_server.py` — minimal FastAPI wrapper: sets the per-request `ContextVar` from the inbound `scope_filter` field, delegates to `rag.aquery()`.
+- `canary_smoke_test.py` — cross-tenant isolation CI gate: insert sentinel as `tenant:canary-a`, query as `tenant:canary-b`, assert empty.
+- `test_scope_enforcement.py` — live-Neo4j integration tests for `ScopedNeo4JStorage`.
+- **Per-tenant audit log** (new A2 deliverable — see below).
+- Vector-side isolation: currently only shared-scope embeddings exist; tenant embeddings land with Phase B ingest, and the NanoVectorDB metadata filter closes this gap.
 
-**Until the wrapper lands**, `scope_filter` travels from MCP → LightRAG
-but the upstream binary silently ignores unknown fields; real filtering
-only starts when `make lightrag-server` boots `scoped_server.py`.
-Don't put clinical-private data in the graph before Phase A2 merges.
+Until A2 lands, `scope_filter` travels from MCP → LightRAG but the
+upstream binary silently ignores unknown fields — real filtering only
+kicks in when `make lightrag-server` boots `scoped_server.py`. Don't
+put clinical-private data in the graph before A2 merges.
+
+### Observability — audit log for traceable / billable operation
+
+Every MCP tool call emits one append-only row into an audit SQLite
+table `audit/mcp_audit.db`:
+
+```
+ts | tenant_id | tool | query_hash | scope_filter |
+latency_ms | result_count | token_usage | status | error_class
+```
+
+No raw queries or PII — queries are SHA-256 hashed. The table supports:
+
+- **Traceability:** every action a clinic's agent took, by tenant, for
+  incident response.
+- **Billing:** per-tenant invocation counts and LLM token usage, rolled
+  up monthly.
+- **Debug:** per-tenant error class filtering.
+
+Consumers do not need to double-log MCP calls — use the audit table as
+the source of truth for billable events.
+
+### Tool-catalog pivot
+
+The server is mid-pivot from 15 domain-verb tools to 7 domain-agnostic
+primitives (see §1). Retiring: `search-herbs`, `search-compounds`,
+`get-herb-compounds`, `get-compound-foods`, `get-compound-targets`,
+`get-herb-food-overlap`, `get-herb-profile`, `search-by-bioactivity`,
+`search-by-symptom`, `find-functional-foods`, and the 8 planned
+OpenNutrition tools + `search-foods` meta-tool. OpenNutrition's 326K
+foods flow into `get-structured-properties` and `filter-by-property`;
+semantic retrieval over food descriptions stays on `semantic-search`.
+
+Agent-layer composition patterns for clinical verbs
+(`find-protocols-for-biomarker`, `get-intervention-outcomes`,
+`get-contraindications`, `get-clinical-context`) live in
+[`clinical-integration-notes.md`](./clinical-integration-notes.md).
 
 ## 8. Tenant-only entity types
 
@@ -237,9 +299,10 @@ LightRAG (post-enforcement)
 
 ## 10. Further reading
 
-- `../README.md` — server overview and tool catalog
+- [`clinical-integration-notes.md`](./clinical-integration-notes.md) — **how to build the clinical-verb layer in the agent**, outside this MCP's scope
+- `../.claude/PRPs/plans/lightrag-thin-adapter-pivot.plan.md` — active plan: 7-tool catalog, retirement list, migration path
+- `../.claude/PRPs/plans/multi-tenant-enforcement-bootstrap.plan.md` — Phase A1 (shipped) and A2 (FastAPI wrapper + audit log + canary)
 - `../.claude/PRPs/prds/multi-tenant-diet-kg-mcp.prd.md` — product rationale, phases, success metrics
-- `../.claude/PRPs/plans/multi-tenant-enforcement-bootstrap.plan.md` — server-side Cypher enforcement + Clerk mapping utility rollout
-- `../.claude/PRPs/plans/shrine-diet-bioactivity-unification.plan.md` — merging OpenNutrition's 8 tools + the `search-foods` meta-tool
-- `../src/tenant.ts` — the 55-line source of truth for tenant extraction
-- `../src/__tests__/tenant.test.ts` — behavioural contract tests
+- `../.claude/PRPs/plans/shrine-diet-bioactivity-unification.plan.md` — original scope-and-rename reasoning; the merge-8-tools + search-foods portions are superseded by the thin-adapter pivot
+- `../src/tenant.ts` + `../src/clerkOrgMapping.ts` — tenant extraction and Clerk slug utility
+- `../lightrag/entity_schema.py` — canonical ontology registry (entity + relationship types)

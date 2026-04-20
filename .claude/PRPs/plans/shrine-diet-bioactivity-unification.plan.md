@@ -1,5 +1,20 @@
 # Plan: Unified `shrine-diet-bioactivity` MCP Server
 
+> ⚠ **Superseded (in part) by
+> [`lightrag-thin-adapter-pivot.plan.md`](./lightrag-thin-adapter-pivot.plan.md)**
+> as of 2026-04-20. The rename / package identity work from this plan
+> already landed. The **merge 8 OpenNutrition tools** and **new
+> `search-foods` meta-tool** sections are dropped: under the thin-adapter
+> direction the MCP shrinks to ~7 domain-agnostic tools (semantic-search,
+> get-entity, get-neighbors, list-entity-types, get-structured-properties,
+> filter-by-property, ingest-tenant-knowledge). OpenNutrition's 326K-food
+> data flows into the SQLite annex behind the two structured-property
+> primitives instead of being exposed as its own tool catalog.
+>
+> Read this plan for the original scope-and-rename reasoning and for the
+> shared-vs-tenant data layering it introduced; read the pivot plan for
+> the current tool-surface direction.
+
 > Runs in parallel with `multi-tenant-enforcement-bootstrap.plan.md`; no dependency either way.
 > One-line merge conflict in `src/index.ts` is expected — resolved by whichever plan lands first.
 
