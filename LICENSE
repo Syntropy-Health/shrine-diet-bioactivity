@@ -1,0 +1,53 @@
+MIT License
+
+Copyright (c) 2026 Syntropy Health
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Third-Party Licenses
+
+This repository integrates and aggregates data from multiple sources, each
+under its own license. Using this software does not grant redistribution
+rights for the underlying datasets — those terms apply independently.
+
+### Bundled Code (via Git Submodules)
+
+- **LightRAG** (`lightrag/`) — MIT License, © HKUDS
+- **mcp-opennutrition** (`mcp-opennutrition/`) — MIT License, © deadletterq
+- **graphiti** (`graphiti/`) — Apache 2.0 (where present as a PoC reference)
+
+### Integrated Datasets
+
+| Dataset | License | Source |
+|---|---|---|
+| USDA FoodData Central | Public Domain (U.S. Government work) | https://fdc.nal.usda.gov/ |
+| OpenNutrition | MIT | https://www.opennutrition.app/ |
+| NIH Dietary Supplement Label Database (DSLD) | Public Domain | https://dsld.od.nih.gov/ |
+| Dr. Duke's Phytochemical and Ethnobotanical Databases | Public Domain (USDA ARS) | https://phytochem.nal.usda.gov/ |
+| FooDB | Non-commercial research use | https://foodb.ca/ |
+| CMAUP (Collective Molecular Activities of Useful Plants) | Academic use | http://bidd.group/CMAUP/ |
+| CTD (Comparative Toxicogenomics Database) | Attribution required | https://ctdbase.org/ |
+| TTD (Therapeutic Target Database) | Academic use | http://db.idrblab.net/ttd/ |
+
+Redistribution of the integrated knowledge graph or derivative datasets MAY
+require compliance with the most restrictive of the component licenses.
+Before distributing bulk data exports or training artifacts, verify
+compliance with each source's terms.

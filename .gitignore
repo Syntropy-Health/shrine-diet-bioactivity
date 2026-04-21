@@ -22,3 +22,26 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local environment files — never commit real credentials. Template files
+# (`.env.example`, `config_*.env` with ${VAR} references or demo values)
+# are intentionally tracked.
+.env
+.env.local
+.env.*.local
+**/.env
+!**/.env.example
+!**/config_local.env
+!**/config_production.env
+
+# Coverage reports
+coverage/
+.coverage
+htmlcov/
+*.coverage
+.nyc_output/
+
+# Test output
+.vitest/
+test-results/
+playwright-report/
