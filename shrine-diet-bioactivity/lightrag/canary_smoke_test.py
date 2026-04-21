@@ -27,9 +27,12 @@ import json
 import os
 import sys
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
@@ -104,6 +107,81 @@ def _query_as_tenant(server_url: str, tenant_id: str, sentinel_id: str) -> str:
     return payload.get("response", "")
 
 
+def _graphs_as_tenant(
+    server_url: str, tenant_id: str, label: str
+) -> dict[str, Any]:
+    """GET /graphs?label=<sentinel> as the given tenant — returns the raw
+    subgraph response.  Used to check that the graph-route pass-through
+    honours scope on read.
+    """
+    params = urllib.parse.urlencode(
+        {
+            "label": label,
+            "max_depth": 0,
+            "max_nodes": 50,
+            "scope_filter": f"shared,tenant:{tenant_id}",
+        }
+    )
+    req = urllib.request.Request(
+        f"{server_url.rstrip('/')}/graphs?{params}",
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 - internal URL
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _popular_labels_as_tenant(
+    server_url: str, tenant_id: str, limit: int = 300
+) -> list[str]:
+    """GET /graph/label/popular as the given tenant — returns label list."""
+    params = urllib.parse.urlencode(
+        {"limit": limit, "scope_filter": f"shared,tenant:{tenant_id}"}
+    )
+    req = urllib.request.Request(
+        f"{server_url.rstrip('/')}/graph/label/popular?{params}",
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _ingest_shared_as_tenant(
+    server_url: str, tenant_id: str, sentinel_id: str
+) -> int:
+    """Try to ingest a custom_kg row as ``tenant:<id>`` but with a
+    ``shared`` scope_filter (missing the tenant entry).  The server must
+    refuse with 4xx — this proves tenant callers can't inject into
+    shared.  Returns the HTTP status code actually received.
+    """
+    body = json.dumps(
+        {
+            "scope_filter": ["shared"],
+            "custom_kg": {
+                "entities": [
+                    {
+                        "entity_name": sentinel_id,
+                        "entity_type": "Canary",
+                        "description": "attempted shared-injection",
+                    }
+                ],
+                "relationships": [],
+            },
+            "source_label": f"canary-{tenant_id}",
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        f"{server_url.rstrip('/')}/documents/custom_kg",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+            return resp.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--config", default="local", choices=["local", "production"])
@@ -127,20 +205,74 @@ def main() -> int:
         # Give any write-through caches a moment to settle.
         time.sleep(1)
 
+        # ------------------------------------------------------------------
+        # Gate 1 — /query as tenant:B must not leak the sentinel
+        # ------------------------------------------------------------------
         response_b = _query_as_tenant(args.server_url, CANARY_TENANT_B, sentinel_id)
         if sentinel_id in response_b:
             print(
-                f"[canary] FAIL — sentinel {sentinel_id} leaked into "
+                f"[canary] FAIL — /query leaked sentinel {sentinel_id} into "
                 f"tenant:{CANARY_TENANT_B} response:\n{response_b[:400]}",
                 file=sys.stderr,
             )
             return 1
-        print(f"[canary] tenant:{CANARY_TENANT_B} cannot see sentinel ✓")
+        print(f"[canary] /query tenant:{CANARY_TENANT_B} cannot see sentinel ✓")
 
+        # ------------------------------------------------------------------
+        # Gate 2 — /graphs?label=<sentinel> as tenant:B must return empty
+        # ------------------------------------------------------------------
+        graphs_b = _graphs_as_tenant(args.server_url, CANARY_TENANT_B, sentinel_id)
+        nodes_b = graphs_b.get("nodes", []) if isinstance(graphs_b, dict) else []
+        leaked_nodes = [
+            n for n in nodes_b
+            if isinstance(n, dict) and n.get("entity_id") == sentinel_id
+        ]
+        if leaked_nodes:
+            print(
+                f"[canary] FAIL — /graphs leaked sentinel into tenant:"
+                f"{CANARY_TENANT_B}: {leaked_nodes}",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"[canary] /graphs tenant:{CANARY_TENANT_B} returns empty ✓")
+
+        # ------------------------------------------------------------------
+        # Gate 3 — /graph/label/popular as tenant:B must not surface sentinel
+        # ------------------------------------------------------------------
+        popular_b = _popular_labels_as_tenant(args.server_url, CANARY_TENANT_B)
+        if sentinel_id in popular_b:
+            print(
+                f"[canary] FAIL — /graph/label/popular leaked sentinel "
+                f"into tenant:{CANARY_TENANT_B}",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"[canary] /graph/label/popular tenant:{CANARY_TENANT_B} clean ✓")
+
+        # ------------------------------------------------------------------
+        # Gate 4 — /documents/custom_kg with shared-only scope must 4xx
+        # (proves tenant callers cannot inject into shared)
+        # ------------------------------------------------------------------
+        ingest_status = _ingest_shared_as_tenant(
+            args.server_url, CANARY_TENANT_B, f"{sentinel_id}-inject"
+        )
+        if ingest_status < 400:
+            print(
+                f"[canary] FAIL — /documents/custom_kg allowed shared-write "
+                f"from tenant context (status={ingest_status})",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"[canary] /documents/custom_kg rejects shared-write "
+            f"(status={ingest_status}) ✓"
+        )
+
+        # ------------------------------------------------------------------
+        # Positive sanity — owning tenant surfaces own sentinel in /query
+        # (non-gating; hybrid recall is variable for single-node entities)
+        # ------------------------------------------------------------------
         response_a = _query_as_tenant(args.server_url, CANARY_TENANT_A, sentinel_id)
-        # Owning tenant should have some signal of the sentinel (at least
-        # in retrieved entity list). We don't hard-assert because the
-        # hybrid mode may or may not cite a single-node entity.
         if sentinel_id in response_a:
             print(f"[canary] tenant:{CANARY_TENANT_A} sees own sentinel ✓")
         else:

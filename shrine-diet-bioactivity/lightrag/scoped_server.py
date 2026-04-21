@@ -26,14 +26,15 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from audit_log import AuditLog, default_audit_log
+from audit_log import AuditLog, AuditRow, default_audit_log
 from scope_context import (
     reset_scope_filter,
     set_scope_filter,
@@ -256,3 +257,215 @@ def _extract_tenant_id(scope_filter: list[str]) -> str | None:
         if s.startswith("tenant:"):
             return s[len("tenant:"):]
     return None
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers for graph-route + ingest pass-throughs (Phase D1a)
+# ---------------------------------------------------------------------------
+
+
+def _parse_scope_filter_param(raw: str | None) -> list[str]:
+    """Parse the ``scope_filter`` query-string value for GET routes.
+
+    The value is a comma-separated list, e.g.
+    ``scope_filter=shared,tenant:clinic-a``. Each element must pass
+    :func:`validate_scope`. An empty or missing value is a 400 —
+    fail-closed, never fall back to a permissive default on the wire.
+    """
+    if not raw:
+        raise HTTPException(
+            status_code=400,
+            detail="scope_filter query param required, e.g. ?scope_filter=shared,tenant:<slug>",
+        )
+    parts = [s.strip() for s in raw.split(",") if s.strip()]
+    if not parts:
+        raise HTTPException(status_code=400, detail="scope_filter cannot be empty")
+    try:
+        for s in parts:
+            validate_scope(s)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return parts
+
+
+def _require_tenant(scope_filter: list[str]) -> str:
+    """Return the tenant slug or raise 400 — used by write routes."""
+    tenant = _extract_tenant_id(scope_filter)
+    if tenant is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "ingest routes require a 'tenant:<slug>' in scope_filter; "
+                "shared writes go through the offline ETL (ingest_unified.py)"
+            ),
+        )
+    return tenant
+
+
+@contextmanager
+def _scoped_audit(
+    tool: str,
+    scope_filter: list[str],
+    tenant_id: str | None,
+    body: object | None,
+) -> Iterator[AuditRow]:
+    """Compose scope-ContextVar set/reset with one audit row per request.
+
+    The audit row is emitted via ``_audit.record`` on exit. Any exception
+    inside the block is re-raised after the audit row has been marked
+    ``status='error'`` and emitted.
+    """
+    token = set_scope_filter(scope_filter)
+    try:
+        with _audit.record(
+            tool=tool,
+            scope_filter=scope_filter,
+            tenant_id=tenant_id,
+            query_body=body,
+        ) as row:
+            yield row
+    finally:
+        reset_scope_filter(token)
+
+
+# ---------------------------------------------------------------------------
+# Custom KG ingest request model (strict pydantic — payload shape is
+# validated at the edge; Cypher writes inherit the tenant scope).
+# ---------------------------------------------------------------------------
+
+
+class CustomKGEntity(BaseModel):
+    entity_name: str = Field(..., min_length=1)
+    entity_type: str = Field(..., min_length=1)
+    description: str = Field(default="")
+    # scope is ignored on input — always rewritten to tenant:<id>
+    scope: str | None = None
+    source_id: str | None = None
+
+
+class CustomKGRelationship(BaseModel):
+    src_id: str = Field(..., min_length=1)
+    tgt_id: str = Field(..., min_length=1)
+    description: str = Field(default="")
+    keywords: str = Field(default="")
+    weight: float = 1.0
+    scope: str | None = None
+    source_id: str | None = None
+
+
+class CustomKGPayload(BaseModel):
+    entities: list[CustomKGEntity] = Field(default_factory=list)
+    relationships: list[CustomKGRelationship] = Field(default_factory=list)
+
+
+class IngestCustomKGRequest(BaseModel):
+    scope_filter: list[str] = Field(..., min_length=1)
+    custom_kg: CustomKGPayload
+    source_label: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# GET /graphs — subgraph by label
+# ---------------------------------------------------------------------------
+
+
+@app.get("/graphs")
+async def get_graphs(
+    label: str = Query(..., description="Entity label / entity_id to expand from"),
+    max_depth: int = Query(3, ge=0, le=5),
+    max_nodes: int = Query(1000, ge=1, le=10_000),
+    scope_filter: str | None = Query(
+        None, description="Comma-separated, e.g. 'shared,tenant:<slug>'"
+    ),
+) -> dict[str, Any]:
+    scopes = _parse_scope_filter_param(scope_filter)
+    tenant_id = _extract_tenant_id(scopes)
+
+    with _scoped_audit(
+        tool="scoped_server./graphs",
+        scope_filter=scopes,
+        tenant_id=tenant_id,
+        body={"label": label, "max_depth": max_depth, "max_nodes": max_nodes},
+    ) as row:
+        result = await _rag.get_knowledge_graph(
+            node_label=label,
+            max_depth=max_depth,
+            max_nodes=max_nodes,
+        )
+        nodes = result.get("nodes", []) if isinstance(result, dict) else []
+        row.result_count = len(nodes)
+        return result if isinstance(result, dict) else {"raw": str(result)}
+
+
+# ---------------------------------------------------------------------------
+# GET /graph/label/popular — ontology shape in scope
+# ---------------------------------------------------------------------------
+
+
+@app.get("/graph/label/popular")
+async def get_popular_labels(
+    limit: int = Query(300, ge=1, le=1000),
+    scope_filter: str | None = Query(None),
+) -> list[str]:
+    scopes = _parse_scope_filter_param(scope_filter)
+    tenant_id = _extract_tenant_id(scopes)
+
+    with _scoped_audit(
+        tool="scoped_server./graph/label/popular",
+        scope_filter=scopes,
+        tenant_id=tenant_id,
+        body={"limit": limit},
+    ) as row:
+        labels = await _rag.chunk_entity_relation_graph.get_popular_labels(limit)
+        row.result_count = len(labels)
+        return labels
+
+
+# ---------------------------------------------------------------------------
+# POST /documents/custom_kg — tenant-scoped write
+# ---------------------------------------------------------------------------
+
+
+@app.post("/documents/custom_kg")
+async def ingest_custom_kg(request: IngestCustomKGRequest) -> dict[str, Any]:
+    # Scope validation + tenant requirement happen first so a malformed
+    # request does not emit an audit row under someone else's tenant.
+    try:
+        [validate_scope(s) for s in request.scope_filter]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    tenant_id = _require_tenant(request.scope_filter)
+    tenant_scope = f"tenant:{tenant_id}"
+
+    # Rewrite every entity / relationship scope to the tenant — the
+    # client cannot inject into 'shared' by setting it on a single row.
+    entities = [
+        {**e.model_dump(exclude_none=True), "scope": tenant_scope}
+        for e in request.custom_kg.entities
+    ]
+    relationships = [
+        {**r.model_dump(exclude_none=True), "scope": tenant_scope}
+        for r in request.custom_kg.relationships
+    ]
+
+    with _scoped_audit(
+        tool="scoped_server./documents/custom_kg",
+        scope_filter=request.scope_filter,
+        tenant_id=tenant_id,
+        body={
+            "source_label": request.source_label,
+            "entity_count": len(entities),
+            "relationship_count": len(relationships),
+        },
+    ) as row:
+        await _rag.ainsert_custom_kg(
+            {"entities": entities, "relationships": relationships}
+        )
+        row.result_count = len(entities) + len(relationships)
+        return {
+            "ingested": {
+                "entities": len(entities),
+                "relationships": len(relationships),
+            },
+            "scope": tenant_scope,
+        }

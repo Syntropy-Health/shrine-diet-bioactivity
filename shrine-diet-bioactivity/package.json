@@ -8,16 +8,6 @@
   },
   "scripts": {
     "build": "rm -rf build && tsc && chmod 755 build/index.js",
-    "download-data": "tsx scripts/download-sources.ts",
-    "download-all": "tsx scripts/download-sources.ts",
-    "download-cmaup": "tsx scripts/download-sources.ts --cmaup-only",
-    "download-ttd": "tsx scripts/download-sources.ts --ttd-only",
-    "convert-data": "tsx scripts/decompress-datasets.ts && tsx scripts/build-herbal-db.ts && rm -rf data_local_temp",
-    "migrate-kg": "tsx scripts/migrate-kg-expansion.ts",
-    "migrate-multi-source": "tsx scripts/migrate-multi-source.ts",
-    "build-food-bridge": "tsx scripts/build-food-bridge.ts",
-    "enrich-nutrition": "tsx scripts/enrich-nutrition.ts",
-    "audit": "tsx scripts/audit-herbal-data.ts",
     "inspector": "tsc && npx @modelcontextprotocol/inspector npx tsx src/index.ts",
     "test": "vitest run"
   },
@@ -27,19 +17,15 @@
   "keywords": ["mcp", "diet", "bioactivity", "phytochemical", "nutrition", "knowledge-graph"],
   "author": "Syntropy Health",
   "license": "ISC",
-  "description": "Unified diet + bioactivity knowledge graph MCP server — herbs, compounds, foods (FooDB + OpenNutrition 326K-food lookup), targets, diseases, symptoms, semantic KG search, and a cross-backend search-foods meta-tool.",
+  "description": "Thin-adapter MCP over the scoped LightRAG wrapper — 5 domain-agnostic tools for scope-filtered semantic search, graph traversal, and tenant-private knowledge ingestion.",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "better-sqlite3": "^11.7.0",
-    "papaparse": "^5.4.1",
-    "yauzl": "^3.2.0",
     "zod": "^3.25.46"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.15.29",
-    "@types/papaparse": "^5.3.16",
-    "@types/yauzl": "^2.10.3",
     "tsx": "^4.19.2",
     "typescript": "^5.8.3",
     "vitest": "^4.0.18"
