@@ -1,5 +1,13 @@
 # Plan: LightRAG-Driven Thin-Adapter MCP (Architectural Pivot)
 
+> **Superseded by `lightrag-thin-adapter-pivot-v2.plan.md`** — v2 drops the
+> SQLite annex entirely, collapses the 7-tool catalog to 5 tools, and
+> reuses LightRAG's `/graphs` + `/query` primitives instead of rolling
+> a custom `filter-by-property` route. This plan is kept for history;
+> move to `completed/` once v2 merges.
+>
+> Original plan below ↓
+>
 > Supersedes the domain-merge portion of `shrine-diet-bioactivity-unification.plan.md`.
 > The multi-tenant enforcement plan (`multi-tenant-enforcement-bootstrap.plan.md`)
 > is preserved, extended with an audit-log deliverable for traceable/billable

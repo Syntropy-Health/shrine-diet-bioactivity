@@ -1,56 +1,63 @@
 # shrine-diet-bioactivity — Integration Guide
 
-Audience: **Syntropy-Journals engineers** wiring ShrineAgent (or any other MCP
-client) to the diet + bioactivity knowledge graph. Covers the MCP tool
-catalog, the tenant scoping contract, and the Clerk `org_id → tenant_id`
-mapping rule.
+Audience: **Syntropy-Journals engineers** wiring ShrineAgent (or any
+other MCP client) to the diet + bioactivity knowledge graph. Covers the
+MCP tool catalog, the tenant scoping contract, and the Clerk
+`org_id → tenant_id` mapping rule.
 
 For clinical-workflow composition patterns (which live in the agent
 layer, not this MCP), see
 [`clinical-integration-notes.md`](./clinical-integration-notes.md).
 
-> **Status as of 2026-04-20** — architectural pivot in progress.
-> The server is being refactored to a **thin adapter over LightRAG**
-> with a narrow SQLite annex for structured numeric filters. The old
-> 14-tool domain catalog retires; the new 7-tool surface is tracked in
-> [`lightrag-thin-adapter-pivot.plan.md`](../../.claude/PRPs/plans/lightrag-thin-adapter-pivot.plan.md).
-> Phase A1 of the multi-tenant enforcement work has shipped (scope
-> context, `ScopedNeo4JStorage`, bootstrap migration, Clerk mapper).
-> Phase A2 (FastAPI wrapper + audit log + cross-tenant canary) is
-> in flight.
+> **Status** — D1 thin-adapter cutover landed. The server is a **thin
+> pass-through over the scoped LightRAG wrapper**. All knowledge —
+> structured properties, bioactivity, nutrition — lives in Neo4j; no
+> SQLite is consulted at runtime. Tracked in
+> [`lightrag-thin-adapter-pivot-v2.plan.md`](../../.claude/PRPs/plans/lightrag-thin-adapter-pivot-v2.plan.md).
 
 ---
 
 ## 1. What the server is
 
-One MCP server named `shrine-diet-bioactivity` is a **thin retrieval +
-tenancy + audit adapter** over LightRAG and a SQLite property annex.
-Specialised to the diet+bioactivity ontology — domain-agnostic in its
-query surface.
+`shrine-diet-bioactivity` is a **tenancy + audit adapter** over the
+scoped LightRAG wrapper (`lightrag/scoped_server.py`). It owns only:
 
-**Target tool catalog (7 tools, post-pivot):**
+- extracting `_meta.tenant_id`,
+- building the scope filter (`['shared', 'tenant:<id>']`),
+- emitting one audit row per invocation,
+- forwarding the request to LightRAG.
 
-| # | Tool | Backed by | Purpose |
+It carries **zero retrieval logic** of its own. No SQLite. No Cypher.
+Whatever upgrades LightRAG ships, the MCP inherits for free.
+
+**Tool catalog — 5 primitives + health:**
+
+| # | Tool | LightRAG route | Purpose |
 |---|---|---|---|
-| 1 | `semantic-search` | LightRAG `POST /query` | Hybrid / local / global / mix / naive KG retrieval, scope-filtered |
-| 2 | `get-entity` | LightRAG graph routes | Look up one entity by id, scope-filtered |
-| 3 | `get-neighbors` | LightRAG graph routes | Expand 1–2-hop neighborhood, optional edge-type filter, scope-filtered |
-| 4 | `list-entity-types` | LightRAG graph routes | Discover ontology labels + counts in scope |
-| 5 | `get-structured-properties` | SQLite annex | Exact property lookup (nutrition_100g, LD50, half-life, dosage) |
-| 6 | `filter-by-property` | SQLite annex | Numeric / enum filters (`protein_g > 20`, `class = flavonoid`) |
-| 7 | `ingest-tenant-knowledge` | LightRAG `/documents` + scoped `ainsert_custom_kg` | Tenant write path; scope forced to `tenant:<id>` |
+| 1 | `semantic-search` | `POST /query` | 5-mode KG retrieval (local / global / hybrid / mix / naive), scope-filtered |
+| 2 | `get-entity` | `GET /graphs?max_depth=0` | Single entity by id, full property bag |
+| 3 | `get-subgraph` | `GET /graphs?max_depth=N` | Connected neighborhood, scope-filtered |
+| 4 | `list-labels` | `GET /graph/label/popular` | Ontology shape visible in caller scope |
+| 5 | `ingest-knowledge` | `POST /documents/custom_kg` | Tenant-private write; server forces `scope=tenant:<id>` on every row |
+| — | `get-health` | — | Server status, no data |
 
-Why so few tools: LightRAG's API already serves semantic retrieval and
-graph traversal over the full ontology; reinventing domain verbs
-(`find-functional-foods`, `search-by-bioactivity`) locked the catalog
-into specific clinical / culinary workflows. Composition moves to the
-agent layer — see `clinical-integration-notes.md`.
+Design rationale: the old 15-tool catalog baked clinical and culinary
+verbs (`find-functional-foods`, `search-by-bioactivity`,
+`get-herb-profile`) into tool names. Each new agent query required a
+new tool. The 5-tool catalog is domain-agnostic: the agent composes
+clinical verbs on these primitives — see `clinical-integration-notes.md`.
 
-**Ontology (the only specialisation axis):**
+**Ontology (the specialisation lives entirely in Neo4j, not in the MCP):**
 
 - Shared: `Herb`, `Compound`, `Food`, `Target`, `Disease`, `Symptom`, `Nutrient`
 - Tenant-only: `Protocol`, `Intervention`, `Outcome`, `Biomarker`
 - 12 relationship types spanning both (see `lightrag/entity_schema.py`)
+
+Structured properties (nutrition_100g with 90 nutrient keys, LD50,
+half-life, dosage ranges, compound classes, bioactivity weights) are
+**node / edge properties in Neo4j** — returned as part of `get-entity`
+and surfaced in `semantic-search` responses. No property-annex
+database exists.
 
 ## 2. Wiring ShrineAgent (`.mcp.json`)
 

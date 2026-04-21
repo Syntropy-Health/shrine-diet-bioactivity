@@ -1,113 +1,129 @@
 # shrine-diet-bioactivity
 
-**LightRAG-driven semantic index + retrieval MCP server** over the
-diet + bioactivity knowledge graph. Specialized to the data ontology
-(herbs, phytochemical compounds, foods, targets, diseases, symptoms,
-plus tenant-scoped protocols / interventions / outcomes / biomarkers) —
-domain-agnostic in its tool surface. Multi-tenant by design, with
-per-request audit logging for traceability and billing.
+**Thin MCP adapter over the scoped LightRAG wrapper.** Owns tenancy +
+audit only; carries zero retrieval logic of its own. All knowledge —
+structured nutrition properties, bioactivity relationships, compound
+metadata — lives in a single Neo4j knowledge graph, queried through
+LightRAG's API.
 
-Clinical-workflow verbs (*find protocols for a biomarker, compare
-interventions, check contraindications*) are **agent-layer**
-compositions on top of this MCP — see
+Five domain-agnostic tools cover every retrieval and ingestion mode
+the agent needs. Clinical verbs (*find protocols for a biomarker,
+compare interventions, check contraindications*) are **agent-layer**
+compositions on top of these primitives — see
 [`docs/clinical-integration-notes.md`](./docs/clinical-integration-notes.md).
 
 For wiring a client, see [`docs/integration-guide.md`](./docs/integration-guide.md).
 
-## Data Coverage
+## MCP tool catalog
 
-| Table | Rows | Source |
-|-------|------|--------|
-| Herbs | 2,376 | Dr. Duke's Phytochemical DB |
-| Compounds | 94,512 | Dr. Duke's + FooDB |
-| Herb-Compound links | 99,280 | Dr. Duke's |
-| Compound-Food links | 4,149,541 | FooDB |
-| Bridge compounds | 4,449 | In both herbs AND foods |
-| Foods (structured nutrition) | 326,759 | OpenNutrition (90 nutrient keys) |
-| Targets / Diseases / Symptoms | 4,355 / 50K+ / 47 | CMAUP + TTD + curated |
-
-## MCP Tools — post-pivot target (7 tools, domain-agnostic)
-
-| # | Tool | Backed by | Purpose |
+| # | Tool | LightRAG route | Purpose |
 |---|---|---|---|
-| 1 | `semantic-search` | LightRAG `/query` | Hybrid / local / global / mix / naive KG retrieval, scope-filtered |
-| 2 | `get-entity` | LightRAG graph routes | Look up an entity by id |
-| 3 | `get-neighbors` | LightRAG graph routes | 1–2-hop neighborhood, optional edge-type filter |
-| 4 | `list-entity-types` | LightRAG graph routes | Discover ontology labels + in-scope counts |
-| 5 | `get-structured-properties` | SQLite annex | Exact property lookup (nutrition_100g, LD50, dosage) |
-| 6 | `filter-by-property` | SQLite annex | Numeric / enum filters |
-| 7 | `ingest-tenant-knowledge` | LightRAG `/documents` + `ainsert_custom_kg` | Tenant write path; scope forced to `tenant:<id>` |
+| 1 | `semantic-search` | `POST /query` | 5-mode KG retrieval (local/global/hybrid/mix/naive), scope-filtered |
+| 2 | `get-entity` | `GET /graphs?max_depth=0` | Single entity by id with full property bag |
+| 3 | `get-subgraph` | `GET /graphs?max_depth=N` | Connected neighborhood, scope-filtered |
+| 4 | `list-labels` | `GET /graph/label/popular` | Ontology shape visible in caller scope |
+| 5 | `ingest-knowledge` | `POST /documents/custom_kg` | Tenant-private write; server forces `scope=tenant:<id>` |
+| — | `get-health` | — | Server status |
 
-The current codebase still ships the legacy 14-tool surface — see
-[`.claude/PRPs/plans/lightrag-thin-adapter-pivot.plan.md`](../.claude/PRPs/plans/lightrag-thin-adapter-pivot.plan.md)
-for the migration.
+Every call is scope-filtered (`['shared', 'tenant:<id>']`) via
+`ScopedNeo4JStorage` + a per-request `ContextVar` and emits one audit
+row in `audit/mcp_audit.db`.
+
+## Architecture
+
+```
+  MCP client (agent, IDE, CLI)
+         │  MCP stdio, 5 tools + health
+         ▼
+  shrine-diet-bioactivity (Node/TS)
+         │  HTTP
+         ▼
+  scoped_server.py (FastAPI)           audit/mcp_audit.db
+    │ set ContextVar[scope_filter]
+    ▼
+  LightRAG + ScopedNeo4JStorage
+    │  WHERE n.scope IN $scope_filter
+    ▼
+  Neo4j workspace=unified_diet_kg
+```
 
 ## Setup
 
 ```bash
-# Install dependencies
 npm install
+npm test                         # 55+ unit/integration tests
+npm run build                    # emits build/index.js
 
-# Download source data (~960 MB total)
-npm run download-data
-
-# Build database from source CSVs
-npm run convert-data
-
-# Run tests
-npm test
-
-# Run data quality audit
-npm run audit
-
-# Build TypeScript
-npm run build
+# Python side (scoped LightRAG wrapper)
+cd lightrag
+pip install -r requirements.txt
+make lightrag-test-scope         # unit tests, no Neo4j required
 ```
+
+Run the server:
+
+```bash
+# 1. Start the scoped LightRAG wrapper on :9621
+make lightrag-server
+
+# 2. Start the MCP (wires to :9621 by default)
+npx tsx src/index.ts
+# or: node build/index.js
+```
+
+Env:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `LIGHTRAG_API_URL` | `http://localhost:9621` | Scoped LightRAG wrapper URL |
+| `MCP_AUDIT_DB` | `./audit/mcp_audit.db` | Audit log SQLite path |
 
 ## Usage with Claude
 
-Add to your Claude MCP config (`.mcp.json` or Claude settings):
+`.mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "herbal-botanicals": {
+    "shrine-diet-bioactivity": {
       "type": "stdio",
-      "command": "npx",
-      "args": ["tsx", "/path/to/mcp-herbal-botanicals/src/index.ts"]
+      "command": "node",
+      "args": ["/path/to/shrine-diet-bioactivity/build/index.js"],
+      "env": { "LIGHTRAG_API_URL": "http://localhost:9621" }
     }
   }
 }
 ```
 
-Then ask Claude: "What compounds are in turmeric?" or "What foods share compounds with ashwagandha?"
+## Data coverage (current prototype KG)
 
-## Data Sources
+The KG is already populated in Neo4j. The MCP never re-reads raw
+source files; it only queries the graph. See
+[`docs/opennutrition-to-kg.md`](./docs/opennutrition-to-kg.md) for the
+archived ingestion workflow (how to rebuild from raw sources if
+needed).
 
-| Source | License | Role |
-|--------|---------|------|
-| [Dr. Duke's Phytochemical DB](https://phytochem.nal.usda.gov) | CC0 (Public Domain) | Herb-to-compound mappings |
-| [FooDB](https://foodb.ca) | CC BY-NC 4.0 | Compound-to-food mappings |
+| Ontology | Rows in graph | Source |
+|---|---|---|
+| Herbs | ~2,376 | Dr. Duke's Phytochemical DB |
+| Compounds | ~5,000 (subsampled) | Dr. Duke's + FooDB |
+| Foods | subsampled | OpenNutrition 326K catalog |
+| Targets / Diseases / Symptoms | CMAUP + TTD + curated | — |
 
-## Architecture
+Subsample config (pinned for reproducibility) lives in
+[`Makefile`](./Makefile) under `MAX_HERBS`, `MAX_COMPOUNDS`,
+`MAX_FOODS`, `MAX_RELATIONSHIPS`. `make lightrag-ingest-prototype`
+reproduces the current KG from the SQLite intermediate.
 
-```
-Dr. Duke's CSV (5.8 MB)  ──► build-herbal-db.ts ──► herbal_botanicals.db
-                                                         │
-FooDB CSV (952 MB)  ────────►  (compound name     ──► SQLite with
-                                normalization)          pre-joined data
-                                                         │
-                                                    MCP Server (stdio)
-                                                    ├── search-herbs
-                                                    ├── get-herb-compounds
-                                                    ├── search-compounds
-                                                    ├── get-compound-foods
-                                                    ├── get-herb-food-overlap
-                                                    ├── search-by-bioactivity
-                                                    ├── get-herb-profile
-                                                    └── get-health
-```
+## Reference submodules
+
+- `lightrag/` — **active dependency**. The scoped wrapper subclasses
+  its Neo4j storage and mounts its graph routes.
+- `mcp-opennutrition/` — **reference only**. Source of the
+  OpenNutrition TSV→KG mapping methodology. Not wired to runtime;
+  the OpenNutrition MCP server it ships is no longer composed here.
 
 ## Part of Syntropy Health
 
-This MCP server is the data foundation for [Syntropy Health](https://github.com/Syntropy-Health)'s AI dietitian, composable with [mcp-opennutrition](../mcp-opennutrition/) for complete food + herbal nutrition coverage.
+Data foundation for [Syntropy Health](https://github.com/Syntropy-Health)'s AI
+dietitian / clinical-practice platform.
