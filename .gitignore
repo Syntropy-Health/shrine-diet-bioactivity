@@ -55,4 +55,9 @@ htmlcov/
 # Test output
 .vitest/
 test-results/
+
+# Agent tooling caches — installed per-developer, never tracked
+.claude/agents/
+.claude/commands/
+.claude/hooks/
 playwright-report/
