@@ -9,7 +9,9 @@
   "scripts": {
     "build": "rm -rf build && tsc && chmod 755 build/index.js",
     "inspector": "tsc && npx @modelcontextprotocol/inspector npx tsx src/index.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
   },
   "files": [
     "build"
@@ -26,6 +28,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.15.29",
+    "@vitest/coverage-v8": "^4.0.18",
     "tsx": "^4.19.2",
     "typescript": "^5.8.3",
     "vitest": "^4.0.18"

@@ -33,3 +33,26 @@ Thumbs.db
 # (graphiti-core is cloned here as a read-only reference; the active
 #  install path is the shrine-diet-bioactivity/graphiti/ PoC directory)
 /graphiti/
+
+# Local environment files — never commit real credentials. `.env.example`
+# and `config_*.env` templates (using ${VAR} references only) are tracked
+# and safe. Any `.env` file with literal values is developer-local.
+.env
+.env.local
+.env.*.local
+**/.env
+!**/.env.example
+!**/config_local.env
+!**/config_production.env
+
+# Coverage reports
+coverage/
+.coverage
+htmlcov/
+*.coverage
+.nyc_output/
+
+# Test output
+.vitest/
+test-results/
+playwright-report/

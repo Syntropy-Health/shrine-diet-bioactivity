@@ -1,0 +1,78 @@
+# Repo-level CI — typecheck + vitest + coverage gate
+#
+# Runs on every PR and on push to main/test.  Blocks merge on:
+#   - TypeScript compile errors
+#   - Vitest failures
+#   - Coverage below thresholds declared in vitest.config.ts
+#
+# The main TS MCP is in the subdirectory `shrine-diet-bioactivity/`.
+# Other dirs (mcp-opennutrition/, lightrag/, graphiti/) are submodules or
+# Python packages and are not gated by this workflow.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main, test]
+  push:
+    branches: [main, test]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  test:
+    name: Typecheck + Tests + Coverage
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: shrine-diet-bioactivity
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: shrine-diet-bioactivity/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: shrine-diet-bioactivity/coverage
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            echo "## Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '| Metric | Pct |' >> "$GITHUB_STEP_SUMMARY"
+            echo '|---|---|' >> "$GITHUB_STEP_SUMMARY"
+            node -e "
+              const s = require('./coverage/coverage-summary.json').total;
+              for (const k of ['statements','branches','functions','lines']) {
+                console.log(\`| \${k} | \${s[k].pct}% |\`);
+              }
+            " >> "$GITHUB_STEP_SUMMARY"
+          fi

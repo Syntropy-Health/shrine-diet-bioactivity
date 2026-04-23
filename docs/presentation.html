@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Shrine Diet Bioactivity — Mechanism, Data, Applications</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css" id="theme" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css" />
+
+<style>
+  :root {
+    --accent-teal: #14b8a6;
+    --accent-purple: #8b5cf6;
+    --accent-blue: #3b82f6;
+    --muted: #94a3b8;
+  }
+  .reveal h1, .reveal h2, .reveal h3 { text-transform: none; }
+  .reveal h1 { color: var(--accent-teal); }
+  .reveal h2 { color: var(--accent-purple); }
+  .reveal h3 { color: var(--accent-blue); }
+  .reveal .subtitle { color: var(--muted); font-size: 0.7em; }
+  .reveal .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5em; text-align: left; }
+  .reveal .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1em; text-align: left; }
+  .reveal .card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); padding: 1em; border-radius: 8px; }
+  .reveal code { background: rgba(20,184,166,0.1); padding: 2px 6px; border-radius: 4px; }
+  .reveal pre { font-size: 0.5em; }
+  .reveal .footnote { color: var(--muted); font-size: 0.5em; margin-top: 2em; }
+  .reveal .tag {
+    display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.6em;
+    background: rgba(139,92,246,0.2); color: var(--accent-purple); margin-right: 4px;
+  }
+  .reveal .tag.teal { background: rgba(20,184,166,0.2); color: var(--accent-teal); }
+  .reveal .tag.blue { background: rgba(59,130,246,0.2); color: var(--accent-blue); }
+</style>
+</head>
+<body>
+
+<div class="reveal">
+<div class="slides">
+
+<!-- ========== TITLE ========== -->
+<section>
+  <h1>Shrine Diet Bioactivity</h1>
+  <p class="subtitle">A metered knowledge-graph MCP for precision dietary health</p>
+  <p><span class="tag teal">Mechanism</span><span class="tag">Data</span><span class="tag blue">Applications</span></p>
+  <p class="footnote">Part of the Syntropy Health architecture — see <a href="https://github.com/Syntropy-Health/shrine-diet-bioactivity">github.com/Syntropy-Health/shrine-diet-bioactivity</a></p>
+</section>
+
+<!-- ========== WHAT ========== -->
+<section>
+  <section>
+    <h2>What is it?</h2>
+    <p>A paid, Clerk-authenticated <strong>Model Context Protocol</strong> server that exposes a biochemical knowledge graph to AI agents.</p>
+    <p class="subtitle">Herbs → compounds → molecular targets → diseases, plus per-tenant clinical overlays.</p>
+  </section>
+
+  <section>
+    <h3>Why MCP?</h3>
+    <div class="two-col">
+      <div class="card">
+        <strong>For the agent</strong>
+        <ul>
+          <li>No custom client SDK</li>
+          <li>Tool discovery via <code>tools/list</code></li>
+          <li>Works in Claude Desktop, Cursor, custom agents</li>
+        </ul>
+      </div>
+      <div class="card">
+        <strong>For the platform</strong>
+        <ul>
+          <li>Standard transport (Streamable HTTP)</li>
+          <li>Per-call authentication + metering</li>
+          <li>Scope-based tenant isolation</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</section>
+
+<!-- ========== MECHANISM ========== -->
+<section>
+  <section>
+    <h2>Mechanism</h2>
+    <p class="subtitle">A thin adapter on top of a Python semantic engine.</p>
+  </section>
+
+  <section>
+    <h3>The three-layer stack</h3>
+    <div class="three-col">
+      <div class="card">
+        <strong style="color:var(--accent-teal)">Transport</strong>
+        <p>TypeScript Streamable HTTP MCP server. Clerk JWT auth with <code>kg:read</code> / <code>kg:write</code> scopes. Per-call metering reports to SyntropyJournal.</p>
+      </div>
+      <div class="card">
+        <strong style="color:var(--accent-purple)">Semantic Engine</strong>
+        <p>Python LightRAG with a <code>scope_filter</code> that enforces tenant isolation server-side. Embedding pipeline via Ollama (test) or OpenAI (prod).</p>
+      </div>
+      <div class="card">
+        <strong style="color:var(--accent-blue)">Graph Store</strong>
+        <p>Neo4j with property-based scoping: <code>scope: 'shared'</code> or <code>scope: 'tenant:X'</code>. Traversal queries respect scope at the Cypher layer.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h3>Tenant permission model</h3>
+    <table>
+      <tr><th>Scope</th><th>Read</th><th>Write</th></tr>
+      <tr>
+        <td><code>kg:read</code></td>
+        <td><code>shared</code> + own <code>tenant:X</code></td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td><code>kg:write</code></td>
+        <td>—</td>
+        <td>Own <code>tenant:X</code> only; <code>shared</code> is immutable</td>
+      </tr>
+    </table>
+    <p class="footnote">Tenants build on shared open-source knowledge without being able to corrupt it. Future: per-tenant visibility flag for opt-in cross-tenant sharing.</p>
+  </section>
+
+  <section>
+    <h3>MCP tools exposed</h3>
+    <pre><code class="language-json">{
+  "tools": [
+    { "name": "semantic-search",   "scope": "kg:read" },
+    { "name": "graph-traversal",   "scope": "kg:read" },
+    { "name": "entity-lookup",     "scope": "kg:read" },
+    { "name": "tenant-ingest",     "scope": "kg:write" },
+    { "name": "capabilities",      "scope": "public" }
+  ]
+}</code></pre>
+    <p class="subtitle">5 domain-agnostic tools. Clinic-specific reasoning stays in the agent (Claude, ShrineAI); the MCP just serves structured retrieval.</p>
+  </section>
+</section>
+
+<!-- ========== DATA ========== -->
+<section>
+  <section>
+    <h2>Data</h2>
+    <p class="subtitle">7,722 shared nodes + 795 edges out-of-the-box, extensible per tenant.</p>
+  </section>
+
+  <section>
+    <h3>Shared base knowledge</h3>
+    <div class="two-col">
+      <div class="card">
+        <strong>Sources (curated open data)</strong>
+        <ul>
+          <li>USDA FoodData Central (900k+ foods)</li>
+          <li>Dr. Duke's Phytochemical DB</li>
+          <li>OpenNutrition (300k+ foods)</li>
+          <li>NIH DSLD (100k+ supplements)</li>
+          <li>CMAUP, TTD, BATMAN-TCM</li>
+        </ul>
+      </div>
+      <div class="card">
+        <strong>Entity types</strong>
+        <ul>
+          <li>Food / Supplement</li>
+          <li>Bioactive Compound</li>
+          <li>Molecular Target</li>
+          <li>Disease / Condition</li>
+          <li>Biomarker</li>
+          <li>Mechanism of Action</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h3>Clinical ontology (tenant-scoped)</h3>
+    <p>Each clinic extends the shared graph with their own practice knowledge:</p>
+    <pre><code class="language-text">Protocol → Intervention → Outcome → Biomarker
+          (clinic designs)   (observed)  (measured)</code></pre>
+    <p class="subtitle">Example: "Adrenal Reset Protocol" includes Ashwagandha + Magnesium → cortisol:DHEA ratio improvement → measured via saliva panel. Written via <code>tenant-ingest</code>, visible only to that tenant.</p>
+  </section>
+
+  <section>
+    <h3>How data flows in</h3>
+    <ol>
+      <li><strong>Ingestion pipeline</strong>: open-source data → LightRAG embeddings → Neo4j nodes/edges with <code>scope: shared</code></li>
+      <li><strong>Tenant overlay</strong>: clinic POSTs structured entities via <code>tenant-ingest</code> MCP tool</li>
+      <li><strong>Query-time filter</strong>: <code>scope_filter = ['shared', 'tenant:X']</code> injected into every Cypher query</li>
+      <li><strong>Audit log</strong>: per-tenant append-only log of every read and write</li>
+    </ol>
+  </section>
+</section>
+
+<!-- ========== APPLICATIONS ========== -->
+<section>
+  <section>
+    <h2>Applications</h2>
+    <p class="subtitle">Who uses it, and how.</p>
+  </section>
+
+  <section>
+    <h3>Application 1 — Longevity clinics</h3>
+    <div class="two-col">
+      <div>
+        <p><strong>The practitioner</strong></p>
+        <ul>
+          <li>Naturopath, integrative MD, functional nutritionist</li>
+          <li>Uses Claude Desktop / Cursor as reasoning partner</li>
+          <li>Needs biochemistry grounded in evidence, not generic LLM guesses</li>
+        </ul>
+      </div>
+      <div>
+        <p><strong>The workflow</strong></p>
+        <ul>
+          <li>Ask "What foods support glutathione synthesis with elevated oxidative stress?"</li>
+          <li>Agent traverses shared KG: NAC → cysteine → glutathione pathway</li>
+          <li>Cross-references clinic's own Outcome data</li>
+          <li>Proposes protocol; practitioner approves</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h3>Application 2 — SyntropyJournal consumers</h3>
+    <p>Self-hosters or hosted users who flip on the <code>features.knowledge_graph</code> feature flag.</p>
+    <ul>
+      <li>ShrineAI's existing ReAct agent gets KG tools added to its tool list at startup</li>
+      <li>User asks: "What foods help my elevated CRP?"</li>
+      <li>Graphiti surfaces personal context; KG MCP surfaces shared evidence; combined response</li>
+      <li>Metered to user's subscription — consumer path to the same paid service</li>
+    </ul>
+  </section>
+
+  <section>
+    <h3>Application 3 — Partner / third-party agents</h3>
+    <ul>
+      <li>Other health-tech agents integrate via MCP discovery</li>
+      <li>Example: a Shopify protocol-builder agent queries KG to validate ingredient synergy before proposing a bundle</li>
+      <li>Example: a clinical trial screening agent queries KG for biomarker-disease-intervention links to match patients to protocols</li>
+      <li>Per-partner tokens, per-call metering, scope-filtered access</li>
+    </ul>
+  </section>
+
+  <section>
+    <h3>What makes the data defensible</h3>
+    <div class="two-col">
+      <div class="card">
+        <strong>Shared base</strong>
+        <p>Open-source (licenses respected). Value isn't in the raw data — it's in the <strong>unified graph structure</strong>, the cross-DB linkages, and the embedding pipeline that enables semantic traversal.</p>
+      </div>
+      <div class="card">
+        <strong>Per-tenant overlay</strong>
+        <p>Clinic's real-world protocol-outcome data is irreproducible from public sources. The overlay is where the compounding moat forms: more clinics → more tenant data → better benchmarks.</p>
+      </div>
+    </div>
+  </section>
+</section>
+
+<!-- ========== CONNECT ========== -->
+<section>
+  <section>
+    <h2>Connect</h2>
+    <p class="subtitle">One block of JSON and you're live.</p>
+  </section>
+
+  <section>
+    <h3>Claude Desktop config</h3>
+    <pre><code class="language-json">{
+  "mcpServers": {
+    "syntropy-kg": {
+      "url": "https://syntropy-kg-mcp-production.up.railway.app/mcp",
+      "headers": {
+        "Authorization": "Bearer &lt;CLERK_JWT_WITH_kg:read&gt;"
+      }
+    }
+  }
+}</code></pre>
+    <p class="subtitle">Generate JWT in SyntropyJournal → Settings → API Tokens → select <code>kg:read</code> scope (requires active KG subscription).</p>
+  </section>
+
+  <section>
+    <h1>Thanks</h1>
+    <p class="subtitle">github.com/Syntropy-Health/shrine-diet-bioactivity</p>
+  </section>
+</section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    slideNumber: 'c/t',
+    progress: true,
+    controls: true,
+    plugins: [ RevealHighlight, RevealNotes ],
+  });
+</script>
+</body>
+</html>
