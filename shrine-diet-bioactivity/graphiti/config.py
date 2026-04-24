@@ -15,13 +15,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Neo4j connection
-# Railway: bolt://neo4j-test-2be3.up.railway.app:7687
-# Railway proxy: bolt://metro.proxy.rlwy.net:22971
-# Local: bolt://localhost:7687
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://metro.proxy.rlwy.net:22971")
+# Neo4j connection — set via environment / Infisical "SyntropyHealth App"
+# Production: Neo4j Aura Cloud (neo4j+s://<instance-id>.databases.neo4j.io)
+# Local dev: bolt://localhost:7687
+NEO4J_URI = os.getenv("NEO4J_URI", "")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "demodemo")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "")
 
 # Embedding configuration (OpenAI-compatible endpoint)
 # LM Studio on WSL2: must use the Windows host IP (gateway), not 127.0.0.1
@@ -69,6 +68,8 @@ MAX_LINKS = int(os.getenv("MAX_LINKS", "2000"))  # Cap relationship episodes
 def validate_config() -> list[str]:
     """Check configuration and return list of warnings."""
     warnings = []
+    if not NEO4J_URI:
+        warnings.append("NEO4J_URI not set — connection will fail (expected neo4j+s://… from Infisical)")
     if not NEO4J_PASSWORD:
         warnings.append("NEO4J_PASSWORD not set — connection will fail")
     if "127.0.0.1" in EMBEDDING_BASE_URL or "localhost" in EMBEDDING_BASE_URL:

@@ -6,9 +6,9 @@ import time
 
 from neo4j import GraphDatabase
 
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://metro.proxy.rlwy.net:22971")
+NEO4J_URI = os.getenv("NEO4J_URI", "")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "demodemo")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "")
 SNAP_FILE = os.path.expanduser("~/.cache/kg-snapshot.json")
 
 GRAPHITI_LABELS = {"Entity", "Episodic", "Community"}
@@ -16,6 +16,10 @@ GRAPHITI_RELS = {"MENTIONS", "RELATES_TO", "HAS_MEMBER", "IS_RELATED_TO"}
 
 
 def main():
+    if not NEO4J_URI or not NEO4J_PASSWORD:
+        raise SystemExit(
+            "NEO4J_URI and NEO4J_PASSWORD must be set (load from .env or Infisical)"
+        )
     d = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
     s = d.session()
 
