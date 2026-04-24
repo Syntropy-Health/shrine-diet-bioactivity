@@ -1,0 +1,626 @@
+[
+  {
+    "id": "HDI-001",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Sertraline", "atc": "N06AB06" },
+    "severity": "severe",
+    "mechanism_class": "serotonergic",
+    "evidence_tier": "case_report_series",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" },
+      { "name": "LiverTox — St. John's Wort", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548880/" }
+    ],
+    "notes": "Hypericum perforatum inhibits serotonin, norepinephrine, and dopamine reuptake and, when co-administered with SSRIs such as sertraline, produces additive serotonergic effect. Multiple case reports describe serotonin syndrome (hyperthermia, clonus, agitation) after concurrent use; MSK explicitly lists SSRIs among contraindicated classes."
+  },
+  {
+    "id": "HDI-002",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Paroxetine", "atc": "N06AB05" },
+    "severity": "severe",
+    "mechanism_class": "serotonergic",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" }
+    ],
+    "notes": "Concurrent paroxetine plus St. John's Wort has been associated with lethargy, incoherence, and serotonin-syndrome features in published case reports. MSK advises against combining Hypericum with any serotonergic antidepressant."
+  },
+  {
+    "id": "HDI-003",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Venlafaxine", "atc": "N06AX16" },
+    "severity": "severe",
+    "mechanism_class": "serotonergic",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" },
+      { "name": "LiverTox — St. John's Wort", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548880/" }
+    ],
+    "notes": "SNRIs share the serotonin-reuptake-inhibition target of SSRIs, so adding St. John's Wort compounds the serotonergic load. Case reports describe agitation and autonomic instability when venlafaxine is combined with Hypericum."
+  },
+  {
+    "id": "HDI-004",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Phenelzine", "atc": "N06AF03" },
+    "severity": "severe",
+    "mechanism_class": "serotonergic",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" }
+    ],
+    "notes": "MAO inhibitors plus Hypericum risk hypertensive crisis and severe serotonin syndrome; MSK lists MAOIs as a hard contraindication. A 14-day washout is recommended after MAOI discontinuation before introducing serotonergic herbs."
+  },
+  {
+    "id": "HDI-005",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Sumatriptan", "atc": "N02CC01" },
+    "severity": "moderate",
+    "mechanism_class": "serotonergic",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" }
+    ],
+    "notes": "Triptans are 5-HT1B/1D agonists and, combined with St. John's Wort's reuptake inhibition, can precipitate serotonin syndrome, especially in migraine patients using frequent triptan doses."
+  },
+  {
+    "id": "HDI-006",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Tramadol", "atc": "N02AX02" },
+    "severity": "severe",
+    "mechanism_class": "serotonergic",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" }
+    ],
+    "notes": "Tramadol has intrinsic serotonin-reuptake-inhibition activity; combining with Hypericum has produced documented serotonin-syndrome presentations. Risk is highest at >300 mg/day tramadol."
+  },
+  {
+    "id": "HDI-007",
+    "herb": { "name": "5-HTP", "latin": "Griffonia simplicifolia" },
+    "drug": { "name": "Fluoxetine", "atc": "N06AB03" },
+    "severity": "severe",
+    "mechanism_class": "serotonergic",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — 5-HTP", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/5-htp-01" }
+    ],
+    "notes": "5-HTP is the immediate precursor of serotonin and bypasses tryptophan hydroxylase regulation. Co-administration with SSRIs such as fluoxetine raises cerebral 5-HT to levels reported to cause serotonin syndrome; MSK lists SSRIs as a contraindication."
+  },
+  {
+    "id": "HDI-008",
+    "herb": { "name": "5-HTP", "latin": "Griffonia simplicifolia" },
+    "drug": { "name": "Tranylcypromine", "atc": "N06AF04" },
+    "severity": "severe",
+    "mechanism_class": "serotonergic",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — 5-HTP", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/5-htp-01" }
+    ],
+    "notes": "MAOIs block serotonin catabolism; pairing with the serotonin precursor 5-HTP can cause rapid serotonin accumulation and potentially fatal hyperthermia. The combination is contraindicated in MSK guidance."
+  },
+  {
+    "id": "HDI-009",
+    "herb": { "name": "SAMe", "latin": "S-adenosyl-L-methionine" },
+    "drug": { "name": "Citalopram", "atc": "N06AB04" },
+    "severity": "moderate",
+    "mechanism_class": "serotonergic",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — SAM-e", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/sam-e" }
+    ],
+    "notes": "SAMe has intrinsic antidepressant activity and may enhance monoaminergic signaling. Case reports describe serotonin-syndrome features when combined with SSRIs; MSK cautions against pairing SAMe with 5-HTP, SJW, or SSRIs."
+  },
+  {
+    "id": "HDI-010",
+    "herb": { "name": "L-Tryptophan", "latin": "Tryptophan" },
+    "drug": { "name": "Phenelzine", "atc": "N06AF03" },
+    "severity": "severe",
+    "mechanism_class": "serotonergic",
+    "evidence_tier": "case_report_series",
+    "sources": [
+      { "name": "MSK About Herbs — 5-HTP", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/5-htp-01" }
+    ],
+    "notes": "L-tryptophan loads the serotonin-synthesis pathway upstream of 5-HTP. In the presence of MAOIs, catabolism is blocked and serotonin accumulates, producing hyperreflexia, confusion, and hyperthermia consistent with serotonin syndrome."
+  },
+  {
+    "id": "HDI-011",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Duloxetine", "atc": "N06AX21" },
+    "severity": "severe",
+    "mechanism_class": "serotonergic",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" }
+    ],
+    "notes": "Duloxetine inhibits serotonin and norepinephrine reuptake; Hypericum contributes additional reuptake inhibition and CYP-mediated changes in duloxetine metabolism. MSK advises avoiding concurrent use."
+  },
+  {
+    "id": "HDI-012",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Ethinyl estradiol / Levonorgestrel (OCP)", "atc": "G03AA07" },
+    "severity": "severe",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "clinical_trial",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" },
+      { "name": "LiverTox — St. John's Wort", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548880/" }
+    ],
+    "notes": "Hyperforin is a potent PXR ligand and induces CYP3A4, accelerating oestrogen and progestin clearance. Randomised PK studies and reported breakthrough bleeding / unplanned pregnancies establish a clinically significant contraceptive failure risk."
+  },
+  {
+    "id": "HDI-013",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Cyclosporine", "atc": "L04AD01" },
+    "severity": "severe",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "clinical_trial",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" },
+      { "name": "LiverTox — St. John's Wort", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548880/" }
+    ],
+    "notes": "CYP3A4 induction by SJW reduces cyclosporine AUC by up to 50%, with published reports of acute transplant rejection. FDA and EMA have issued safety communications; combination is contraindicated in transplant recipients."
+  },
+  {
+    "id": "HDI-014",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Indinavir", "atc": "J05AE02" },
+    "severity": "severe",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "clinical_trial",
+    "sources": [
+      { "name": "LiverTox — St. John's Wort", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548880/" },
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" }
+    ],
+    "notes": "A landmark NIH PK study showed SJW reduced indinavir AUC by 57% via CYP3A4 induction, risking virologic failure in HIV patients. Antiretroviral co-administration with SJW is contraindicated."
+  },
+  {
+    "id": "HDI-015",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Warfarin", "atc": "B01AA03" },
+    "severity": "severe",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "case_report_series",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" },
+      { "name": "LiverTox — St. John's Wort", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548880/" }
+    ],
+    "notes": "SJW induces CYP2C9 (the main metaboliser of S-warfarin) and CYP3A4, lowering INR and causing subtherapeutic anticoagulation. Published case series show loss of INR control within 1–2 weeks of starting SJW."
+  },
+  {
+    "id": "HDI-016",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Simvastatin", "atc": "C10AA01" },
+    "severity": "moderate",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "pharmacokinetic_study",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" }
+    ],
+    "notes": "Simvastatin is a CYP3A4 substrate; SJW induction reduces simvastatin and its active metabolite plasma exposure, blunting LDL-lowering efficacy. Pravastatin (non-CYP3A4) is a preferred alternative."
+  },
+  {
+    "id": "HDI-017",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Tacrolimus", "atc": "L04AD02" },
+    "severity": "severe",
+    "mechanism_class": "P-gp",
+    "evidence_tier": "clinical_trial",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" },
+      { "name": "LiverTox — St. John's Wort", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548880/" }
+    ],
+    "notes": "Tacrolimus trough levels depend heavily on intestinal P-glycoprotein activity, which hyperforin induces. Although CYP3A4 induction contributes, P-gp induction is the dominant mechanism for the ~50% trough-level drop reported in transplant recipients, with documented rejection episodes."
+  },
+  {
+    "id": "HDI-018",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Imatinib", "atc": "L01EA01" },
+    "severity": "severe",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "pharmacokinetic_study",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" }
+    ],
+    "notes": "Imatinib AUC drops ~30–40% with SJW co-administration via CYP3A4 induction, potentially compromising CML control. Oncology guidelines explicitly prohibit SJW with tyrosine-kinase inhibitors."
+  },
+  {
+    "id": "HDI-019",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Irinotecan", "atc": "L01CE02" },
+    "severity": "severe",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "clinical_trial",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" }
+    ],
+    "notes": "SJW reduces exposure of SN-38 (the active metabolite of irinotecan) by ~40% through CYP3A4 induction and UGT1A1 modulation, with persistence up to 3 weeks after SJW discontinuation — risking chemotherapy failure."
+  },
+  {
+    "id": "HDI-020",
+    "herb": { "name": "Grapefruit Juice", "latin": "Citrus paradisi" },
+    "drug": { "name": "Felodipine", "atc": "C08CA02" },
+    "severity": "moderate",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "clinical_trial",
+    "sources": [
+      { "name": "LiverTox — Felodipine (grapefruit interaction)", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548294/" }
+    ],
+    "notes": "Furanocoumarins in grapefruit juice irreversibly inhibit intestinal CYP3A4, raising felodipine AUC by 2–3 fold and producing hypotension and reflex tachycardia in controlled studies. Effect persists up to 72 h after ingestion."
+  },
+  {
+    "id": "HDI-021",
+    "herb": { "name": "Grapefruit Juice", "latin": "Citrus paradisi" },
+    "drug": { "name": "Simvastatin", "atc": "C10AA01" },
+    "severity": "severe",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "clinical_trial",
+    "sources": [
+      { "name": "LiverTox — Felodipine (grapefruit interaction mechanism)", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548294/" }
+    ],
+    "notes": "Intestinal CYP3A4 inhibition by grapefruit raises simvastatin AUC up to 15-fold, dramatically increasing rhabdomyolysis risk. Statin labeling explicitly cautions against grapefruit intake."
+  },
+  {
+    "id": "HDI-022",
+    "herb": { "name": "Grapefruit Juice", "latin": "Citrus paradisi" },
+    "drug": { "name": "Tacrolimus", "atc": "L04AD02" },
+    "severity": "severe",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "case_report_series",
+    "sources": [
+      { "name": "LiverTox — Felodipine (grapefruit CYP3A4 mechanism)", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548294/" }
+    ],
+    "notes": "Grapefruit inhibition of enterocyte CYP3A4 can elevate tacrolimus trough levels into nephrotoxic range in transplant patients; hidden grapefruit in beverages has been implicated in published cases."
+  },
+  {
+    "id": "HDI-023",
+    "herb": { "name": "Goldenseal", "latin": "Hydrastis canadensis" },
+    "drug": { "name": "Midazolam", "atc": "N05CD08" },
+    "severity": "moderate",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "pharmacokinetic_study",
+    "sources": [
+      { "name": "MSK About Herbs — Goldenseal", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/goldenseal" }
+    ],
+    "notes": "Goldenseal produces the largest in-vivo CYP3A4 inhibition of any commonly used botanical (~40% midazolam AUC increase in controlled PK studies), intensifying sedative effect and respiratory depression risk."
+  },
+  {
+    "id": "HDI-024",
+    "herb": { "name": "Goldenseal", "latin": "Hydrastis canadensis" },
+    "drug": { "name": "Metoprolol", "atc": "C07AB02" },
+    "severity": "moderate",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "pharmacokinetic_study",
+    "sources": [
+      { "name": "MSK About Herbs — Goldenseal", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/goldenseal" }
+    ],
+    "notes": "Goldenseal inhibits CYP2D6 in vivo, increasing metoprolol Cmax and AUC and raising risk of bradycardia and hypotension. MSK flags goldenseal as a broad CYP inhibitor."
+  },
+  {
+    "id": "HDI-025",
+    "herb": { "name": "Kava", "latin": "Piper methysticum" },
+    "drug": { "name": "Alprazolam", "atc": "N05BA12" },
+    "severity": "severe",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "LiverTox — Kava Kava", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548637/" },
+      { "name": "MSK About Herbs — Kava", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/kava" }
+    ],
+    "notes": "Kavalactones modulate CYP1A2, CYP2C9, CYP2C19 and CYP3A4 and also have intrinsic GABAergic effect. Case reports describe semi-coma when kava was added to alprazolam therapy."
+  },
+  {
+    "id": "HDI-026",
+    "herb": { "name": "Ginseng (American)", "latin": "Panax quinquefolius" },
+    "drug": { "name": "Warfarin", "atc": "B01AA03" },
+    "severity": "moderate",
+    "mechanism_class": "PD-antagonism",
+    "evidence_tier": "clinical_trial",
+    "sources": [
+      { "name": "MSK About Herbs — Ginseng (American)", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/ginseng-american" },
+      { "name": "LiverTox — Ginseng", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548200/" }
+    ],
+    "notes": "A randomised placebo-controlled crossover trial showed 2 weeks of American ginseng reduced INR and warfarin AUC in healthy volunteers. The effect is pharmacodynamic rather than CYP-mediated, likely reflecting induced synthesis of vitamin-K-dependent clotting factors by ginsenosides."
+  },
+  {
+    "id": "HDI-027",
+    "herb": { "name": "Milk Thistle", "latin": "Silybum marianum" },
+    "drug": { "name": "Indinavir", "atc": "J05AE02" },
+    "severity": "moderate",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "pharmacokinetic_study",
+    "sources": [
+      { "name": "MSK About Herbs — Milk Thistle", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/milk-thistle" },
+      { "name": "LiverTox — Milk Thistle", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548817/" }
+    ],
+    "notes": "Silymarin weakly inhibits CYP3A4 and UGT1A1, potentially reducing indinavir exposure. Evidence is mixed but MSK lists HIV protease inhibitors among medications to discuss before use."
+  },
+  {
+    "id": "HDI-028",
+    "herb": { "name": "Turmeric", "latin": "Curcuma longa" },
+    "drug": { "name": "Tamoxifen", "atc": "L02BA01" },
+    "severity": "moderate",
+    "mechanism_class": "CYP450",
+    "evidence_tier": "pharmacokinetic_study",
+    "sources": [
+      { "name": "MSK About Herbs — Turmeric", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/turmeric" },
+      { "name": "LiverTox — Turmeric", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548561/" }
+    ],
+    "notes": "Curcumin inhibits CYP3A4 and CYP2D6, potentially lowering endoxifen (tamoxifen's active metabolite) formation. MSK explicitly warns about tamoxifen interactions and reduced chemotherapy efficacy."
+  },
+  {
+    "id": "HDI-029",
+    "herb": { "name": "Horny Goat Weed", "latin": "Epimedium brevicornum" },
+    "drug": { "name": "Amlodipine", "atc": "C08CA01" },
+    "severity": "moderate",
+    "mechanism_class": "PD-antagonism",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — Epimedium (Horny Goat Weed)", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/epimedium" }
+    ],
+    "notes": "Icariin, the main epimedium flavonoid, is a phosphodiesterase-5 inhibitor with vasodilator activity. Added to a calcium-channel blocker this produces additive hypotension; MSK lists antihypertensives and PDE5-dependent drugs as interaction concerns."
+  },
+  {
+    "id": "HDI-030",
+    "herb": { "name": "Licorice", "latin": "Glycyrrhiza glabra" },
+    "drug": { "name": "Spironolactone", "atc": "C03DA01" },
+    "severity": "moderate",
+    "mechanism_class": "PD-antagonism",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — Licorice", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/licorice" },
+      { "name": "LiverTox — Licorice", "url": "https://www.ncbi.nlm.nih.gov/books/NBK590484/" }
+    ],
+    "notes": "Glycyrrhizin produces apparent-mineralocorticoid-excess via 11β-HSD2 inhibition, directly opposing the aldosterone-antagonist action of spironolactone. Case reports describe blunted diuresis and unexpected hypokalaemia when licorice is co-used with K-sparing diuretics."
+  },
+  {
+    "id": "HDI-031",
+    "herb": { "name": "Ginkgo", "latin": "Ginkgo biloba" },
+    "drug": { "name": "Warfarin", "atc": "B01AA03" },
+    "severity": "severe",
+    "mechanism_class": "coagulation",
+    "evidence_tier": "case_report_series",
+    "sources": [
+      { "name": "MSK About Herbs — Ginkgo", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/ginkgo" },
+      { "name": "LiverTox — Ginkgo", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548847/" }
+    ],
+    "notes": "Ginkgolides inhibit platelet-activating factor, which combined with warfarin-driven anticoagulation has produced subdural haematoma, intracerebral bleed, and postoperative haemorrhage in published case reports. MSK advises discontinuation 1–2 weeks pre-surgery."
+  },
+  {
+    "id": "HDI-032",
+    "herb": { "name": "Ginkgo", "latin": "Ginkgo biloba" },
+    "drug": { "name": "Aspirin", "atc": "B01AC06" },
+    "severity": "moderate",
+    "mechanism_class": "coagulation",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — Ginkgo", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/ginkgo" }
+    ],
+    "notes": "Additive antiplatelet effect: ginkgolide B blocks PAF-mediated aggregation while aspirin inhibits COX-1. Published cases link concurrent use to spontaneous hyphema and intracranial bleeding."
+  },
+  {
+    "id": "HDI-033",
+    "herb": { "name": "Garlic", "latin": "Allium sativum" },
+    "drug": { "name": "Warfarin", "atc": "B01AA03" },
+    "severity": "moderate",
+    "mechanism_class": "coagulation",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — Garlic", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/garlic" }
+    ],
+    "notes": "Allicin-derived compounds inhibit platelet aggregation and enhance fibrinolysis, raising INR when combined with warfarin. Post-operative haemorrhage has been reported; MSK recommends stopping garlic supplements 1 week before surgery."
+  },
+  {
+    "id": "HDI-034",
+    "herb": { "name": "Garlic", "latin": "Allium sativum" },
+    "drug": { "name": "Clopidogrel", "atc": "B01AC04" },
+    "severity": "moderate",
+    "mechanism_class": "coagulation",
+    "evidence_tier": "pharmacokinetic_study",
+    "sources": [
+      { "name": "MSK About Herbs — Garlic", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/garlic" }
+    ],
+    "notes": "Concomitant garlic and clopidogrel produce additive antiplatelet effect demonstrable by platelet-function assays. MSK flags antiplatelet therapy as the main interaction concern."
+  },
+  {
+    "id": "HDI-035",
+    "herb": { "name": "Ginger", "latin": "Zingiber officinale" },
+    "drug": { "name": "Warfarin", "atc": "B01AA03" },
+    "severity": "moderate",
+    "mechanism_class": "coagulation",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — Ginger", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/ginger" },
+      { "name": "LiverTox — Ginger", "url": "https://www.ncbi.nlm.nih.gov/books/NBK600585/" }
+    ],
+    "notes": "Gingerols inhibit thromboxane synthesis and platelet aggregation; case reports describe elevated INR and epistaxis with warfarin co-use. MSK advises ginger-supplement discontinuation 2 weeks before surgery."
+  },
+  {
+    "id": "HDI-036",
+    "herb": { "name": "Fish Oil (Omega-3 EPA/DHA)", "latin": "Pisces (EPA/DHA)" },
+    "drug": { "name": "Warfarin", "atc": "B01AA03" },
+    "severity": "moderate",
+    "mechanism_class": "coagulation",
+    "evidence_tier": "case_report_series",
+    "sources": [
+      { "name": "NIH ODS Fact Sheet — Omega-3 Fatty Acids (Health Professional)", "url": "https://ods.od.nih.gov/factsheets/Omega3FattyAcids-HealthProfessional/" },
+      { "name": "MSK About Herbs — Omega-3", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/omega-3" }
+    ],
+    "notes": "High-dose (>3 g/day) EPA/DHA reduces platelet aggregation via eicosanoid shift, modestly prolonging bleeding time. NIH ODS lists anticoagulants among key drug-interaction categories to monitor."
+  },
+  {
+    "id": "HDI-037",
+    "herb": { "name": "Fish Oil (Omega-3 EPA/DHA)", "latin": "Pisces (EPA/DHA)" },
+    "drug": { "name": "Aspirin", "atc": "B01AC06" },
+    "severity": "mild",
+    "mechanism_class": "coagulation",
+    "evidence_tier": "clinical_trial",
+    "sources": [
+      { "name": "NIH ODS Fact Sheet — Omega-3 Fatty Acids (Health Professional)", "url": "https://ods.od.nih.gov/factsheets/Omega3FattyAcids-HealthProfessional/" }
+    ],
+    "notes": "NIH ODS notes an additive antiplatelet effect with aspirin, with small but detectable prolongation of bleeding time. Clinically relevant bleeding risk is low at dietary doses but non-trivial with pharmacologic dosing."
+  },
+  {
+    "id": "HDI-038",
+    "herb": { "name": "Saw Palmetto", "latin": "Serenoa repens" },
+    "drug": { "name": "Warfarin", "atc": "B01AA03" },
+    "severity": "moderate",
+    "mechanism_class": "coagulation",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — Saw Palmetto", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/saw-palmetto" },
+      { "name": "LiverTox — Saw Palmetto", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548378/" }
+    ],
+    "notes": "Case reports describe excessive intraoperative bleeding in patients on saw palmetto; mechanism is likely COX-inhibition plus mild platelet effect. MSK and LiverTox both flag bleeding risk with anticoagulants."
+  },
+  {
+    "id": "HDI-039",
+    "herb": { "name": "Chamomile", "latin": "Matricaria recutita" },
+    "drug": { "name": "Warfarin", "atc": "B01AA03" },
+    "severity": "moderate",
+    "mechanism_class": "coagulation",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — Chamomile", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/chamomile-german" },
+      { "name": "LiverTox — Chamomile", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548163/" }
+    ],
+    "notes": "Chamomile contains coumarin derivatives (umbelliferone, herniarin) with weak anticoagulant activity. Case reports describe INR destabilisation with concurrent warfarin; MSK recommends caution and INR monitoring."
+  },
+  {
+    "id": "HDI-040",
+    "herb": { "name": "Fenugreek", "latin": "Trigonella foenum-graecum" },
+    "drug": { "name": "Warfarin", "atc": "B01AA03" },
+    "severity": "moderate",
+    "mechanism_class": "coagulation",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — Fenugreek", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/fenugreek" },
+      { "name": "LiverTox — Fenugreek", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548826/" }
+    ],
+    "notes": "Fenugreek seeds contain dicoumarol-like compounds; case reports document INR elevation when added to warfarin. MSK advises holding fenugreek before procedures and monitoring INR."
+  },
+  {
+    "id": "HDI-041",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Digoxin", "atc": "C01AA05" },
+    "severity": "severe",
+    "mechanism_class": "P-gp",
+    "evidence_tier": "clinical_trial",
+    "sources": [
+      { "name": "MSK About Herbs — St. John's Wort", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/st-john-wort" },
+      { "name": "LiverTox — St. John's Wort", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548880/" }
+    ],
+    "notes": "SJW is a potent P-glycoprotein inducer. A randomised controlled trial showed a 25% drop in digoxin AUC after 10 days of co-administration, risking loss of rate control in atrial fibrillation and heart-failure decompensation."
+  },
+  {
+    "id": "HDI-042",
+    "herb": { "name": "St. John's Wort", "latin": "Hypericum perforatum" },
+    "drug": { "name": "Fexofenadine", "atc": "R06AX26" },
+    "severity": "moderate",
+    "mechanism_class": "P-gp",
+    "evidence_tier": "pharmacokinetic_study",
+    "sources": [
+      { "name": "LiverTox — St. John's Wort", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548880/" }
+    ],
+    "notes": "Fexofenadine is a P-gp substrate with minimal CYP metabolism; chronic SJW reduces fexofenadine exposure via intestinal P-gp induction, blunting antihistaminic efficacy."
+  },
+  {
+    "id": "HDI-043",
+    "herb": { "name": "Grapefruit Juice", "latin": "Citrus paradisi" },
+    "drug": { "name": "Fexofenadine", "atc": "R06AX26" },
+    "severity": "moderate",
+    "mechanism_class": "P-gp",
+    "evidence_tier": "clinical_trial",
+    "sources": [
+      { "name": "LiverTox — Felodipine (grapefruit mechanism summary)", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548294/" }
+    ],
+    "notes": "Grapefruit juice inhibits intestinal OATP1A2/P-gp influx, reducing fexofenadine absorption in crossover PK studies and lowering antihistamine effect — the opposite sign of the felodipine interaction."
+  },
+  {
+    "id": "HDI-044",
+    "herb": { "name": "Turmeric", "latin": "Curcuma longa" },
+    "drug": { "name": "Paclitaxel", "atc": "L01CD01" },
+    "severity": "moderate",
+    "mechanism_class": "P-gp",
+    "evidence_tier": "in_vitro",
+    "sources": [
+      { "name": "MSK About Herbs — Turmeric", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/turmeric" },
+      { "name": "LiverTox — Turmeric", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548561/" }
+    ],
+    "notes": "Curcumin is a P-gp inhibitor in vitro and can increase intracellular accumulation of P-gp substrates such as paclitaxel. MSK advises avoiding curcumin supplements during taxane chemotherapy."
+  },
+  {
+    "id": "HDI-045",
+    "herb": { "name": "Milk Thistle", "latin": "Silybum marianum" },
+    "drug": { "name": "Vinblastine", "atc": "L01CA01" },
+    "severity": "moderate",
+    "mechanism_class": "P-gp",
+    "evidence_tier": "in_vitro",
+    "sources": [
+      { "name": "MSK About Herbs — Milk Thistle", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/milk-thistle" },
+      { "name": "LiverTox — Milk Thistle", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548817/" }
+    ],
+    "notes": "Silybin inhibits P-gp efflux in in-vitro and animal models, increasing accumulation of vinca-alkaloid substrates. MSK lists chemotherapy agents as an interaction category; clinical significance in humans is uncertain but plausible."
+  },
+  {
+    "id": "HDI-046",
+    "herb": { "name": "Ginseng (Asian)", "latin": "Panax ginseng" },
+    "drug": { "name": "Warfarin", "atc": "B01AA03" },
+    "severity": "moderate",
+    "mechanism_class": "PD-antagonism",
+    "evidence_tier": "clinical_trial",
+    "sources": [
+      { "name": "MSK About Herbs — Ginseng (Asian)", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/ginseng-asian" },
+      { "name": "LiverTox — Ginseng", "url": "https://www.ncbi.nlm.nih.gov/books/NBK548200/" }
+    ],
+    "notes": "A randomised placebo-controlled trial showed Asian ginseng reduced warfarin peak INR and AUC, a pharmacodynamic antagonism likely mediated by ginsenoside Rd and induced vitamin-K-dependent clotting-factor synthesis."
+  },
+  {
+    "id": "HDI-047",
+    "herb": { "name": "Licorice", "latin": "Glycyrrhiza glabra" },
+    "drug": { "name": "Furosemide", "atc": "C03CA01" },
+    "severity": "severe",
+    "mechanism_class": "PD-antagonism",
+    "evidence_tier": "case_report_series",
+    "sources": [
+      { "name": "MSK About Herbs — Licorice", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/licorice" },
+      { "name": "LiverTox — Licorice", "url": "https://www.ncbi.nlm.nih.gov/books/NBK590484/" }
+    ],
+    "notes": "Glycyrrhizin inhibits 11β-HSD2, producing pseudo-hyperaldosteronism with hypokalaemia, sodium retention, and hypertension. Added to loop diuretics this precipitates severe hypokalaemia and arrhythmia; case reports include torsades de pointes."
+  },
+  {
+    "id": "HDI-048",
+    "herb": { "name": "Licorice", "latin": "Glycyrrhiza glabra" },
+    "drug": { "name": "Lisinopril", "atc": "C09AA03" },
+    "severity": "moderate",
+    "mechanism_class": "PD-antagonism",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — Licorice", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/licorice" },
+      { "name": "LiverTox — Licorice", "url": "https://www.ncbi.nlm.nih.gov/books/NBK590484/" }
+    ],
+    "notes": "Licorice-induced sodium retention and hypertension directly antagonise the blood-pressure-lowering effect of ACE inhibitors; MSK explicitly warns against licorice use in patients with hypertension or on antihypertensives."
+  },
+  {
+    "id": "HDI-049",
+    "herb": { "name": "Licorice", "latin": "Glycyrrhiza glabra" },
+    "drug": { "name": "Metformin", "atc": "A10BA02" },
+    "severity": "moderate",
+    "mechanism_class": "PD-antagonism",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — Licorice", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/licorice" }
+    ],
+    "notes": "Glycyrrhizin-driven cortisol exposure can raise fasting glucose and blunt oral hypoglycaemic effect. MSK advises caution when licorice is taken alongside diabetes medication."
+  },
+  {
+    "id": "HDI-050",
+    "herb": { "name": "Yohimbe", "latin": "Pausinystalia johimbe" },
+    "drug": { "name": "Clonidine", "atc": "C02AC01" },
+    "severity": "severe",
+    "mechanism_class": "PD-antagonism",
+    "evidence_tier": "case_report",
+    "sources": [
+      { "name": "MSK About Herbs — Yohimbe", "url": "https://www.mskcc.org/cancer-care/integrative-medicine/herbs/yohimbe" }
+    ],
+    "notes": "Yohimbine is a central α2-adrenergic antagonist — the exact pharmacologic opposite of clonidine. Co-administration reverses antihypertensive effect and has precipitated hypertensive crisis in published case reports; MSK lists yohimbe as contraindicated in hypertension."
+  }
+]
