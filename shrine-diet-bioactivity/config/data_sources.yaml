@@ -17,8 +17,17 @@ symmap:
     - "SymMap v2.0, SMTT file.xlsx"
   out_dir: data/symmap
 herb2:
-  base_url: http://herb.ac.cn/static/download/
-  files: [herb_info.txt, herb_experiment.txt, herb_clinical.txt]
+  # HERB 2.0 (herb.ac.cn) — verified 2026-04-22.
+  # The plan-assumed static download URLs (herb.ac.cn/static/download/*.txt) return
+  # the site's SPA HTML for every path — the download feature is disabled in the UI
+  # (disabled:true on all download <a> elements in umi.js).
+  # Actual data is served via the chedi JSON-RPC API:
+  #   POST http://herb.ac.cn/chedi/api/  {"func_name":"browse_api","label":"Herb",...}
+  #   POST http://herb.ac.cn/chedi/api/  {"func_name":"detail_api","v":"HERB000001",...}
+  # base_url and files are kept for config-schema compliance (Zod requires at least 1 file).
+  # The downloader reads base_url to derive the API endpoint and ignores the files list.
+  base_url: http://herb.ac.cn/chedi/api/
+  files: [browse_api, detail_api]
   out_dir: data/herb2
 paths:
   sqlite_db: data_local/herbal_botanicals.db
