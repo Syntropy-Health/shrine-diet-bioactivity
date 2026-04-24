@@ -93,6 +93,307 @@ git commit -m "test(infra): Aura connectivity preflight"
 
 ---
 
+## Task 0.5 — Shared config scaffolding (modularity + reproducibility)
+
+**Purpose:** All ingestion scripts from Task 1 onward read from two YAML configs and a typed loader module, not hardcoded constants. This makes the pipeline reproducible, parameter-clear, and rewireable without code edits.
+
+**Files:**
+- Create: `shrine-diet-bioactivity/config/data_sources.yaml`
+- Create: `shrine-diet-bioactivity/config/ingest_params.yaml`
+- Create: `shrine-diet-bioactivity/src/config.ts` (Zod loader for TS scripts)
+- Create: `shrine-diet-bioactivity/lightrag/config_loader.py` (Pydantic loader for Python)
+- Create: `shrine-diet-bioactivity/src/__tests__/config.test.ts`
+- Create: `shrine-diet-bioactivity/lightrag/test_config_loader.py`
+
+### Config contract (both languages load the same YAML files)
+
+```yaml
+# shrine-diet-bioactivity/config/data_sources.yaml
+symmap:
+  base_url: https://www.symmap.org/static/download/
+  files: [SMHB.txt, SMTT.txt, SMIT.txt, SMTT_SMHB.txt]
+  out_dir: data/symmap
+herb2:
+  base_url: http://herb.ac.cn/static/download/
+  files: [herb_info.txt, herb_experiment.txt, herb_clinical.txt]
+  out_dir: data/herb2
+paths:
+  sqlite_db: data_local/herbal_botanicals.db
+  hdi_safe_50: ../research-journal/shared/hdi_safe_50.json
+  symptom_crosswalk: ../research-journal/shared/symptom_crosswalk.json
+  ingestion_snapshot: ../research-journal/shared/ingestion-snapshot.md
+```
+
+```yaml
+# shrine-diet-bioactivity/config/ingest_params.yaml
+subsample:
+  max_relationships: 0   # 0 = unlimited (full-scale); override for prototype
+  seed: 42
+ingestion:
+  batch_size: 100
+  max_async: 2
+lightrag:
+  working_dir: ./rag_storage_local
+hdi_severity_weights:
+  severe: 1.0
+  moderate: 0.6
+  mild: 0.3
+evidence_tier_weights:
+  clinical: 1.0
+  clinical_trial: 1.0
+  pharmacokinetic_study: 0.85
+  observational: 0.7
+  experimental: 0.55
+  case_report_series: 0.5
+  case_report: 0.4
+  in_vitro: 0.3
+  traditional: 0.2
+```
+
+### Loader contract
+
+- Both loaders validate the YAML against schema at load time; missing/mistyped keys raise immediately.
+- Paths in `data_sources.yaml` are resolved relative to the `shrine-diet-bioactivity/` subpackage root.
+- Both loaders expose the same shape (same field names, same nesting) so scripts are language-parallel.
+- Python loader uses `pydantic` (already a LightRAG transitive dep); TS loader uses `zod`.
+
+- [ ] **Step 1: Write the failing tests**
+
+```typescript
+// shrine-diet-bioactivity/src/__tests__/config.test.ts
+import { describe, it, expect } from 'vitest';
+import { loadDataSources, loadIngestParams } from '../config';
+
+describe('config loader', () => {
+  it('loads data_sources.yaml with expected shape', () => {
+    const cfg = loadDataSources();
+    expect(cfg.symmap.base_url).toMatch(/^https?:\/\//);
+    expect(cfg.symmap.files.length).toBeGreaterThan(0);
+    expect(cfg.herb2.base_url).toMatch(/^https?:\/\//);
+    expect(cfg.paths.sqlite_db).toContain('herbal_botanicals.db');
+  });
+
+  it('loads ingest_params.yaml with validated ranges', () => {
+    const cfg = loadIngestParams();
+    expect(cfg.subsample.seed).toBeTypeOf('number');
+    expect(cfg.ingestion.batch_size).toBeGreaterThan(0);
+    expect(cfg.hdi_severity_weights.severe).toBeGreaterThan(cfg.hdi_severity_weights.mild);
+  });
+
+  it('rejects malformed YAML at load time', () => {
+    expect(() => loadDataSources('/dev/null/nonexistent.yaml')).toThrow();
+  });
+});
+```
+
+```python
+# shrine-diet-bioactivity/lightrag/test_config_loader.py
+import pytest
+from pathlib import Path
+from config_loader import load_data_sources, load_ingest_params, ConfigError
+
+
+def test_loads_data_sources():
+    cfg = load_data_sources()
+    assert cfg.symmap.base_url.startswith(("http://", "https://"))
+    assert len(cfg.symmap.files) > 0
+    assert "herbal_botanicals.db" in cfg.paths.sqlite_db
+
+
+def test_loads_ingest_params_with_validated_ranges():
+    cfg = load_ingest_params()
+    assert isinstance(cfg.subsample.seed, int)
+    assert cfg.ingestion.batch_size > 0
+    assert cfg.hdi_severity_weights["severe"] > cfg.hdi_severity_weights["mild"]
+
+
+def test_rejects_malformed_yaml_at_load_time():
+    with pytest.raises(ConfigError):
+        load_data_sources(Path("/dev/null/nonexistent.yaml"))
+```
+
+- [ ] **Step 2: Run both test suites — expect FAIL**
+
+```bash
+cd shrine-diet-bioactivity && npx vitest run src/__tests__/config.test.ts
+cd shrine-diet-bioactivity/lightrag && pytest test_config_loader.py -v
+```
+
+- [ ] **Step 3: Write the two YAML configs + two loaders**
+
+```typescript
+// shrine-diet-bioactivity/src/config.ts
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+import { parse } from 'yaml';
+import { z } from 'zod';
+
+const DataSourcesSchema = z.object({
+  symmap: z.object({
+    base_url: z.string().url(),
+    files: z.array(z.string()).min(1),
+    out_dir: z.string(),
+  }),
+  herb2: z.object({
+    base_url: z.string().url(),
+    files: z.array(z.string()).min(1),
+    out_dir: z.string(),
+  }),
+  paths: z.object({
+    sqlite_db: z.string(),
+    hdi_safe_50: z.string(),
+    symptom_crosswalk: z.string(),
+    ingestion_snapshot: z.string(),
+  }),
+});
+
+const IngestParamsSchema = z.object({
+  subsample: z.object({
+    max_relationships: z.number().int().nonnegative(),
+    seed: z.number().int(),
+  }),
+  ingestion: z.object({
+    batch_size: z.number().int().positive(),
+    max_async: z.number().int().positive(),
+  }),
+  lightrag: z.object({
+    working_dir: z.string(),
+  }),
+  hdi_severity_weights: z.object({
+    severe: z.number().min(0).max(1),
+    moderate: z.number().min(0).max(1),
+    mild: z.number().min(0).max(1),
+  }),
+  evidence_tier_weights: z.record(z.string(), z.number().min(0).max(1)),
+});
+
+export type DataSources = z.infer<typeof DataSourcesSchema>;
+export type IngestParams = z.infer<typeof IngestParamsSchema>;
+
+const DEFAULT_DATA = resolve(__dirname, '..', 'config', 'data_sources.yaml');
+const DEFAULT_PARAMS = resolve(__dirname, '..', 'config', 'ingest_params.yaml');
+
+export function loadDataSources(path: string = DEFAULT_DATA): DataSources {
+  const raw = readFileSync(path, 'utf8');
+  const parsed = parse(raw);
+  return DataSourcesSchema.parse(parsed);
+}
+
+export function loadIngestParams(path: string = DEFAULT_PARAMS): IngestParams {
+  const raw = readFileSync(path, 'utf8');
+  const parsed = parse(raw);
+  return IngestParamsSchema.parse(parsed);
+}
+```
+
+```python
+# shrine-diet-bioactivity/lightrag/config_loader.py
+"""YAML-backed config loader shared across all ingestion scripts.
+Same shape as shrine-diet-bioactivity/src/config.ts for language parity."""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Mapping
+
+import yaml
+from pydantic import BaseModel, Field, ValidationError
+
+
+class ConfigError(RuntimeError):
+    pass
+
+
+class DataSource(BaseModel):
+    base_url: str
+    files: list[str] = Field(min_length=1)
+    out_dir: str
+
+
+class Paths(BaseModel):
+    sqlite_db: str
+    hdi_safe_50: str
+    symptom_crosswalk: str
+    ingestion_snapshot: str
+
+
+class DataSourcesConfig(BaseModel):
+    symmap: DataSource
+    herb2: DataSource
+    paths: Paths
+
+
+class SubsampleCfg(BaseModel):
+    max_relationships: int = Field(ge=0)
+    seed: int
+
+
+class IngestionCfg(BaseModel):
+    batch_size: int = Field(gt=0)
+    max_async: int = Field(gt=0)
+
+
+class LightRAGCfg(BaseModel):
+    working_dir: str
+
+
+class HDIWeights(BaseModel):
+    severe:   float = Field(ge=0, le=1)
+    moderate: float = Field(ge=0, le=1)
+    mild:     float = Field(ge=0, le=1)
+
+
+class IngestParamsConfig(BaseModel):
+    subsample: SubsampleCfg
+    ingestion: IngestionCfg
+    lightrag: LightRAGCfg
+    hdi_severity_weights: HDIWeights
+    evidence_tier_weights: Mapping[str, float]
+
+
+_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_DATA = _ROOT / "config" / "data_sources.yaml"
+DEFAULT_PARAMS = _ROOT / "config" / "ingest_params.yaml"
+
+
+def _load(path: Path, model: type[BaseModel]):
+    try:
+        raw = path.read_text()
+    except OSError as e:
+        raise ConfigError(f"cannot read {path}: {e}") from e
+    try:
+        return model.model_validate(yaml.safe_load(raw))
+    except (yaml.YAMLError, ValidationError) as e:
+        raise ConfigError(f"invalid config at {path}: {e}") from e
+
+
+def load_data_sources(path: Path = DEFAULT_DATA) -> DataSourcesConfig:
+    return _load(path, DataSourcesConfig)
+
+
+def load_ingest_params(path: Path = DEFAULT_PARAMS) -> IngestParamsConfig:
+    return _load(path, IngestParamsConfig)
+```
+
+Add `yaml` + `zod` to package.json dependencies; add `pyyaml` + `pydantic` to `lightrag/requirements.txt` if missing.
+
+- [ ] **Step 4: Re-run both test suites — expect PASS**
+
+```bash
+cd shrine-diet-bioactivity && npm install yaml zod && npx vitest run src/__tests__/config.test.ts
+cd shrine-diet-bioactivity/lightrag && pip install pyyaml pydantic && pytest test_config_loader.py -v
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add shrine-diet-bioactivity/config/ shrine-diet-bioactivity/src/config.ts shrine-diet-bioactivity/src/__tests__/config.test.ts shrine-diet-bioactivity/lightrag/config_loader.py shrine-diet-bioactivity/lightrag/test_config_loader.py shrine-diet-bioactivity/package.json shrine-diet-bioactivity/package-lock.json shrine-diet-bioactivity/lightrag/requirements.txt
+git commit -m "feat(config): YAML-backed data_sources + ingest_params with typed loaders"
+```
+
+**Note for downstream tasks:** Tasks 1–10 now read URLs, paths, seeds, batch sizes, and weight constants from these configs via `loadDataSources()` / `loadIngestParams()`. No hardcoded literals in the ingestion scripts. Example: `scripts/download-symmap.ts` becomes `const cfg = loadDataSources(); for (const f of cfg.symmap.files) { download(cfg.symmap.base_url + f, ...) }`.
+
+---
+
 ## Task 1 — Populate `food_nutrition_bridge`
 
 **Purpose:** The existing bridge script has never been executed; the table is empty. This enables nutrition-enriched Food nodes for Stage 3 Dietitian agent.
