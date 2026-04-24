@@ -1,0 +1,13 @@
+symmap:
+  base_url: https://www.symmap.org/static/download/
+  files: [SMHB.txt, SMTT.txt, SMIT.txt, SMTT_SMHB.txt]
+  out_dir: data/symmap
+herb2:
+  base_url: http://herb.ac.cn/static/download/
+  files: [herb_info.txt, herb_experiment.txt, herb_clinical.txt]
+  out_dir: data/herb2
+paths:
+  sqlite_db: data_local/herbal_botanicals.db
+  hdi_safe_50: ../research-journal/shared/hdi_safe_50.json
+  symptom_crosswalk: ../research-journal/shared/symptom_crosswalk.json
+  ingestion_snapshot: ../research-journal/shared/ingestion-snapshot.md
