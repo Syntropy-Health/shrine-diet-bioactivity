@@ -1,8 +1,18 @@
 symmap:
+  # SymMap v2.0 publishes only flat entity tables — no junction/relationship files.
+  # Herb↔symptom linkages come from Duke (already in KG) + HERB 2.0 (Task 5).
+  # SymMap's role: bilingual CN/EN vocabularies + molecular/gene cross-references.
+  # Entity meanings (verified via Phase 1 discovery 2026-04-22):
+  #   SMHB = herbs (703 rows, bilingual CN/EN/pinyin/latin + properties + meridians)
+  #   SMTS = TCM symptoms (2,364 rows, bilingual)
+  #   SMMS = modern-medicine symptoms (ICD-aligned; source for Duke↔SymMap crosswalk)
+  #   SMIT = ingredients/molecules (27,690 rows, PubChem CID + OB score — cross-ref to Duke compounds)
+  #   SMTT = genes/targets (20,965 rows, UniProt/Ensembl/HGNC — cross-ref to CMAUP targets)
   base_url: http://www.symmap.org/static/download/V2.0/
   files:
     - "SymMap v2.0, SMHB file.xlsx"
     - "SymMap v2.0, SMTS file.xlsx"
+    - "SymMap v2.0, SMMS file.xlsx"
     - "SymMap v2.0, SMIT file.xlsx"
     - "SymMap v2.0, SMTT file.xlsx"
   out_dir: data/symmap
