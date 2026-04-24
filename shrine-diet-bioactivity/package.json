@@ -11,7 +11,9 @@
     "inspector": "tsc && npx @modelcontextprotocol/inspector npx tsx src/index.ts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build-food-bridge": "npx tsx scripts/build-food-bridge.ts",
+    "enrich-nutrition": "npx tsx scripts/enrich-nutrition.ts"
   },
   "files": [
     "build"
