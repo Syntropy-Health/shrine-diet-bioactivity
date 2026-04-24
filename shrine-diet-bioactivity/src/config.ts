@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { parse } from 'yaml';
 import { z } from 'zod';
 
@@ -45,8 +46,13 @@ const IngestParamsSchema = z.object({
 export type DataSources = z.infer<typeof DataSourcesSchema>;
 export type IngestParams = z.infer<typeof IngestParamsSchema>;
 
-const DEFAULT_DATA = resolve(__dirname, '..', 'config', 'data_sources.yaml');
-const DEFAULT_PARAMS = resolve(__dirname, '..', 'config', 'ingest_params.yaml');
+// ESM-compatible __dirname equivalent
+const _dir = typeof __dirname !== 'undefined'
+  ? __dirname
+  : dirname(fileURLToPath(import.meta.url));
+
+const DEFAULT_DATA = resolve(_dir, '..', 'config', 'data_sources.yaml');
+const DEFAULT_PARAMS = resolve(_dir, '..', 'config', 'ingest_params.yaml');
 
 export function loadDataSources(path: string = DEFAULT_DATA): DataSources {
   const raw = readFileSync(path, 'utf8');

@@ -24,6 +24,7 @@
 .PHONY: help setup download build migrate download-cmaup download-ttd \
         migrate-multi test build-ts check-types \
         food-bridge enrich-nutrition \
+        download-symmap \
         lightrag-setup lightrag-dry-run lightrag-ingest-local lightrag-ingest-prod \
         lightrag-benchmark lightrag-server lightrag-server-upstream \
         lightrag-bootstrap-scope lightrag-bootstrap-scope-dry-run \
@@ -71,6 +72,9 @@ download-ttd: ## Download TTD target data (~5 MB)
 	npm run download-ttd
 
 download-all: download download-cmaup download-ttd ## Download all auto-downloadable datasets
+
+download-symmap: ## Download SymMap v2.0 xlsx files (SMHB, SMTS, SMIT, SMTT) into data/symmap/
+	npx tsx scripts/download-symmap.ts
 
 # ─── Build & Migrate ────────────────────────────────────────
 

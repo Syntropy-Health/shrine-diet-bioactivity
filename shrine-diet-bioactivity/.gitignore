@@ -42,6 +42,9 @@ data/cmaup-*.txt
 data/ttd-*.txt
 data/batman-tcm/
 
+# SymMap v2.0 raw xlsx files (~4 MB total, download via make download-symmap)
+data/symmap/
+
 # Python bytecode
 __pycache__/
 *.py[cod]

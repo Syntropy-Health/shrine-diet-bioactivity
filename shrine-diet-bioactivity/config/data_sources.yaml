@@ -1,6 +1,10 @@
 symmap:
-  base_url: https://www.symmap.org/static/download/
-  files: [SMHB.txt, SMTT.txt, SMIT.txt, SMTT_SMHB.txt]
+  base_url: http://www.symmap.org/static/download/V2.0/
+  files:
+    - "SymMap v2.0, SMHB file.xlsx"
+    - "SymMap v2.0, SMTS file.xlsx"
+    - "SymMap v2.0, SMIT file.xlsx"
+    - "SymMap v2.0, SMTT file.xlsx"
   out_dir: data/symmap
 herb2:
   base_url: http://herb.ac.cn/static/download/
