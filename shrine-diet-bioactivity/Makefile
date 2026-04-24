@@ -25,6 +25,7 @@
         migrate-multi test build-ts check-types \
         food-bridge enrich-nutrition \
         download-symmap load-symmap \
+        download-herb2 load-herb2 \
         lightrag-setup lightrag-dry-run lightrag-ingest-local lightrag-ingest-prod \
         lightrag-benchmark lightrag-server lightrag-server-upstream \
         lightrag-bootstrap-scope lightrag-bootstrap-scope-dry-run \
@@ -78,6 +79,12 @@ download-symmap: ## Download SymMap v2.0 xlsx files (SMHB, SMTS, SMMS, SMIT, SMT
 
 load-symmap: ## Load SymMap v2.0 xlsx → 5 SQLite tables (herbs, tcm/modern symptoms, ingredients, genes)
 	npx tsx scripts/load-symmap.ts
+
+download-herb2: ## Fetch HERB 2.0 via chedi JSON-RPC API into data/herb2/ (herbs.json + herb_details.json)
+	npx tsx scripts/download-herb2.ts
+
+load-herb2: ## Load HERB 2.0 JSON → herb2_herbs + herb2_herb_disease with evidence tiers
+	npx tsx scripts/load-herb2.ts
 
 # ─── Build & Migrate ────────────────────────────────────────
 

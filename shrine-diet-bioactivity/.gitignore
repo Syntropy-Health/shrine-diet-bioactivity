@@ -45,6 +45,9 @@ data/batman-tcm/
 # SymMap v2.0 raw xlsx files (~4 MB total, download via make download-symmap)
 data/symmap/
 
+# HERB 2.0 cached JSON (download via make download-herb2, ~50-200 MB)
+data/herb2/
+
 # Python bytecode
 __pycache__/
 *.py[cod]
