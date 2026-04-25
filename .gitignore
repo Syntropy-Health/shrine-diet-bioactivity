@@ -64,3 +64,7 @@ playwright-report/
 
 # Case-study run artifacts — transcripts can contain API responses; keep local
 research-journal/shared/case_study_runs/
+
+# Evaluation run artifacts — per-run JSONs are ephemeral; only cherry-pick
+# summary.md into commits when needed. The .gitkeep preserves the directory.
+research-journal/shared/results/*/

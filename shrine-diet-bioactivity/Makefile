@@ -33,7 +33,8 @@
         lightrag-canary-test lightrag-test-integration audit-recent \
         graphiti-setup graphiti-dry-run graphiti-ingest graphiti-ingest-direct \
         neo4j-check neo4j-shell neo4j-stats neo4j-status neo4j-watch neo4j-clear \
-        embedding-check lms-models clean
+        embedding-check lms-models clean \
+        eval-smoke eval-run eval-report eval-embed-ingest
 
 # Default Neo4j connection (Railway proxy)
 NEO4J_URI    ?= bolt://metro.proxy.rlwy.net:22971
@@ -337,3 +338,29 @@ graphiti-ingest-direct: ## Ingest structured data directly into Neo4j (no LLM ne
 
 clean: ## Remove build artifacts and temp data
 	rm -rf build data_local_temp
+
+# ─── Evaluation harness (Subsystem F) ───────────────────────
+
+eval-smoke: ## Confirm OpenRouter Nemotron is reachable + structural sanity
+	python3 -m pytest eval/ -v
+
+eval-embed-ingest: ## Backfill LightRAG embeddings against existing Aura graph
+	@if [ -z "$$OPENROUTER_API_KEY" ]; then \
+		echo "ERROR: OPENROUTER_API_KEY not set in environment"; exit 1; \
+	fi
+	set -a && . ./.env && set +a && make lightrag-ingest-local
+
+eval-run: ## Run baselines × test split. Usage: make eval-run [SYSTEMS=diet_os,medagents]
+	@if [ -z "$$OPENROUTER_API_KEY" ]; then \
+		echo "ERROR: OPENROUTER_API_KEY not set in .env"; exit 1; \
+	fi
+	set -a && . ./.env && set +a && \
+		python3 -m eval.runner \
+			--bench ../research-journal/shared/datasets/dietresearchbench_v1.json \
+			--splits ../research-journal/shared/datasets/splits_seed42.json \
+			--out ../research-journal/shared/results/$$(date -u +%Y%m%dT%H%M%SZ) \
+			$(if $(SYSTEMS),--systems $(SYSTEMS),)
+
+eval-report: ## Render the most recent results dir into summary.md + reliability_diagram.png
+	python3 -m eval.report \
+		--latest ../research-journal/shared/results/

@@ -19,6 +19,18 @@ bootstrap_ci(values, n_iter=1000, seed=42, alpha=0.05) -> tuple[float, float]
 """
 from __future__ import annotations
 
+# Bootstrap sys.path so this module works when invoked directly as
+# `python3 -m eval.report` without a prior conftest.py (e.g. CLI, Makefile).
+# When pytest runs, conftest.py has already done this — the inserts are no-ops.
+import sys as _sys
+from pathlib import Path as _Path
+_REPO = _Path(__file__).resolve().parent.parent  # shrine-diet-bioactivity/
+for _sub in ("", "lightrag", "agents"):
+    _p = str(_REPO / _sub) if _sub else str(_REPO)
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
+del _sys, _Path, _REPO, _sub, _p  # keep namespace clean
+
 import json
 import math
 import random
@@ -592,3 +604,155 @@ def _write_paired_tests_md(
     ]
 
     path.write_text("\n".join(lines))
+
+
+# ---------------------------------------------------------------------------
+# CLI entry-point
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import argparse
+    import sys as _sys
+
+    parser = argparse.ArgumentParser(
+        prog="python3 -m eval.report",
+        description=(
+            "DietResearchBench-Clinical results reporter.\n"
+            "Loads per-prediction JSON artifacts written by eval.runner, "
+            "reconstructs the results matrix, and renders summary.md + "
+            "reliability_diagram.png."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    mode_group = parser.add_mutually_exclusive_group(required=True)
+    mode_group.add_argument(
+        "--latest",
+        metavar="RESULTS_ROOT",
+        help=(
+            "Path to the results root directory. The most recently modified "
+            "timestamped subdirectory is selected automatically."
+        ),
+    )
+    mode_group.add_argument(
+        "--results-dir",
+        metavar="DIR",
+        help="Path to a specific timestamped results directory to render.",
+    )
+
+    args = parser.parse_args()
+
+    # --- Resolve the target results directory ---
+    if args.latest is not None:
+        latest_root = Path(args.latest)
+        if not latest_root.exists():
+            parser.error(f"--latest path does not exist: {latest_root}")
+        # Find the most recently modified subdirectory
+        subdirs = sorted(
+            (d for d in latest_root.iterdir() if d.is_dir()),
+            key=lambda d: d.stat().st_mtime,
+            reverse=True,
+        )
+        if not subdirs:
+            parser.error(
+                f"No run subdirectories found under --latest path: {latest_root}"
+            )
+        results_dir = subdirs[0]
+    else:
+        results_dir = Path(args.results_dir)
+        if not results_dir.exists():
+            parser.error(f"--results-dir path does not exist: {results_dir}")
+
+    # --- Load manifest to reconstruct scenario list ---
+    manifests = sorted(results_dir.glob("manifest-*.json"))
+    if not manifests:
+        parser.error(
+            f"No manifest-*.json found in results dir: {results_dir}\n"
+            "Was this directory produced by eval.runner?"
+        )
+
+    manifest_data = json.loads(manifests[-1].read_text())
+    scenario_ids: list[str] = manifest_data.get("scenario_ids", [])
+    systems_in_run: list[str] = manifest_data.get("systems", [])
+
+    # --- Load per-prediction JSONs ---
+    from agents.models import ResearchSynthesis as _RS  # type: ignore[import-not-found]
+
+    run_results: dict[str, list[_RS]] = {}
+    for sys_name in systems_in_run:
+        sys_dir = results_dir / sys_name
+        per_system: list[_RS] = []
+        for scen_id in scenario_ids:
+            pred_path = sys_dir / f"{scen_id}.json"
+            if pred_path.exists():
+                per_system.append(_RS.model_validate_json(pred_path.read_text()))
+            else:
+                print(
+                    f"WARNING: missing prediction {pred_path}",
+                    file=_sys.stderr,
+                )
+        run_results[sys_name] = per_system
+
+    # --- Reconstruct scenario stubs from manifest ---
+    from eval.scenario import BenchmarkSet as _BS, GoldStandard as _GS, Scenario as _S  # type: ignore[import-not-found]
+
+    # Try to discover benchmark file relative to the results directory
+    # (expected layout: research-journal/shared/results/<run>/,
+    #  benchmark at research-journal/shared/datasets/dietresearchbench_v1.json)
+    _candidate_bench = results_dir.parents[1] / "datasets" / "dietresearchbench_v1.json"
+    run_scenarios: list[_S] = []
+
+    def _neutral_stub(scen_id: str) -> "_S":
+        return _S(
+            id=scen_id,
+            category="herbal_single_symptom",
+            research_question=scen_id,
+            gold=_GS(
+                expected_complexity="low",
+                expected_panel_verdict="abstain",
+                expected_evidence_tier="unknown",
+                expected_min_chains=0,
+                expected_defer=False,
+                expected_red_flags=[],
+                languages=["en"],
+            ),
+            rationale="reconstructed stub",
+        )
+
+    if _candidate_bench.exists():
+        bench_data = json.loads(_candidate_bench.read_text())
+        loaded_bench = _BS.model_validate(bench_data)
+        scen_map = {s.id: s for s in loaded_bench.scenarios}
+        for scen_id in scenario_ids:
+            run_scenarios.append(scen_map.get(scen_id) or _neutral_stub(scen_id))
+    else:
+        print(
+            f"WARNING: benchmark file not found at {_candidate_bench}; "
+            "using neutral stubs for scenario gold standards.",
+            file=_sys.stderr,
+        )
+        for scen_id in scenario_ids:
+            run_scenarios.append(_neutral_stub(scen_id))
+
+    # Ensure list lengths are consistent
+    min_len = min((len(v) for v in run_results.values()), default=0)
+    if min_len < len(run_scenarios):
+        run_scenarios = run_scenarios[:min_len]
+
+    if not run_results or not run_scenarios:
+        print(
+            "No results or scenarios to render. "
+            "Ensure eval.runner completed successfully.",
+            file=_sys.stderr,
+        )
+        _sys.exit(1)
+
+    # --- Render ---
+    print(f"Rendering report for: {results_dir}", file=_sys.stderr)
+    render_report(run_results, run_scenarios, out_dir=results_dir)
+
+    summary_path = results_dir / "summary.md"
+    diagram_path = results_dir / "reliability_diagram.png"
+    print(f"summary.md     -> {summary_path}")
+    print(f"reliability    -> {diagram_path}")
+    print(f"paired_tests   -> {results_dir / 'paired_tests.md'}")

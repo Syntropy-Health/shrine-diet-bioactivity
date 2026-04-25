@@ -2,6 +2,18 @@
 returns a results matrix that the report module renders."""
 from __future__ import annotations
 
+# Bootstrap sys.path so this module works when invoked directly as
+# `python3 -m eval.runner` without a prior conftest.py (e.g. CLI, Makefile).
+# When pytest runs, conftest.py has already done this — the inserts are no-ops.
+import sys as _sys
+from pathlib import Path as _Path
+_REPO = _Path(__file__).resolve().parent.parent  # shrine-diet-bioactivity/
+for _sub in ("", "lightrag", "agents"):
+    _p = str(_REPO / _sub) if _sub else str(_REPO)
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
+del _sys, _Path, _REPO, _sub, _p  # keep namespace clean
+
 import json
 import logging
 from datetime import datetime, timezone
@@ -68,4 +80,117 @@ def _placeholder(scenario: Scenario, error: str) -> ResearchSynthesis:
         confidence=0.0,
         components=ConfidenceComponents(evidence_tier=0.0, hdi_risk=0.0, question_fit=0.0),
         defer_to_clinician=False,
+    )
+
+
+# ---------------------------------------------------------------------------
+# CLI entry-point
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import argparse
+    import sys as _sys
+
+    parser = argparse.ArgumentParser(
+        prog="python3 -m eval.runner",
+        description=(
+            "DietResearchBench-Clinical evaluation runner.\n"
+            "Loads a BenchmarkSet, selects scenarios for the requested split, "
+            "runs each baseline system, and persists per-prediction JSON artifacts."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--bench",
+        required=True,
+        metavar="PATH",
+        help="Path to dietresearchbench_v1.json (BenchmarkSet JSON).",
+    )
+    parser.add_argument(
+        "--splits",
+        required=True,
+        metavar="PATH",
+        help="Path to splits_seed42.json (splits manifest).",
+    )
+    parser.add_argument(
+        "--out",
+        required=True,
+        metavar="DIR",
+        help="Output directory for this run (created if absent). "
+             "Recommended: results/<timestamp>/",
+    )
+    parser.add_argument(
+        "--systems",
+        metavar="SYSTEMS",
+        default=None,
+        help="Optional comma-separated list of system names to run "
+             "(e.g. diet_os,medagents). Defaults to all registered baselines.",
+    )
+    parser.add_argument(
+        "--split",
+        choices=["train", "val", "test"],
+        default="test",
+        help="Which split to evaluate (train|val|test). Default: test.",
+    )
+
+    args = parser.parse_args()
+
+    # --- Validate inputs before doing any work ---
+    bench_path = Path(args.bench)
+    if not bench_path.exists():
+        parser.error(f"--bench path does not exist: {bench_path}")
+
+    splits_path = Path(args.splits)
+    if not splits_path.exists():
+        parser.error(f"--splits path does not exist: {splits_path}")
+
+    # --- Load benchmark ---
+    try:
+        bench_data = json.loads(bench_path.read_text())
+        bench = BenchmarkSet.model_validate(bench_data)
+    except Exception as exc:
+        parser.error(f"Failed to load --bench file: {exc}")
+
+    # --- Load splits manifest and filter scenarios ---
+    try:
+        splits_data = json.loads(splits_path.read_text())
+        split_ids: list[str] = splits_data[f"{args.split}_ids"]
+    except Exception as exc:
+        parser.error(f"Failed to read --splits file: {exc}")
+
+    split_id_set = set(split_ids)
+    scenarios = [s for s in bench.scenarios if s.id in split_id_set]
+
+    if not scenarios:
+        print(
+            f"WARNING: No scenarios found for split '{args.split}' in the benchmark. "
+            "Check that --splits was generated from the same --bench file.",
+            file=_sys.stderr,
+        )
+
+    # --- Resolve optional --systems flag ---
+    systems_list: list[str] | None = None
+    if args.systems:
+        systems_list = [s.strip() for s in args.systems.split(",") if s.strip()]
+
+    out_dir = Path(args.out)
+
+    # --- Run ---
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    print(
+        f"Running eval: split={args.split!r} scenarios={len(scenarios)} "
+        f"systems={systems_list or 'all'} out={out_dir}",
+        file=_sys.stderr,
+    )
+
+    try:
+        results = run_eval(bench, scenarios, out_dir=out_dir, systems=systems_list)
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    # --- Summary line ---
+    total_preds = sum(len(v) for v in results.values())
+    print(
+        f"Done. {len(results)} system(s), {len(scenarios)} scenario(s), "
+        f"{total_preds} total predictions. Results in: {out_dir}"
     )
