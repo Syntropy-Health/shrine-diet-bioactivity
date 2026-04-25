@@ -134,8 +134,15 @@ async def _ingest_async(payload: dict) -> None:
         await rag.finalize_storages()
 
 
-def _label_drug_nodes() -> None:
-    """Tag Drug nodes with :Drug label for parity with ingest_unified."""
+def _label_drug_nodes_and_promote_edges(payload: dict) -> None:
+    """Tag Drug/Herb nodes and promote HDI edges to :INTERACTS_WITH.
+
+    LightRAG persists every edge as a generic ``:DIRECTED`` relationship
+    in Neo4j. The Safety Reviewer queries by ``:INTERACTS_WITH``, so we
+    create a typed copy of each HDI edge alongside the LightRAG-managed
+    ``:DIRECTED`` edge (LightRAG keeps using the generic edge for its
+    retrieval; the typed edge is what Cypher consumers query).
+    """
     from neo4j import GraphDatabase  # local import to keep dry-run light
 
     from entity_schema import safe_label
@@ -147,6 +154,7 @@ def _label_drug_nodes() -> None:
     ws = safe_label(workspace)
     with GraphDatabase.driver(uri, auth=(user, pwd)) as driver:
         with driver.session() as s:
+            # 1. Promote node labels for visual exploration / typed queries.
             for etype in ("Herb", "Drug"):
                 et = safe_label(etype)
                 result = s.run(
@@ -155,6 +163,39 @@ def _label_drug_nodes() -> None:
                     etype=etype,
                 ).single()
                 print(f"  :{etype} → {result['count']} nodes")
+
+            # 2. Create typed :INTERACTS_WITH edges in addition to the
+            # LightRAG-managed :DIRECTED edges. We encode every edge by
+            # (src, tgt) pair from the payload — this is idempotent
+            # because we use MERGE.
+            promoted = 0
+            for rel in payload["relationships"]:
+                s.run(
+                    f"""
+                    MATCH (h:`{ws}` {{entity_id: $src}})
+                    MATCH (d:`{ws}` {{entity_id: $tgt}})
+                    MERGE (h)-[r:INTERACTS_WITH]->(d)
+                    SET r.description = $desc,
+                        r.keywords = $keywords,
+                        r.weight = $weight,
+                        r.severity = $severity,
+                        r.mechanism_class = $mech,
+                        r.evidence_tier = $tier,
+                        r.source_id = $source_id,
+                        r.scope = 'shared'
+                    """,
+                    src=rel["src_id"],
+                    tgt=rel["tgt_id"],
+                    desc=rel["description"],
+                    keywords=rel["keywords"],
+                    weight=rel["weight"],
+                    severity=rel["severity"],
+                    mech=rel["mechanism_class"],
+                    tier=rel["evidence_tier"],
+                    source_id=rel["source_id"],
+                )
+                promoted += 1
+            print(f"  :INTERACTS_WITH → {promoted} edges promoted")
 
 
 def main(dry_run: bool = False) -> None:
@@ -187,7 +228,7 @@ def main(dry_run: bool = False) -> None:
         return
 
     asyncio.run(_ingest_async(payload))
-    _label_drug_nodes()
+    _label_drug_nodes_and_promote_edges(payload)
     print(f"✅ Ingested {len(payload['relationships'])} HDI edges into Aura")
 
 
