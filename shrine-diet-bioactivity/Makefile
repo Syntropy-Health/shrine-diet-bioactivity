@@ -48,7 +48,7 @@ NEO4J_PASS   ?= demodemo
 MAX_HERBS        ?= 2376
 MAX_COMPOUNDS    ?= 5000
 MAX_FOODS        ?= 0
-MAX_RELATIONSHIPS?= 50000
+MAX_RELATIONSHIPS?= 0          # 0 = unlimited (full-scale); override for prototype reruns
 BATCH_SIZE       ?= 500
 SUBSAMPLE_SEED   ?= 42
 

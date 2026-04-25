@@ -34,6 +34,11 @@ from entity_schema import (
     describe_relationship,
     safe_label,
 )
+from extra_sources import (
+    EXTRA_ENTITY_ADAPTERS,
+    extract_extra_entities,
+    extract_herb2_relationships,
+)
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -175,10 +180,18 @@ async def ingest_batch(
     entities: list[dict],
     relationships: list[dict],
     batch_label: str,
+    source_prefix: str = "batch",
 ) -> None:
-    """Insert a batch of entities and relationships into LightRAG."""
-    # Build a synthetic chunk as the source document
-    source_id = f"batch-{batch_label}"
+    """Insert a batch of entities and relationships into LightRAG.
+
+    ``source_prefix`` is used as the chunk's ``source_id`` prefix so
+    that downstream queries can attribute nodes / edges to a specific
+    upstream data source (e.g. ``symmap:entities-001``,
+    ``herb2:relationships-003``). LightRAG overwrites the per-entity
+    source_id with this chunk source_id during ainsert_custom_kg, so
+    this is the only surviving attribution channel.
+    """
+    source_id = f"{source_prefix}:{batch_label}"
     entity_names = [e["entity_name"] for e in entities[:20]]
     chunk_content = (
         f"Batch '{batch_label}' containing {len(entities)} entities "
@@ -229,14 +242,34 @@ async def main() -> None:
     parser.add_argument("--max-foods", type=int, default=None, help="Max foods to ingest")
     parser.add_argument("--max-relationships", type=int, default=None, help="Max relationships per type")
     parser.add_argument("--batch-size", type=int, default=500, help="Entities per batch (default: 500)")
+    parser.add_argument(
+        "--herb2-experimental-cap",
+        type=int,
+        default=None,
+        help=(
+            "Max experimental-tier HERB 2.0 edges to ingest "
+            "(default: 50000; 0 = unlimited; clinical tier always full)"
+        ),
+    )
+    parser.add_argument(
+        "--skip-extra-sources",
+        action="store_true",
+        help="Skip SymMap + HERB 2.0 (legacy Duke-only ingest)",
+    )
     args = parser.parse_args()
 
-    # Load config
+    # 1. Load Aura creds from gitignored .env at project root.
+    project_env = SCRIPT_DIR.parent / ".env"
+    if project_env.exists():
+        load_dotenv(project_env)
+    # 2. Load profile config but DON'T override (config_local.env has
+    #    ``NEO4J_URI=${NEO4J_URI}`` placeholders that would otherwise
+    #    stomp the real values from .env).
     config_path = SCRIPT_DIR / f"config_{args.config}.env"
     if not config_path.exists():
         print(f"Config not found: {config_path}")
         return
-    load_dotenv(config_path, override=True)
+    load_dotenv(config_path, override=False)
 
     # Check DB
     if not DB_PATH.exists():
@@ -269,6 +302,24 @@ async def main() -> None:
         total_entities += len(entities)
         print(f"  → {len(entities)} {entity_type} entities")
 
+    # --- Extract extra entities (SymMap v2 + HERB 2.0) ---
+    if not args.skip_extra_sources:
+        for adapter in EXTRA_ENTITY_ADAPTERS:
+            label = f"{adapter['source']}/{adapter['table']}"
+            print(f"Extracting {label} ({adapter['entity_type']}) entities...")
+            extras = extract_extra_entities(conn, adapter, max_count=None)
+            bucket = all_entities.setdefault(adapter["entity_type"], [])
+            # Dedupe across sources by entity_name — first occurrence wins,
+            # so Duke entities (loaded first) keep their richer descriptions.
+            existing = {e["entity_name"] for e in bucket}
+            new_entities = [e for e in extras if e["entity_name"] not in existing]
+            bucket.extend(new_entities)
+            total_entities += len(new_entities)
+            print(
+                f"  → {len(extras)} {label} rows, "
+                f"{len(new_entities)} new (after dedupe)"
+            )
+
     # --- Extract relationships ---
     all_relationships: dict[str, list[dict]] = {}
     total_relationships = 0
@@ -278,6 +329,15 @@ async def main() -> None:
         all_relationships[rel_type] = rels
         total_relationships += len(rels)
         print(f"  → {len(rels)} {rel_type} edges")
+
+    # --- Extract HERB 2.0 herb→disease edges ---
+    if not args.skip_extra_sources:
+        print("Extracting HERB 2.0 herb→disease relationships...")
+        herb2_rels = extract_herb2_relationships(
+            conn, experimental_cap=args.herb2_experimental_cap
+        )
+        all_relationships.setdefault("ASSOCIATED_WITH_DISEASE", []).extend(herb2_rels)
+        total_relationships += len(herb2_rels)
 
     conn.close()
 
@@ -359,40 +419,62 @@ async def main() -> None:
     await rag.initialize_storages()
     print("LightRAG initialized\n")
 
-    # --- Ingest entities in batches ---
+    # --- Ingest entities in batches, grouped by data source ---
+    # Source attribution survives via the chunk's source_id (e.g.
+    # ``symmap:entities-001``). Group by source_prefix derived from
+    # each entity's original source_id (e.g. ``symmap:1`` → ``symmap``).
     start_time = time.time()
 
-    # Flatten all entities and ingest
-    flat_entities = []
+    def _source_prefix(item: dict) -> str:
+        sid = item.get("source_id", "")
+        if ":" in sid:
+            return sid.split(":", 1)[0]
+        if sid.startswith("sqlite-"):
+            return "duke"
+        return "unknown"
+
+    # Group entities and relationships by source prefix.
+    grouped_entities: dict[str, list[dict]] = {}
     for entities in all_entities.values():
-        flat_entities.extend(entities)
+        for ent in entities:
+            grouped_entities.setdefault(_source_prefix(ent), []).append(ent)
 
-    flat_relationships = []
+    grouped_relationships: dict[str, list[dict]] = {}
     for rels in all_relationships.values():
-        flat_relationships.extend(rels)
+        for rel in rels:
+            grouped_relationships.setdefault(_source_prefix(rel), []).append(rel)
 
-    entity_batches = batch_items(flat_entities, args.batch_size)
-    rel_batches = batch_items(flat_relationships, args.batch_size)
+    total_entity_batches = 0
+    total_rel_batches = 0
 
     # Ingest entities first (nodes must exist before edges)
-    for i, batch in enumerate(entity_batches):
-        label = f"entities-{i + 1:03d}"
-        print(f"  Ingesting {label} ({len(batch)} entities)...")
-        await ingest_batch(rag, batch, [], label)
+    for source, entities in grouped_entities.items():
+        batches = batch_items(entities, args.batch_size)
+        print(f"\n[{source}] ingesting {len(entities)} entities in {len(batches)} batches")
+        for i, batch in enumerate(batches):
+            label = f"entities-{i + 1:03d}"
+            await ingest_batch(rag, batch, [], label, source_prefix=source)
+            total_entity_batches += 1
 
     # Then ingest relationships
-    for i, batch in enumerate(rel_batches):
-        label = f"relationships-{i + 1:03d}"
-        print(f"  Ingesting {label} ({len(batch)} edges)...")
-        await ingest_batch(rag, [], batch, label)
+    for source, rels in grouped_relationships.items():
+        batches = batch_items(rels, args.batch_size)
+        print(f"\n[{source}] ingesting {len(rels)} relationships in {len(batches)} batches")
+        for i, batch in enumerate(batches):
+            label = f"relationships-{i + 1:03d}"
+            await ingest_batch(rag, [], batch, label, source_prefix=source)
+            total_rel_batches += 1
+
+    entity_batches_count = total_entity_batches
+    rel_batches_count = total_rel_batches
 
     elapsed = time.time() - start_time
     print(f"\n{'=' * 50}")
     print(f"Ingestion complete in {elapsed:.1f}s")
     print(f"  Entities:       {total_entities:,}")
     print(f"  Relationships:  {total_relationships:,}")
-    print(f"  Entity batches: {len(entity_batches)}")
-    print(f"  Rel batches:    {len(rel_batches)}")
+    print(f"  Entity batches: {entity_batches_count}")
+    print(f"  Rel batches:    {rel_batches_count}")
     print(f"{'=' * 50}")
 
     await rag.finalize_storages()
