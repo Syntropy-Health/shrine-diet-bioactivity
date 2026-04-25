@@ -61,3 +61,6 @@ test-results/
 .claude/commands/
 .claude/hooks/
 playwright-report/
+
+# Case-study run artifacts — transcripts can contain API responses; keep local
+research-journal/shared/case_study_runs/

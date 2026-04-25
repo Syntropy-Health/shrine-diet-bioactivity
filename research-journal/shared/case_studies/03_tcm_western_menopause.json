@@ -1,0 +1,12 @@
+{
+  "id": "case-03-tcm-western-menopause",
+  "version": "v1",
+  "research_question": "Compare TCM and Western evidence for menopausal vasomotor symptoms (hot flashes). Include classical TCM syndrome differentiation and modern phytoestrogen mechanism.",
+  "expected_complexity": "moderate",
+  "expected_red_flags": [],
+  "expected_panel_verdict": "caution",
+  "expected_evidence_tier": "observational",
+  "expected_min_chains": 2,
+  "languages": ["en", "zh"],
+  "notes": "Tests bilingual reasoning. TCM herbs: 当归 Dang Gui, 升麻 Sheng Ma. Western: black cohosh, isoflavones. Evidence quality is mixed (some RCTs, mostly observational)."
+}

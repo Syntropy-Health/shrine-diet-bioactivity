@@ -1,0 +1,11 @@
+{
+  "id": "case-01-ginger-cin",
+  "version": "v1",
+  "research_question": "Synthesize the evidence for ginger (Zingiber officinale) in chemotherapy-induced nausea and vomiting (CINV) in adult oncology patients.",
+  "expected_complexity": "low",
+  "expected_red_flags": [],
+  "expected_panel_verdict": "prefer",
+  "expected_evidence_tier": "clinical_trial",
+  "expected_min_chains": 1,
+  "notes": "Multiple RCT-level studies exist (e.g., Ryan 2012, Marx 2017). Tests basic evidence-synthesis pipeline."
+}
