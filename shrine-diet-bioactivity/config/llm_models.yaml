@@ -1,0 +1,8 @@
+default:
+  provider: openai
+  model: gpt-4o-2024-08-06
+  api_key_env: OPENAI_API_KEY
+fallback:
+  provider: anthropic
+  model: claude-3-5-sonnet-20241022
+  api_key_env: ANTHROPIC_API_KEY
