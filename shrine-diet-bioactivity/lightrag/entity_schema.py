@@ -224,6 +224,7 @@ RELATIONSHIP_TYPES = {
         "src_type": "Herb",
         "tgt_type": "Drug",
         "description": "Herb-drug interaction (HDI) from NIH ODS / MSK About Herbs / LiverTox",
+        "query": None,
     },
 }
 
