@@ -347,16 +347,17 @@ eval-smoke: ## Confirm OpenRouter Nemotron is reachable + structural sanity
 	python3 -m pytest eval/ -v
 
 eval-embed-ingest: ## Backfill LightRAG embeddings against existing Aura graph
-	@if [ -z "$$OPENROUTER_API_KEY" ]; then \
-		echo "ERROR: OPENROUTER_API_KEY not set in environment"; exit 1; \
-	fi
-	set -a && . ./.env && set +a && make lightrag-ingest-local
+	@set -a && [ -f ./.env ] && . ./.env; set +a; \
+		if [ -z "$$OPENROUTER_API_KEY" ]; then \
+			echo "ERROR: OPENROUTER_API_KEY not set in .env or shell env"; exit 1; \
+		fi; \
+		$(MAKE) lightrag-ingest-local
 
 eval-run: ## Run baselines × test split. Usage: make eval-run [SYSTEMS=diet_os,medagents]
-	@if [ -z "$$OPENROUTER_API_KEY" ]; then \
-		echo "ERROR: OPENROUTER_API_KEY not set in .env"; exit 1; \
-	fi
-	set -a && . ./.env && set +a && \
+	@set -a && [ -f ./.env ] && . ./.env; set +a; \
+		if [ -z "$$OPENROUTER_API_KEY" ]; then \
+			echo "ERROR: OPENROUTER_API_KEY not set in .env or shell env"; exit 1; \
+		fi; \
 		python3 -m eval.runner \
 			--bench ../research-journal/shared/datasets/dietresearchbench_v1.json \
 			--splits ../research-journal/shared/datasets/splits_seed42.json \

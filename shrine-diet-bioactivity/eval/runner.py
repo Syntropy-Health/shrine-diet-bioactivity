@@ -26,6 +26,28 @@ from eval.scenario import BenchmarkSet, Scenario
 log = logging.getLogger(__name__)
 
 
+def _write_manifest(
+    path: Path,
+    bench: BenchmarkSet,
+    scenarios: list[Scenario],
+    systems: list[str],
+    timestamp: str,
+) -> None:
+    """Write/overwrite the run manifest with the systems completed so far.
+
+    Refreshing after each completed system means a killed mid-run still
+    leaves a valid manifest covering whatever completed — the report
+    renderer can then render the partial results without intervention.
+    """
+    path.write_text(json.dumps({
+        "benchmark_version": bench.version,
+        "scenario_count": len(scenarios),
+        "systems": list(systems),
+        "scenario_ids": [s.id for s in scenarios],
+        "timestamp": timestamp,
+    }, indent=2))
+
+
 def run_eval(
     bench: BenchmarkSet,
     scenarios: list[Scenario],
@@ -36,11 +58,21 @@ def run_eval(
     Persists each prediction to out_dir/<system>/<scenario_id>.json.
     Returns {system_name: [ResearchSynthesis, ...] in the same order as scenarios}."""
     sysnames = systems or list(BASELINES.keys())
-    out_dir.mkdir(parents=True, exist_ok=True)
-    results: dict[str, list[ResearchSynthesis]] = {}
+    # Validate up front — fail fast on a typo'd --systems flag rather than
+    # running the first N systems and then erroring.
     for sysname in sysnames:
         if sysname not in BASELINES:
-            raise ValueError(f"unknown system {sysname!r}; available: {list(BASELINES.keys())}")
+            raise ValueError(
+                f"unknown system {sysname!r}; available: {list(BASELINES.keys())}"
+            )
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    manifest_path = out_dir / f"manifest-{timestamp}.json"
+
+    results: dict[str, list[ResearchSynthesis]] = {}
+    completed: list[str] = []
+    for sysname in sysnames:
         fn = BASELINES[sysname]
         sys_out = out_dir / sysname
         sys_out.mkdir(parents=True, exist_ok=True)
@@ -56,14 +88,9 @@ def run_eval(
             (sys_out / f"{s.id}.json").write_text(rs.model_dump_json(indent=2))
             per_system.append(rs)
         results[sysname] = per_system
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    (out_dir / f"manifest-{timestamp}.json").write_text(json.dumps({
-        "benchmark_version": bench.version,
-        "scenario_count": len(scenarios),
-        "systems": sysnames,
-        "scenario_ids": [s.id for s in scenarios],
-        "timestamp": timestamp,
-    }, indent=2))
+        completed.append(sysname)
+        _write_manifest(manifest_path, bench, scenarios, completed, timestamp)
+
     return results
 
 
