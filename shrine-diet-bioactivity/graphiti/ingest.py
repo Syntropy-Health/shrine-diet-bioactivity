@@ -12,7 +12,7 @@ Usage:
 
 Prerequisites:
     1. LM Studio running with embedding + chat models loaded
-    2. Neo4j accessible (Aura cloud or local Docker)
+    2. Neo4j accessible (Railway or local Docker)
     3. pip install -r requirements.txt
     4. cp .env.example .env && edit .env with Neo4j password
 """

@@ -93,7 +93,7 @@ The unified diet KG aggregates structured phytochemical databases and nutritiona
 │             │                │              │                      │
 │             │                │ ┌──────────┐ │                      │
 │             │                │ │ Neo4j    │ │  Graph storage       │
-│             │                │ │ (Aura)   │ │  Typed entity labels │
+│             │                │ │ (Railway)│ │  Typed entity labels │
 │             │                │ └──────────┘ │                      │
 │             │                │ ┌──────────┐ │                      │
 │             │                │ │ NanoVDB  │ │  Vector embeddings   │
@@ -192,8 +192,8 @@ The unified diet KG aggregates structured phytochemical databases and nutritiona
 
 | Profile | LLM | Embedding | Reranker | Neo4j | Use Case |
 |---------|-----|-----------|----------|-------|----------|
-| **config_local.env** | Ollama qwen3.5:9b | Ollama bge-m3 (1024-dim) | None | Aura cloud (dev) | Dev, test, eval |
-| **config_production.env** | GPT-4o-mini | text-embedding-3-large (3072-dim) | Jina multilingual | Aura cloud (prod) | Production (CN+EN TCM) |
+| **config_local.env** | Ollama qwen3.5:9b | Ollama bge-m3 (1024-dim) | None | Railway test | Dev, test, eval |
+| **config_production.env** | GPT-4o-mini | text-embedding-3-large (3072-dim) | Jina multilingual | Prod instance | Production (CN+EN TCM) |
 
 ## Food Bridge Matching Strategies
 

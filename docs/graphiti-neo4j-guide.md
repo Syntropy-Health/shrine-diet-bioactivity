@@ -1,11 +1,5 @@
 # Graphiti + Neo4j Knowledge Graph Guide
 
-> **Status: legacy reference.** The active stack uses LightRAG against
-> Neo4j Aura (credentials via `.env`, see `.env.template`). The Graphiti
-> + Railway Neo4j configuration documented below was the PoC predecessor
-> and is no longer the production path. See
-> `docs/unified-diet-kg-architecture.md` for the current architecture.
-
 How to set up, ingest, visualize, and query the phytochemical knowledge graph.
 
 ## Architecture

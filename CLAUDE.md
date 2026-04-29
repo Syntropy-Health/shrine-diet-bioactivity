@@ -96,7 +96,7 @@ STRUCTURED DATA (zero LLM cost):
 | Semantic KG | Python 3.10+, LightRAG, Neo4j 5.26+ |
 | Embeddings (local) | Ollama, bge-m3 (1024-dim) |
 | Embeddings (prod) | OpenAI text-embedding-3-large (3072-dim) |
-| Graph DB | Neo4j (Aura cloud, credentials via `.env`) |
+| Graph DB | Neo4j (Railway hosted) |
 | NIH DSLD Client | Python, requests |
 
 ## Submodules

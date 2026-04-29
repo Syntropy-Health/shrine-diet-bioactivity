@@ -143,9 +143,32 @@ def chunked(seq, size):
         yield seq[i : i + size]
 
 
-def upsert_entities(session, entities: list[dict], workspace: str) -> int:
-    """Batch MERGE entities with workspace + entity_type labels."""
+def _stamp_scope(rows: list[dict], scope: str) -> list[dict]:
+    """Return new rows with scope filled in.
+
+    Existing scope values are preserved (never overwritten — caller can pass
+    tenant-scoped rows alongside shared rows, though the default ingest path
+    only writes ``scope='shared'``). Idempotent: re-stamping the same scope
+    is a no-op. We do not mutate input dicts so callers can keep using them.
+    """
+    out: list[dict] = []
+    for r in rows:
+        if r.get("scope"):
+            out.append(r)
+        else:
+            out.append({**r, "scope": scope})
+    return out
+
+
+def upsert_entities(session, entities: list[dict], workspace: str, scope: str = "shared") -> int:
+    """Batch MERGE entities with workspace + entity_type labels.
+
+    Every entity is tagged with ``scope`` (default 'shared') so the scoped
+    LightRAG server can read it without further migration. Idempotency:
+    re-running with the same payload is a no-op (MERGE + SET n += row).
+    """
     ws = safe_label(workspace)
+    entities = _stamp_scope(entities, scope)
     total = 0
     for batch in chunked(entities, 500):
         # Group by entity_type so we can SET the right label per batch.
@@ -154,6 +177,7 @@ def upsert_entities(session, entities: list[dict], workspace: str) -> int:
             by_type.setdefault(e["entity_type"], []).append(e)
         for etype, group in by_type.items():
             et = safe_label(etype)
+            # `SET n += row` propagates row.scope onto the node.
             cypher = (
                 f"UNWIND $rows AS row "
                 f"MERGE (n:`{ws}` {{entity_id: row.entity_id}}) "
@@ -165,13 +189,15 @@ def upsert_entities(session, entities: list[dict], workspace: str) -> int:
     return total
 
 
-def upsert_relationships(session, rels: list[dict], workspace: str) -> int:
+def upsert_relationships(session, rels: list[dict], workspace: str, scope: str = "shared") -> int:
     """Batch MERGE relationships keyed by (src, tgt, rel_type).
 
-    Uses APOC apoc.merge.relationship for dynamic edge type. Falls back
-    to a plain :RELATES if APOC isn't available (Aura includes APOC).
+    Every relationship is tagged with ``scope`` (default 'shared'). The
+    scoped Neo4j wrapper requires this property on every readable edge.
+    Re-running is idempotent (MERGE + explicit SET).
     """
     ws = safe_label(workspace)
+    rels = _stamp_scope(rels, scope)
     total = 0
     for batch in chunked(rels, 500):
         # Group by rel_type so we get typed edges (INTERACTS_WITH,
@@ -191,7 +217,8 @@ def upsert_relationships(session, rels: list[dict], workspace: str) -> int:
                 f"    r.weight = row.weight, "
                 f"    r.file_path = row.file_path, "
                 f"    r.source_id = row.source_id, "
-                f"    r.evidence_tier = row.evidence_tier"
+                f"    r.evidence_tier = row.evidence_tier, "
+                f"    r.scope = row.scope"
             )
             result = session.run(cypher, rows=group)
             result.consume()
@@ -207,6 +234,16 @@ def main() -> int:
     parser.add_argument("--max-extra-per-table", type=int, default=1000)
     parser.add_argument("--duke-rel-cap", type=int, default=10000)
     parser.add_argument("--herb2-cap", type=int, default=2000)
+    parser.add_argument(
+        "--scope",
+        default="shared",
+        help=(
+            "Scope tag applied to every node and relationship written by this run. "
+            "Defaults to 'shared' per project policy: open-source datasets always "
+            "ingest under scope='shared'. Override only for tenant-scoped pilots, "
+            "in which case pass e.g. --scope tenant:clinic-a."
+        ),
+    )
     args = parser.parse_args()
 
     load_dotenv(SCRIPT_DIR.parent / ".env")
@@ -315,14 +352,14 @@ def main() -> int:
     print(f"\nTotal: {len(all_entities):,} entities, {len(valid_rels):,} edges (dropped {dropped:,} orphans)")
 
     # --- Upsert ---
-    print("\nWriting to Aura...")
+    print(f"\nWriting to Aura (scope={args.scope})...")
     start = time.time()
     with GraphDatabase.driver(uri, auth=(user, pwd)) as driver:
         with driver.session() as session:
-            n_ent = upsert_entities(session, all_entities, workspace)
+            n_ent = upsert_entities(session, all_entities, workspace, scope=args.scope)
             print(f"  ✅ {n_ent:,} entities upserted in {time.time() - start:.1f}s")
             t1 = time.time()
-            n_rel = upsert_relationships(session, valid_rels, workspace)
+            n_rel = upsert_relationships(session, valid_rels, workspace, scope=args.scope)
             print(f"  ✅ {n_rel:,} relationships upserted in {time.time() - t1:.1f}s")
 
     print(f"\nTotal time: {time.time() - start:.1f}s")

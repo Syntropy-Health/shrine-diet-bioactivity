@@ -97,19 +97,38 @@ def tag_shared(driver, workspace_label: str) -> tuple[int, int]:
 
 
 def create_indexes(driver, workspace_label: str) -> None:
-    """Create property indexes on node.scope and relationship scope.
+    """Create property indexes on node.scope and per-relationship-type r.scope.
 
-    Uses ``IF NOT EXISTS`` so repeated runs are safe.
+    Neo4j 5+ relationship-property indexes require a typed relationship —
+    ``CREATE INDEX ... FOR ()-[r]-()`` is rejected as syntax error. We enumerate
+    the actual rel types in the database and create one index per type.
+
+    Uses ``IF NOT EXISTS`` everywhere so repeated runs are safe. Adding a new
+    relationship type to the schema later just means re-running this script
+    once; existing indexes are left alone.
     """
     with driver.session() as session:
+        # Node index — single global index on the workspace label.
         session.run(
             f"CREATE INDEX {NODE_SCOPE_INDEX} IF NOT EXISTS "
             f"FOR (n:`{workspace_label}`) ON (n.scope)"
         ).consume()
-        session.run(
-            f"CREATE INDEX {EDGE_SCOPE_INDEX} IF NOT EXISTS "
-            "FOR ()-[r]-() ON (r.scope)"
-        ).consume()
+
+        # Relationship indexes — one per rel type currently in the database.
+        # db.relationshipTypes() lists everything Neo4j has seen at least once.
+        rel_types = [
+            row["relationshipType"]
+            for row in session.run("CALL db.relationshipTypes() YIELD relationshipType")
+        ]
+        for rt in rel_types:
+            # Skip types Neo4j tracks but that aren't ours (none currently,
+            # but future-proof against shared instance use).
+            safe_rt = "".join(c if c.isalnum() or c == "_" else "_" for c in rt)
+            index_name = f"{EDGE_SCOPE_INDEX}_{safe_rt}".lower()
+            session.run(
+                f"CREATE INDEX {index_name} IF NOT EXISTS "
+                f"FOR ()-[r:`{rt}`]-() ON (r.scope)"
+            ).consume()
 
 
 def verify_clean(driver, workspace_label: str) -> None:

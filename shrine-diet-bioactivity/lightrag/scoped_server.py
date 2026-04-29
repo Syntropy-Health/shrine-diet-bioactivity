@@ -75,12 +75,22 @@ def _load_config() -> str:
 async def _build_scoped_rag() -> Any:
     """Instantiate LightRAG with ScopedNeo4JStorage as the graph backend."""
     from lightrag import LightRAG
-    from lightrag.kg import STORAGES
+    from lightrag.kg import STORAGES, STORAGE_IMPLEMENTATIONS
 
-    # Register our subclass so LightRAG's string-based resolver can find it.
-    # The entry value is the absolute module path (``scoped_neo4j_storage``
-    # must be importable from cwd — the Makefile enforces cd lightrag).
+    # Register our subclasses in BOTH LightRAG registries:
+    #   - STORAGES: dynamic resolver string → module path
+    #   - STORAGE_IMPLEMENTATIONS: hardcoded compatibility list checked by
+    #     verify_storage_implementation() during LightRAG.__post_init__
+    # Recent LightRAG versions added the second registry; without this entry
+    # __post_init__ raises ValueError("not compatible with <SLOT>_STORAGE").
     STORAGES["ScopedNeo4JStorage"] = "scoped_neo4j_storage"
+    STORAGES["ScopedNeo4JVectorStorage"] = "scoped_neo4j_vector_storage"
+    graph_impls = STORAGE_IMPLEMENTATIONS["GRAPH_STORAGE"]["implementations"]
+    if "ScopedNeo4JStorage" not in graph_impls:
+        graph_impls.append("ScopedNeo4JStorage")
+    vector_impls = STORAGE_IMPLEMENTATIONS["VECTOR_STORAGE"]["implementations"]
+    if "ScopedNeo4JVectorStorage" not in vector_impls:
+        vector_impls.append("ScopedNeo4JVectorStorage")
 
     working_dir = os.environ.get("WORKING_DIR", str(SCRIPT_DIR / "rag_storage_local"))
     workspace = os.environ.get("WORKSPACE", "unified_diet_kg")
@@ -160,10 +170,15 @@ class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, description="Natural-language query")
     mode: str = Field("hybrid", description="LightRAG retrieval mode")
     top_k: int = Field(60, ge=1, le=200)
+    # scope_filter defaults to ['shared'] to match the codebase-wide
+    # DEFAULT_SCOPE in scope_context.py and the project policy that
+    # open-source datasets ingest under scope='shared'. Tenant-scoped
+    # callers MUST still pass ['shared', 'tenant:<slug>'] explicitly —
+    # the server cannot guess a tenant. Empty lists are rejected.
     scope_filter: list[str] = Field(
-        ...,
+        default_factory=lambda: ["shared"],
         min_length=1,
-        description="Required: ['shared'] or ['shared','tenant:<slug>']",
+        description="Defaults to ['shared']. Pass ['shared','tenant:<slug>'] for tenant-scoped reads.",
     )
 
 

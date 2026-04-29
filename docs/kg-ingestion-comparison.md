@@ -1,10 +1,5 @@
 # KG Ingestion Comparison: Direct vs Graphiti
 
-> **Status: historical PoC.** The Neo4j endpoints below were Railway test
-> instances used during the comparison study; production has since
-> migrated to Neo4j Aura (credentials via `.env`). The relative
-> conclusions about ingestion strategies remain valid.
-
 PoC results from the unified phytochemical knowledge graph experiment.
 
 ## Setup
