@@ -250,9 +250,15 @@ def main() -> None:
     # inner app after it's been built is silently ignored when the app's
     # middleware stack has already been finalized — caught by an e2e test
     # that saw 200 instead of 401 from /mcp without bearer.
+    #
+    # CRITICAL: forward the inner app's lifespan to the outer. FastMCP's
+    # StreamableHTTP session manager initializes its task_group inside the
+    # inner app's lifespan; without forwarding, every /mcp request errors
+    # with "Task group is not initialized. Make sure to use run()".
     guarded_app = Starlette(
         routes=[Mount("/", app=inner_app)],
         middleware=[Middleware(AuthMiddleware)],
+        lifespan=inner_app.router.lifespan_context,
     )
 
     uvicorn.run(
