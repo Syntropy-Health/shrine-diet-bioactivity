@@ -51,6 +51,34 @@ def _client() -> ScopedServerClient:
     return server.get_context().request_context.lifespan_context  # type: ignore[no-any-return]
 
 
+# ─── HTTP custom routes (only used in streamable-http / sse transports) ────
+
+
+@server.custom_route("/health", methods=["GET"])
+async def _http_health(_request):
+    """Public health endpoint Railway polls. Probes the upstream scoped_server too,
+    so a green /health here means the whole MCP→scoped_server→Aura path is reachable.
+    """
+    from starlette.responses import JSONResponse
+
+    try:
+        client = ScopedServerClient()
+        try:
+            up = await client.health()
+        finally:
+            await client.aclose()
+        return JSONResponse({
+            "status": "ok",
+            "mcp": "ok",
+            "scoped_server": up,
+        })
+    except Exception as e:  # noqa: BLE001 - health endpoint must always respond
+        return JSONResponse(
+            {"status": "degraded", "mcp": "ok", "scoped_server_error": str(e)},
+            status_code=503,
+        )
+
+
 # ─── Layer A — General Q&A ────────────────────────────────────────────────
 
 
