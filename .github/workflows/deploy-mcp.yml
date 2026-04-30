@@ -1,0 +1,261 @@
+# Deploy KG MCP gateway to Railway
+#
+# Mirrors apps/Syntropy-Journals deployment pattern.
+# Branch → Environment:
+#   main  → prod
+#   test  → test
+#   dev-* → test
+#   workflow_dispatch → user choice
+#
+# Required secrets (per environment):
+#   RAILWAY_TOKEN — project-scoped Railway deployment token
+# Required repo secrets:
+#   NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD — Aura connection (set in Railway dashboard, NOT here)
+#   OPENROUTER_API_KEY — for embedder + LLM (set in Railway dashboard)
+# Required Railway service:
+#   kg-mcp — single combined service (scoped_server + MCP gateway)
+
+name: Deploy KG MCP Gateway
+
+on:
+  push:
+    branches:
+      - main
+      - test
+      - "dev-*"
+    paths:
+      - "Dockerfile"
+      - "railway.toml"
+      - "shrine-diet-bioactivity/lightrag/**"
+      - "mcp/**"
+      - "scripts/start_combined.sh"
+      - ".github/workflows/deploy-mcp.yml"
+  pull_request:
+    branches:
+      - main
+      - test
+    paths:
+      - "Dockerfile"
+      - "railway.toml"
+      - "shrine-diet-bioactivity/lightrag/**"
+      - "mcp/**"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: true
+        default: "test"
+        type: choice
+        options:
+          - test
+          - prod
+
+concurrency:
+  group: deploy-mcp-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  RAILWAY_SERVICE: "kg-mcp"
+
+jobs:
+  # =========================================================================
+  # Detect environment from branch
+  # =========================================================================
+  detect-environment:
+    name: Detect Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.detect.outputs.environment }}
+      is_prod: ${{ steps.detect.outputs.is_prod }}
+    steps:
+      - name: Detect from branch
+        id: detect
+        env:
+          GH_EVENT_NAME: ${{ github.event_name }}
+          GH_REF: ${{ github.ref }}
+          GH_DISPATCH_ENV: ${{ github.event.inputs.environment }}
+        run: |
+          if [ "$GH_EVENT_NAME" = "workflow_dispatch" ]; then
+            ENV="$GH_DISPATCH_ENV"
+          elif [ "$GH_REF" = "refs/heads/main" ]; then
+            ENV="prod"
+          elif [ "$GH_REF" = "refs/heads/test" ]; then
+            ENV="test"
+          elif [[ "$GH_REF" == refs/heads/dev-* ]]; then
+            ENV="test"
+          else
+            ENV="test"
+          fi
+          if [ "$ENV" = "prod" ] && [ "$GH_REF" != "refs/heads/main" ]; then
+            echo "::error::prod deploys are only allowed from refs/heads/main (got $GH_REF)"
+            exit 1
+          fi
+          IS_PROD="false"
+          [ "$ENV" = "prod" ] && IS_PROD="true"
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "is_prod=$IS_PROD" >> $GITHUB_OUTPUT
+
+  # =========================================================================
+  # PR promotion guard: PRs to main must come from `test`
+  # =========================================================================
+  pr-promotion-guard:
+    name: PR Promotion Guard
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    steps:
+      - name: Require head_ref=test for PRs to main
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if [ "$HEAD_REF" != "test" ]; then
+            echo "::error::PRs to main must come from the 'test' branch (got '$HEAD_REF')."
+            exit 1
+          fi
+
+  # =========================================================================
+  # Unit tests — MCP gateway (89% coverage already)
+  # =========================================================================
+  test-mcp:
+    name: MCP Gateway Tests
+    runs-on: ubuntu-latest
+    needs: detect-environment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install MCP package + test deps
+        working-directory: ./mcp
+        run: |
+          pip install -e .
+          pip install pytest pytest-asyncio pytest-cov httpx
+
+      - name: Run tests with coverage
+        working-directory: ./mcp
+        run: pytest tests/ --cov=src/kg_mcp --cov-report=term --cov-fail-under=80
+
+  # =========================================================================
+  # Docker build smoke (catches Dockerfile issues before deploying)
+  # =========================================================================
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [detect-environment, test-mcp]
+    if: github.event_name != 'pull_request' || github.base_ref == 'test'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: kg-mcp:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke — image launches and reports a sane Python version
+        run: |
+          docker run --rm --entrypoint python kg-mcp:${{ github.sha }} -c "
+          import sys
+          assert sys.version_info[:2] == (3, 11), f'wrong python: {sys.version}'
+          import kg_mcp
+          import kg_mcp.server  # must import without booting the server
+          print('image ok, python', sys.version)
+          "
+
+  # =========================================================================
+  # Deploy
+  # =========================================================================
+  deploy:
+    name: Deploy to Railway (${{ needs.detect-environment.outputs.environment }})
+    if: github.event_name != 'pull_request' && needs.docker-build.result == 'success'
+    runs-on: ubuntu-latest
+    needs: [detect-environment, docker-build]
+    environment:
+      name: ${{ needs.detect-environment.outputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify RAILWAY_TOKEN present
+        env:
+          HAS_RAILWAY: ${{ secrets.RAILWAY_TOKEN != '' }}
+        run: |
+          if [ "$HAS_RAILWAY" != "true" ]; then
+            echo "::error::RAILWAY_TOKEN not set in environment '${{ needs.detect-environment.outputs.environment }}'"
+            exit 1
+          fi
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli@latest
+
+      - name: Deploy
+        timeout-minutes: 15
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          ENV_NAME: ${{ needs.detect-environment.outputs.environment }}
+        run: |
+          railway up --service "${{ env.RAILWAY_SERVICE }}" --environment "$ENV_NAME" --ci --detach
+
+      - name: Resolve service URL + wait for /health
+        id: health_check
+        timeout-minutes: 8
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          ENV_NAME: ${{ needs.detect-environment.outputs.environment }}
+        run: |
+          # Railway exposes domain via `railway status --json`. Parse it then
+          # poll /health until 200 or timeout.
+          STATUS=$(railway status --service "${{ env.RAILWAY_SERVICE }}" --environment "$ENV_NAME" --json 2>/dev/null || echo '{}')
+          DOMAIN=$(echo "$STATUS" | python3 -c "import sys,json; d=json.load(sys.stdin); print((d.get('service',{}).get('serviceDomains') or [{}])[0].get('domain',''))" 2>/dev/null || true)
+          if [ -z "$DOMAIN" ]; then
+            echo "::error::Could not resolve Railway domain — check service name and env"
+            exit 1
+          fi
+          URL="https://$DOMAIN/health"
+          echo "Polling $URL..."
+          for i in $(seq 1 60); do
+            if curl -fsS -m 5 "$URL" >/dev/null 2>&1; then
+              echo "✅ healthy after ${i}*5=$((i*5))s"
+              echo "url=https://$DOMAIN" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Health check did not pass within 5 minutes"
+          exit 1
+
+      - name: Rollback on health failure
+        if: steps.health_check.outcome == 'failure'
+        continue-on-error: true
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          ENV_NAME: ${{ needs.detect-environment.outputs.environment }}
+        run: |
+          echo "::warning::Health check failed — removing failed deployment"
+          railway down --service "${{ env.RAILWAY_SERVICE }}" --environment "$ENV_NAME" --yes
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          URL="${{ steps.health_check.outputs.url }}"
+          echo "## Deployment summary" >> $GITHUB_STEP_SUMMARY
+          echo "Environment: \`$ENV\`" >> $GITHUB_STEP_SUMMARY
+          echo "Service: \`${{ env.RAILWAY_SERVICE }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "Health: \`${{ steps.health_check.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$URL" ]; then
+            echo "URL: $URL" >> $GITHUB_STEP_SUMMARY
+          fi

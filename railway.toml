@@ -1,0 +1,16 @@
+# Railway service config for shrine-diet-bioactivity KG MCP gateway.
+#
+# Build: Dockerfile at repo root.
+# Healthcheck: /health on $PORT (the MCP gateway's HTTP transport).
+# Restart: ON_FAILURE with bounded retries — bad deploys roll back via
+# `railway down` in CI rather than retrying forever.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "./Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

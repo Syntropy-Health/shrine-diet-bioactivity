@@ -1,0 +1,73 @@
+# .dockerignore — keep the build context tiny.
+# The deployed service reads from Aura; local data assets are dev-only.
+
+# Local data (huge — never deploy)
+shrine-diet-bioactivity/data/
+shrine-diet-bioactivity/data_local/
+shrine-diet-bioactivity/rag_storage_local/
+**/rag_storage_local/
+
+# Python build artefacts
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/htmlcov/
+**/.coverage
+
+# Node
+**/node_modules/
+**/.npm/
+
+# Git + worktree state
+.git
+.gitmodules
+.github/
+.worktrees/
+**/.git
+
+# Editor + OS
+.vscode/
+.idea/
+.DS_Store
+**/*.swp
+
+# Tests + docs (deployed runtime doesn't need them)
+**/tests/
+**/test_*.py
+mcp/tests/
+shrine-diet-bioactivity/eval/
+shrine-diet-bioactivity/agents/
+shrine-diet-bioactivity/scripts/
+shrine-diet-bioactivity/src/
+shrine-diet-bioactivity/build/
+docs/
+research-journal/
+
+# Zombie modules (per repo-zombie-audit memo)
+graphiti/
+mcp-knowledge-graph/
+
+# Big submodules whose runtime we don't run inside the container
+# (lightrag PYPI package is installed via requirements.txt; we don't need
+# the full LightRAG source repo)
+lightrag/
+mcp-opennutrition/
+
+# Also exclude any nested data caches the runtime doesn't need
+shrine-diet-bioactivity/audit/
+shrine-diet-bioactivity/coverage/
+shrine-diet-bioactivity/build/
+shrine-diet-bioactivity/dist/
+shrine-diet-bioactivity/node_modules/
+
+# Logs + lockfiles
+*.log
+shrine-diet-bioactivity/audit/
+
+# Secrets — never let .env into a build
+**/.env
+**/.env.local
+shrine-diet-bioactivity/.env*
