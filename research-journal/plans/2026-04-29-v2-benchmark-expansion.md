@@ -4,6 +4,21 @@ _Authored 2026-04-29. Draft for discussion._
 
 This memo proposes how to grow the v1 benchmark (40 scenarios, single-author gold, no IAA) into v2 (target: 200 scenarios with two-annotator gold, κ ≥ 0.6 IAA on the verdict label, κ ≥ 0.7 on the binary HDI label). It is the planning counterpart to Subsystem F's "Plan pending" status in the program plan.
 
+## 0. Scope separation (added 2026-04-29)
+
+This memo is **paper-track / publication tooling**. It defines the dataset and protocol the paper reports against. It does NOT touch the LightRAG KG runtime (ingest, query, vector storage, MCP server).
+
+**Two stacks, two sets of secrets:**
+
+| Concern | Stack | Secrets |
+|---|---|---|
+| KG ingest + query + vector embedding | LightRAG / Aura / OpenRouter | `NEO4J_*`, `OPENROUTER_API_KEY` |
+| Paper gold-label provenance + scenario authoring | NCBI E-utilities (PubMed) + Cochrane CDSR | `NCBI_API_KEY` (added 2026-04-29 to `.env` + Infisical SyntropyHealth App / prod) |
+
+The two stacks share zero code paths. The publication agent reads the KG via the MCP gateway (Task #12); the publication dataset gold labels cite PubMed via the NCBI API. NCBI is never called at KG ingest or KG query time.
+
+---
+
 ## 1. v1 retrospective — what informs v2
 
 ### What v1 got right

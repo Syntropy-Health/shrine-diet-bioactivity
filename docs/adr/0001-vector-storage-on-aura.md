@@ -104,7 +104,7 @@ Teams switch the `LIGHTRAG_VECTOR_STORAGE` env var between `NanoVectorDBStorage`
 |---|---|---|
 | **D5+** | `make lightrag-cache-reset` + dim-check guard + canonical `WORKING_DIR` | ✅ landed |
 | **Storage class** | `ScopedNeo4JVectorStorage` subclass of `BaseVectorStorage`; one synthetic-node label per LightRAG namespace (`:VectorEntity` / `:VectorRelationship` / `:VectorChunk`); native Neo4j 5.13+ vector index per namespace; `db.index.vector.queryNodes()` retrieval; scope filter honored on every read; idempotent MERGE on `(id, workspace)`. Registered in both `STORAGES` and `STORAGE_IMPLEMENTATIONS`. 20 unit tests pass. `config_local.env` updated to `LIGHTRAG_VECTOR_STORAGE=ScopedNeo4JVectorStorage`. | ✅ landed 2026-04-29 |
-| **Re-embed migration** | Embed all 166K Aura entities/relationships/chunks; populate vector indexes. Blocked on paid LLM tier (free-tier OpenRouter @ 20 RPM ≈ 140 hours). Tracked as Task #11. | ⏳ blocked on infra |
+| **Re-embed migration** | Embed all 166K Aura entities/relationships/chunks; populate vector indexes. Confirmed runnable on the free `nvidia/llama-nemotron-embed-vl-1b-v2:free` embedder — the embeddings endpoint has its own quota, separate from the 20 RPM chat-endpoint cap. Sustained 5–7 entities/sec at 16-text batches, ~9-hour wall-clock for the full 166K. Tracked as Task #11. | ⏳ in flight 2026-04-29 (free-tier OpenRouter) |
 | **Production rollout** | Update `config_production.env`; deprecate `NanoVectorDBStorage` from production deploys; document the swap to local NanoVectorDB for dev iteration via env override. | follow-up |
 
 ## References

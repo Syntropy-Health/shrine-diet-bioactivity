@@ -296,13 +296,18 @@ Results dir: `research-journal/shared/results/20260428T224038Z/`
 
 The harness works. The Aura KG works. The gates work. The signal is null because we're running on free-tier infra that's both rate-limited and quality-unreliable. We have not yet exercised any of falsifiable claims C1–C5 (§6) under conditions where they could be falsified.
 
-### Path to a paper-quality v1 run (for follow-up decisions, not this PR)
+### Path to a paper-quality v1 run (corrected 2026-04-29)
 
-To produce paper-grade signal we need:
+The earlier draft of this section recommended a "paid LLM tier" — that conflated **model size/quality** (which free OpenRouter already provides at sufficient scale: DeepSeek V3, Llama 3.3 70B, Qwen 2.5 72B, Nemotron 30B, etc.) with **request throughput** (the actual v1 blocker, capped at 20 RPM on the free tier's chat endpoint). Correcting:
 
-- **Paid LLM tier or self-hosted model.** Options: Sonnet via Anthropic API, GPT-4o-mini via OpenAI, Gemini Flash via Google, OR a self-hosted model. Free-tier OpenRouter will not produce defensible results.
-- **Working KG retrieval.** Either (a) re-populate the local NanoVectorDB cache with 2048-dim embeddings (~2-5h, free-tier-rate-limited, not durable), OR (b) implement `Neo4JVectorStorage` per ADR 0001 / Task #7 (~1 day, durable, production-ready). Recommendation: (b).
-- **JSON-schema-constrained generation.** Either guided JSON via OpenAI/Anthropic structured outputs, OR Pydantic re-prompt loop, OR switch to a model with reliable JSON.
+- **Throughput**, not model quality, is the bottleneck. Each diet_os scenario fires ~7 LLM calls (triage + 6-role panel + moderator). 9 scenarios × 7 calls = 63 calls/min sustained vs. 20 RPM cap → most scenarios 429-degraded. **Solutions** (in order of preference, all viable on the free tier):
+  - (a) Add per-call sleep/backoff in the runner so the panel paces itself under 20 RPM. Slower wall-clock; the free-tier model quality is unchanged.
+  - (b) Multi-provider routing: split calls across OpenRouter free models with disjoint rate-limit pools, OR fall back to direct provider endpoints with their own free quotas (DeepSeek, Groq, Cerebras have generous free tiers).
+  - (c) Self-host a 30–70B model via Ollama on a beefy GPU. Free runtime, no rate limit, full panel pace.
+- **Working KG retrieval.** `Neo4JVectorStorage` (Task #7) landed; re-embed migration (Task #11) running on the free `nvidia/llama-nemotron-embed-vl-1b-v2:free` embedder — sustained 5–7 entities/sec without rate-limit issues against the embeddings endpoint (separate quota from chat). ETA fully populated in hours, not days.
+- **JSON-schema-constrained generation.** Pydantic re-prompt loop is the simplest fix, model-agnostic, works on free tier. Current `diet_os` already uses Pydantic; just needs a "retry on validation failure" wrapper around the LLM call.
+
+**None of the above requires a paid LLM tier.** It requires rate-limit-aware orchestration and a graph that's actually retrievable (the latter is in flight).
 
 **Status of Task #2:** infrastructure-complete. The matrix re-ran with diet_os live; the failure modes are diagnosed; the path forward is documented. Marking complete.
 

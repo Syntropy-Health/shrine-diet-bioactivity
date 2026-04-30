@@ -33,6 +33,7 @@ from typing import Iterator
 import requests
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
+from neo4j.exceptions import ServiceUnavailable, TransientError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -163,8 +164,15 @@ def _write_vectors(
     workspace_label: str,
     rows: list[dict],
     embeddings: list[list[float]],
+    max_attempts: int = 8,
 ) -> int:
-    """MERGE :VectorEntity nodes with embeddings + scope='shared'."""
+    """MERGE :VectorEntity nodes with embeddings + scope='shared'.
+
+    Retries on Neo4j TransientError (Aura cluster maintenance, replication
+    pauses, leader elections). These are non-deterministic and usually
+    resolve in seconds; without retry, an 8-hour migration can die at hour 4
+    on a single hiccup.
+    """
     if not rows or not embeddings or len(rows) != len(embeddings):
         return 0
     payload = [
@@ -183,9 +191,24 @@ def _write_vectors(
         f"    n.scope = 'shared', "
         f"    n.namespace = 'entities'"
     )
-    with driver.session() as s:
-        s.run(cypher, rows=payload).consume()
-    return len(payload)
+    delay = 2.0
+    for attempt in range(max_attempts):
+        try:
+            with driver.session() as s:
+                s.run(cypher, rows=payload).consume()
+            return len(payload)
+        except (TransientError, ServiceUnavailable) as e:
+            if attempt == max_attempts - 1:
+                print(f"  aura-write-exhausted after {max_attempts} attempts: {e}", file=sys.stderr)
+                raise
+            print(
+                f"  aura transient ({type(e).__name__}); backing off {delay:.1f}s "
+                f"(attempt {attempt + 1}/{max_attempts})",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+            delay *= 2
+    return 0
 
 
 def main() -> int:
