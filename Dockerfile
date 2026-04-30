@@ -17,7 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install LightRAG first — heaviest dependency. Cached when only project code changes.
-COPY lightrag/requirements.txt /tmp/lightrag-requirements.txt
+# Note: top-level lightrag/ is the framework submodule (excluded by .dockerignore);
+# the requirements.txt we want is the project's pinned-deps copy.
+COPY shrine-diet-bioactivity/lightrag/requirements.txt /tmp/lightrag-requirements.txt
 RUN pip install --no-cache-dir --user -r /tmp/lightrag-requirements.txt
 
 # Install MCP gateway package
