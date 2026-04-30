@@ -11,10 +11,12 @@ Run:
 """
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Literal
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from . import tools as t
 from .client import ScopedServerClient
@@ -43,7 +45,29 @@ async def _lifespan(_: FastMCP) -> AsyncIterator[ScopedServerClient]:
         await client.aclose()
 
 
-server = FastMCP("kg-mcp", lifespan=_lifespan)
+# Build TransportSecuritySettings from env BEFORE FastMCP construction.
+# Mutating server.settings.transport_security after the fact does NOT propagate
+# to the streamable_http_app's middleware (it captures the settings at
+# app-construction time). So we read env here and pass via kwargs.
+def _build_transport_security() -> TransportSecuritySettings:
+    if os.environ.get("MCP_DISABLE_DNS_REBINDING_PROTECTION", "").lower() in ("1", "true", "yes"):
+        return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    extra_hosts = [h.strip() for h in os.environ.get("MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
+    extra_origins = [o.strip() for o in os.environ.get("MCP_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+    base_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    base_origins = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=base_hosts + extra_hosts,
+        allowed_origins=base_origins + extra_origins,
+    )
+
+
+server = FastMCP(
+    "kg-mcp",
+    lifespan=_lifespan,
+    transport_security=_build_transport_security(),
+)
 
 
 def _client() -> ScopedServerClient:
@@ -175,8 +199,7 @@ def main() -> None:
       MCP_HOST=0.0.0.0
       MCP_PORT=8080
     """
-    import os
-    from typing import Literal, cast
+    from typing import cast
 
     transport_env = os.environ.get("MCP_TRANSPORT", "stdio")
     if transport_env not in ("stdio", "sse", "streamable-http"):
@@ -201,38 +224,8 @@ def main() -> None:
     # Examples:
     #   MCP_ALLOWED_HOSTS=kg-mcp-test.up.railway.app,*.up.railway.app
     #   MCP_ALLOWED_ORIGINS=https://kg-mcp-test.up.railway.app
-    # FastMCP's DNS-rebinding-protection middleware whitelists only localhost
-    # by default. Configure via env:
-    #   MCP_DISABLE_DNS_REBINDING_PROTECTION=true  → disable entirely
-    #     (safe behind a TLS reverse proxy like Railway/Vercel that validates
-    #     Host at the edge; not safe when exposed directly).
-    #   MCP_ALLOWED_HOSTS / MCP_ALLOWED_ORIGINS    → append (when keeping protection)
-    #
-    # We replace `transport_security` wholesale rather than mutating in place,
-    # because the middleware captures the settings object at app-construction
-    # time and may not see in-place mutations.
-    from mcp.server.transport_security import TransportSecuritySettings
-
-    disable_protection = os.environ.get(
-        "MCP_DISABLE_DNS_REBINDING_PROTECTION", ""
-    ).lower() in ("1", "true", "yes")
-    extra_hosts = [h.strip() for h in os.environ.get("MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
-    extra_origins = [o.strip() for o in os.environ.get("MCP_ALLOWED_ORIGINS", "").split(",") if o.strip()]
-
-    if disable_protection:
-        server.settings.transport_security = TransportSecuritySettings(
-            enable_dns_rebinding_protection=False,
-        )
-    elif extra_hosts or extra_origins:
-        existing = server.settings.transport_security
-        base_hosts = list(existing.allowed_hosts) if existing else []
-        base_origins = list(existing.allowed_origins) if existing else []
-        server.settings.transport_security = TransportSecuritySettings(
-            enable_dns_rebinding_protection=True,
-            allowed_hosts=base_hosts + extra_hosts,
-            allowed_origins=base_origins + extra_origins,
-        )
-
+    # transport_security was already configured at FastMCP construction
+    # (see _build_transport_security above) — no post-hoc mutation needed.
     server.run(transport=transport)
 
 
