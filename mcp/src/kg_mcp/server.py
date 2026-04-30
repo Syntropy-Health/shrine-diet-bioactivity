@@ -194,6 +194,22 @@ def main() -> None:
     # via settings. Set them right before run() so env-driven config applies.
     server.settings.host = os.environ.get("MCP_HOST", "0.0.0.0")
     server.settings.port = int(os.environ.get("MCP_PORT", "8080"))
+
+    # FastMCP's TransportSecuritySettings defaults to localhost-only allowed
+    # hosts/origins (DNS-rebinding protection). When deployed behind Railway
+    # or any other public host, add the deployed domain via env vars.
+    # Examples:
+    #   MCP_ALLOWED_HOSTS=kg-mcp-test.up.railway.app,*.up.railway.app
+    #   MCP_ALLOWED_ORIGINS=https://kg-mcp-test.up.railway.app
+    extra_hosts = [h.strip() for h in os.environ.get("MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
+    extra_origins = [o.strip() for o in os.environ.get("MCP_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+    ts = server.settings.transport_security
+    if ts is not None:
+        if extra_hosts:
+            ts.allowed_hosts = list(ts.allowed_hosts) + extra_hosts
+        if extra_origins:
+            ts.allowed_origins = list(ts.allowed_origins) + extra_origins
+
     server.run(transport=transport)
 
 
