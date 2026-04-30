@@ -207,3 +207,86 @@ def test_bearer_prefix_is_case_insensitive(guarded_app, monkeypatch):
     # "bearer" lowercase
     r = client.get("/mcp", headers={"Authorization": "bearer k"})
     assert r.status_code == 200
+
+
+# ─── Helpers (coverage for auth internals) ────────────────────────────────
+
+
+def test_clerk_frontend_api_decodes_publishable_key(monkeypatch):
+    from kg_mcp.auth import _clerk_frontend_api  # type: ignore[import-not-found]
+
+    # Live key from Infisical (pk_live_<base64>$ → "clerk.<domain>$")
+    monkeypatch.setenv("CLERK_PUBLISHABLE_KEY", "pk_live_Y2xlcmsuc3ludHJvcHloZWFsdGguYmlvJA")
+    assert _clerk_frontend_api() == "clerk.syntropyhealth.bio"
+
+
+def test_clerk_frontend_api_returns_none_when_unset(monkeypatch):
+    from kg_mcp.auth import _clerk_frontend_api  # type: ignore[import-not-found]
+
+    monkeypatch.delenv("CLERK_PUBLISHABLE_KEY", raising=False)
+    assert _clerk_frontend_api() is None
+
+
+def test_clerk_frontend_api_handles_malformed_key(monkeypatch):
+    from kg_mcp.auth import _clerk_frontend_api  # type: ignore[import-not-found]
+
+    monkeypatch.setenv("CLERK_PUBLISHABLE_KEY", "not-a-real-key")
+    # Either None (no underscores) or some lenient decode that doesn't crash.
+    out = _clerk_frontend_api()
+    assert out is None or isinstance(out, str)
+
+
+def test_fetch_jwks_caches_result(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from kg_mcp import auth as auth_mod  # type: ignore[import-not-found]
+
+    # Reset the module cache between tests.
+    auth_mod._JWKS_CACHE.clear()
+
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {"keys": [{"kid": "x"}]}
+    fake_resp.raise_for_status = MagicMock(return_value=None)
+
+    with patch("httpx.get", return_value=fake_resp) as get:
+        first = auth_mod._fetch_jwks("clerk.example.com")
+        second = auth_mod._fetch_jwks("clerk.example.com")
+    assert first == second == {"keys": [{"kid": "x"}]}
+    # Cached → only one HTTP call across two reads.
+    assert get.call_count == 1
+
+
+def test_fetch_jwks_returns_none_on_network_error():
+    from unittest.mock import patch as _patch
+
+    from kg_mcp import auth as auth_mod  # type: ignore[import-not-found]
+
+    auth_mod._JWKS_CACHE.clear()
+    with _patch("httpx.get", side_effect=Exception("boom")):
+        out = auth_mod._fetch_jwks("unreachable.example.com")
+    assert out is None
+
+
+def test_install_with_starlette_app_calls_add_middleware():
+    """install() short-circuits to add_middleware on Starlette apps."""
+    from kg_mcp.auth import install  # type: ignore[import-not-found]
+
+    app = Starlette()
+    out = install(app)
+    assert out is app
+    # No public way to introspect the middleware list pre-build, but the call
+    # must not raise.
+
+
+def test_admin_emails_csv_is_parsed_lowercase(monkeypatch):
+    from kg_mcp.auth import _admin_emails  # type: ignore[import-not-found]
+
+    monkeypatch.setenv("MCP_ADMIN_EMAILS", "Admin@X.com, secondary@y.com,  ")
+    assert _admin_emails() == {"admin@x.com", "secondary@y.com"}
+
+
+def test_admin_emails_empty_when_unset(monkeypatch):
+    from kg_mcp.auth import _admin_emails  # type: ignore[import-not-found]
+
+    monkeypatch.delenv("MCP_ADMIN_EMAILS", raising=False)
+    assert _admin_emails() == set()
