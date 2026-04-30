@@ -28,7 +28,7 @@ import logging
 import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
@@ -221,6 +221,369 @@ async def _shutdown() -> None:
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     return HealthResponse(status="ok", config=_config_name)
+
+
+# ---------------------------------------------------------------------------
+# Typed-Cypher endpoints (POST /traverse, /hdi_check, /bilingual_term).
+#
+# These bypass LightRAG's NL synthesis and run direct Cypher against Aura,
+# enforcing the scope filter on every node + edge. They power the MCP
+# Layer-B/C tools per research-journal/plans/2026-04-29-mcp-gateway-design.md.
+#
+# Cypher safety: ALL label/edge-type names sent by the client are checked
+# against an explicit allow-list before string-substitution. This is the
+# same pattern bootstrap_scope.py and ingest_direct.py already use; never
+# relax it.
+# ---------------------------------------------------------------------------
+
+# Allow-listed labels and edge types. Extending the KG schema means extending
+# these lists too — keeps the Cypher dispatch surface explicit.
+ALLOWED_LABELS: set[str] = {
+    "Herb", "Compound", "Food", "Target", "Disease", "Symptom", "Drug",
+    "Gene", "Pathway", "VectorEntity", "VectorRelationship", "VectorChunk",
+}
+ALLOWED_EDGE_TYPES: set[str] = {
+    "TARGETS_PROTEIN", "ASSOCIATED_WITH_DISEASE", "TREATS_SYMPTOM",
+    "FOUND_IN_FOOD", "CONTAINS_COMPOUND", "INTERACTS_WITH", "DIRECTED",
+    "MODULATES_PATHWAY",
+}
+
+
+def _get_driver() -> Any:
+    """Return the underlying neo4j driver from the booted LightRAG storage.
+
+    The driver is owned by ScopedNeo4JStorage; we just borrow it for the
+    typed endpoints. Tests monkeypatch this function to inject a fake.
+    """
+    if _rag is None:
+        raise HTTPException(status_code=503, detail="LightRAG not initialized")
+    storage = getattr(_rag, "chunk_entity_relation_graph", None)
+    driver = getattr(storage, "_driver", None) if storage else None
+    if driver is None:
+        raise HTTPException(status_code=503, detail="Neo4j driver unavailable")
+    return driver
+
+
+def _safe_label(name: str) -> str:
+    """Reject Cypher-injection attempts; assume the allow-list already passed."""
+    if not name.replace("_", "").isalnum():
+        raise HTTPException(status_code=400, detail=f"label/edge name not allowed: {name!r}")
+    return name
+
+
+def _build_traverse_cypher(
+    *,
+    workspace: str,
+    start_label: str,
+    edge_types: list[str],
+    direction: str,
+    depth: int,
+) -> str:
+    """Compose the typed Cypher for the requested traversal pattern.
+
+    Two patterns supported:
+      depth=1 with 1 edge type    — single-hop
+      depth=2 with 2 edge types   — chain
+    Anything else is rejected at the endpoint, not here.
+    """
+    ws = _safe_label(workspace)
+    sl = _safe_label(start_label)
+
+    if depth == 1:
+        et = _safe_label(edge_types[0])
+        if direction == "outbound":
+            arrow = f"(start)-[r:`{et}`]->(tgt)"
+        elif direction == "inbound":
+            arrow = f"(start)<-[r:`{et}`]-(tgt)"
+        else:  # bidirectional
+            arrow = f"(start)-[r:`{et}`]-(tgt)"
+        # Multi-label MATCH on (workspace, start_label) is faster than a
+        # post-WHERE labels() check and clearer to reviewers reading the
+        # Cypher. The allow-list at the endpoint guarantees `sl` is safe.
+        return (
+            f"MATCH (start:`{ws}`:`{sl}` {{entity_id: $seed}}) "
+            f"WHERE start.scope IN $scope_filter "
+            f"MATCH {arrow} "
+            f"WHERE tgt:`{ws}` AND tgt.scope IN $scope_filter "
+            f"  AND r.scope IN $scope_filter "
+            f"RETURN start.entity_id AS src_id, tgt.entity_id AS tgt_id, "
+            f"       type(r) AS rel_type, "
+            f"       coalesce(r.description, '') AS description, "
+            f"       coalesce(r.evidence_tier, '') AS evidence_tier, "
+            f"       coalesce(r.source_id, '') AS source_id "
+            f"LIMIT $top_k"
+        )
+
+    # depth == 2
+    e1, e2 = _safe_label(edge_types[0]), _safe_label(edge_types[1])
+    if direction == "outbound":
+        chain = (
+            f"(start)-[r1:`{e1}`]->(mid:`{ws}`)-[r2:`{e2}`]->(tgt:`{ws}`)"
+        )
+    elif direction == "inbound":
+        chain = (
+            f"(start)<-[r1:`{e1}`]-(mid:`{ws}`)<-[r2:`{e2}`]-(tgt:`{ws}`)"
+        )
+    else:  # bidirectional
+        chain = (
+            f"(start)-[r1:`{e1}`]-(mid:`{ws}`)-[r2:`{e2}`]-(tgt:`{ws}`)"
+        )
+    return (
+        f"MATCH (start:`{ws}`:`{sl}` {{entity_id: $seed}}) "
+        f"WHERE start.scope IN $scope_filter "
+        f"MATCH {chain} "
+        f"WHERE r1.scope IN $scope_filter AND r2.scope IN $scope_filter "
+        f"  AND mid.scope IN $scope_filter AND tgt.scope IN $scope_filter "
+        f"RETURN start.entity_id AS src_id, mid.entity_id AS mid_id, "
+        f"       tgt.entity_id AS tgt_id, "
+        f"       type(r1) AS rel_type_1, type(r2) AS rel_type_2, "
+        f"       coalesce(r1.description, '') AS description_1, "
+        f"       coalesce(r2.description, '') AS description_2, "
+        f"       coalesce(r1.source_id, '') AS source_id_1, "
+        f"       coalesce(r2.source_id, '') AS source_id_2 "
+        f"LIMIT $top_k"
+    )
+
+
+# ─── Pydantic models for typed endpoints ──────────────────────────────────
+
+
+class TraverseRequest(BaseModel):
+    start_label: str = Field(..., min_length=1)
+    edge_types: list[str] = Field(..., min_length=1, max_length=2)
+    seed: str = Field(..., min_length=1)
+    direction: Literal["outbound", "inbound", "bidirectional"] = "outbound"
+    depth: int = Field(1, ge=1, le=2)
+    top_k: int = Field(20, ge=1, le=200)
+    scope_filter: list[str] = Field(default_factory=lambda: ["shared"], min_length=1)
+
+
+class HDICheckRequest(BaseModel):
+    drug: str = Field(..., min_length=1)
+    herb: str = Field(..., min_length=1)
+    scope_filter: list[str] = Field(default_factory=lambda: ["shared"], min_length=1)
+
+
+class BilingualTermRequest(BaseModel):
+    term: str = Field(..., min_length=1)
+    scope_filter: list[str] = Field(default_factory=lambda: ["shared"], min_length=1)
+
+
+# ─── POST /traverse ───────────────────────────────────────────────────────
+
+
+@app.post("/traverse")
+async def traverse(request: TraverseRequest) -> dict[str, Any]:
+    # Allow-list check — prevents Cypher injection via label/edge name.
+    if request.start_label not in ALLOWED_LABELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"start_label must be one of {sorted(ALLOWED_LABELS)}",
+        )
+    for et in request.edge_types:
+        if et not in ALLOWED_EDGE_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"edge_type {et!r} not allowed; expected one of {sorted(ALLOWED_EDGE_TYPES)}",
+            )
+    if request.depth == 2 and len(request.edge_types) != 2:
+        raise HTTPException(
+            status_code=400,
+            detail="depth=2 requires exactly 2 edge_types (chain pattern)",
+        )
+    if request.depth == 1 and len(request.edge_types) != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="depth=1 requires exactly 1 edge_type",
+        )
+
+    try:
+        [validate_scope(s) for s in request.scope_filter]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    workspace = os.environ.get("WORKSPACE", "unified_diet_kg")
+    cypher = _build_traverse_cypher(
+        workspace=workspace,
+        start_label=request.start_label,
+        edge_types=request.edge_types,
+        direction=request.direction,
+        depth=request.depth,
+    )
+
+    tenant_id = _extract_tenant_id(request.scope_filter)
+    with _scoped_audit(
+        tool="scoped_server./traverse",
+        scope_filter=request.scope_filter,
+        tenant_id=tenant_id,
+        body=request.model_dump(),
+    ) as row:
+        driver = _get_driver()
+        with driver.session() as s:
+            result = s.run(
+                cypher,
+                seed=request.seed,
+                scope_filter=request.scope_filter,
+                top_k=request.top_k,
+            )
+            records = list(result)
+
+        # Build chains response. depth=1 → single edge per chain;
+        # depth=2 → two edges per chain.
+        chains: list[dict[str, Any]] = []
+        seeds_resolved: set[str] = set()
+        for rec in records:
+            if request.depth == 1:
+                seeds_resolved.add(rec["src_id"])
+                chains.append({"edges": [{
+                    "src_id": rec["src_id"],
+                    "tgt_id": rec["tgt_id"],
+                    "rel_type": rec["rel_type"],
+                    "description": rec["description"],
+                    "evidence_tier": rec["evidence_tier"],
+                    "source_id": rec["source_id"],
+                }]})
+            else:
+                seeds_resolved.add(rec["src_id"])
+                chains.append({"edges": [
+                    {
+                        "src_id": rec["src_id"],
+                        "tgt_id": rec["mid_id"],
+                        "rel_type": rec["rel_type_1"],
+                        "description": rec["description_1"],
+                        "evidence_tier": "",
+                        "source_id": rec["source_id_1"],
+                    },
+                    {
+                        "src_id": rec["mid_id"],
+                        "tgt_id": rec["tgt_id"],
+                        "rel_type": rec["rel_type_2"],
+                        "description": rec["description_2"],
+                        "evidence_tier": "",
+                        "source_id": rec["source_id_2"],
+                    },
+                ]})
+        row.result_count = len(chains)
+
+        return {
+            "chains": chains,
+            "seeds_resolved": sorted(seeds_resolved),
+            "raw_subgraph_node_count": 0,
+            "raw_subgraph_edge_count": sum(len(c["edges"]) for c in chains),
+        }
+
+
+# ─── POST /hdi_check ──────────────────────────────────────────────────────
+
+
+@app.post("/hdi_check")
+async def hdi_check(request: HDICheckRequest) -> dict[str, Any]:
+    try:
+        [validate_scope(s) for s in request.scope_filter]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    workspace = _safe_label(os.environ.get("WORKSPACE", "unified_diet_kg"))
+    # Match either direction of INTERACTS_WITH; case-insensitive on entity_id.
+    cypher = (
+        f"MATCH (a:`{workspace}`)-[r:INTERACTS_WITH]-(b:`{workspace}`) "
+        f"WHERE a.scope IN $scope_filter AND b.scope IN $scope_filter "
+        f"  AND r.scope IN $scope_filter "
+        f"  AND ((toLower(a.entity_id) = toLower($drug) AND toLower(b.entity_id) = toLower($herb)) "
+        f"    OR (toLower(b.entity_id) = toLower($drug) AND toLower(a.entity_id) = toLower($herb))) "
+        f"RETURN coalesce(r.severity, '') AS severity, "
+        f"       coalesce(r.mechanism_class, '') AS mechanism_class, "
+        f"       coalesce(r.evidence_tier, '') AS evidence_tier, "
+        f"       coalesce(r.source_id, '') AS source_id "
+        f"LIMIT 1"
+    )
+
+    tenant_id = _extract_tenant_id(request.scope_filter)
+    with _scoped_audit(
+        tool="scoped_server./hdi_check",
+        scope_filter=request.scope_filter,
+        tenant_id=tenant_id,
+        body={"drug": request.drug, "herb": request.herb},
+    ) as row:
+        driver = _get_driver()
+        with driver.session() as s:
+            result = s.run(
+                cypher,
+                drug=request.drug,
+                herb=request.herb,
+                scope_filter=request.scope_filter,
+            )
+            records = list(result)
+
+    if not records:
+        return {"found": False, "severity": None, "mechanism_class": None,
+                "evidence_tier": None, "citations": []}
+    rec = records[0]
+    sev = rec["severity"] or None
+    mech = rec["mechanism_class"] or None
+    evid = rec["evidence_tier"] or None
+    src = rec["source_id"]
+    return {
+        "found": True,
+        "severity": sev,
+        "mechanism_class": mech,
+        "evidence_tier": evid,
+        "citations": [src] if src else [],
+    }
+
+
+# ─── POST /bilingual_term ─────────────────────────────────────────────────
+
+
+@app.post("/bilingual_term")
+async def bilingual_term(request: BilingualTermRequest) -> dict[str, Any]:
+    try:
+        [validate_scope(s) for s in request.scope_filter]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    workspace = _safe_label(os.environ.get("WORKSPACE", "unified_diet_kg"))
+    # Match the term against entity_id, chinese_name, or pinyin_name on Herb
+    # nodes (case-insensitive). SymMap ingestion populates these properties
+    # via extra_props in ingest_direct.py.
+    cypher = (
+        f"MATCH (h:`{workspace}`:Herb) "
+        f"WHERE h.scope IN $scope_filter AND ("
+        f"  toLower(h.entity_id) = toLower($term) "
+        f"  OR toLower(coalesce(h.chinese_name, '')) = toLower($term) "
+        f"  OR toLower(coalesce(h.pinyin_name, '')) = toLower($term)"
+        f") "
+        f"RETURN h.entity_id AS english, "
+        f"       coalesce(h.chinese_name, h.name_cn, '') AS chinese, "
+        f"       coalesce(h.pinyin_name, '') AS pinyin "
+        f"LIMIT 1"
+    )
+
+    tenant_id = _extract_tenant_id(request.scope_filter)
+    with _scoped_audit(
+        tool="scoped_server./bilingual_term",
+        scope_filter=request.scope_filter,
+        tenant_id=tenant_id,
+        body={"term": request.term},
+    ) as row:
+        driver = _get_driver()
+        with driver.session() as s:
+            result = s.run(
+                cypher, term=request.term, scope_filter=request.scope_filter,
+            )
+            records = list(result)
+
+    if not records:
+        return {"english": None, "chinese": None, "pinyin": None,
+                "source": "symmap", "confidence": 0.0}
+    rec = records[0]
+    return {
+        "english": rec["english"] or None,
+        "chinese": rec["chinese"] or None,
+        "pinyin": rec["pinyin"] or None,
+        "source": "symmap",
+        "confidence": 1.0,  # exact match
+    }
 
 
 @app.post("/query")
