@@ -293,6 +293,32 @@ def test_hdi_check_uses_case_insensitive_match(client: TestClient) -> None:
     assert "toLower" in cypher  # case-insensitive on entity_id
 
 
+def test_hdi_check_strips_drug_prefix_for_lookup(client: TestClient) -> None:
+    """Phase 0 fix: HDI-Safe-50 stores Drug nodes as `Drug:<name>`. The
+    Cypher must accept either form."""
+    client._fake_session.run.return_value = _result_with_records([])  # type: ignore[attr-defined]
+    client.post("/hdi_check", json={"drug": "Warfarin", "herb": "Hypericum perforatum"})
+    cypher = client._fake_session.run.call_args.args[0]  # type: ignore[attr-defined]
+    assert "replace(a.entity_id, 'Drug:'" in cypher or "replace(b.entity_id, 'Drug:'" in cypher
+
+
+def test_hdi_check_matches_via_aliases_property(client: TestClient) -> None:
+    """Phase 0 fix: Cypher must check the `aliases` list so 'St. John's Wort'
+    resolves to a Herb stored under entity_id='Hypericum perforatum'."""
+    client._fake_session.run.return_value = _result_with_records([])  # type: ignore[attr-defined]
+    client.post("/hdi_check", json={"drug": "Sertraline", "herb": "St. John's Wort"})
+    cypher = client._fake_session.run.call_args.args[0]  # type: ignore[attr-defined]
+    assert "any(_a IN coalesce" in cypher  # alias iteration
+    assert "aliases" in cypher
+
+
+def test_hdi_check_matches_via_common_name(client: TestClient) -> None:
+    client._fake_session.run.return_value = _result_with_records([])  # type: ignore[attr-defined]
+    client.post("/hdi_check", json={"drug": "Warfarin", "herb": "St. John's Wort"})
+    cypher = client._fake_session.run.call_args.args[0]  # type: ignore[attr-defined]
+    assert "common_name" in cypher
+
+
 # ─── POST /bilingual_term ─────────────────────────────────────────────────
 
 

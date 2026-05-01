@@ -583,19 +583,46 @@ async def hdi_check(request: HDICheckRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     workspace = _safe_label(os.environ.get("WORKSPACE", "unified_diet_kg"))
-    # Match either direction of INTERACTS_WITH; case-insensitive on entity_id.
+    # Match either direction of INTERACTS_WITH. Each side accepts:
+    #   1. exact lower-case entity_id
+    #   2. entity_id with the "Drug:" prefix stripped (HDI-Safe-50 stores
+    #      Drug nodes as `Drug:<DrugName>`)
+    #   3. any element of `aliases: list[str]` (set during Phase 0 ingest
+    #      enrichment from the source JSON's herb.name + herb.latin)
+    #   4. `common_name` property
+    # Phase 0 of the 2026-05-01 design doc closes Blocker 1.
     cypher = (
         f"MATCH (a:`{workspace}`)-[r:INTERACTS_WITH]-(b:`{workspace}`) "
         f"WHERE a.scope IN $scope_filter AND b.scope IN $scope_filter "
         f"  AND r.scope IN $scope_filter "
-        f"  AND ((toLower(a.entity_id) = toLower($drug) AND toLower(b.entity_id) = toLower($herb)) "
-        f"    OR (toLower(b.entity_id) = toLower($drug) AND toLower(a.entity_id) = toLower($herb))) "
+        f"  AND (("
+        f"      _matches_drug(a, $drug) AND _matches_herb(b, $herb)"
+        f"  ) OR ("
+        f"      _matches_drug(b, $drug) AND _matches_herb(a, $herb)"
+        f"  )) "
         f"RETURN coalesce(r.severity, '') AS severity, "
         f"       coalesce(r.mechanism_class, '') AS mechanism_class, "
         f"       coalesce(r.evidence_tier, '') AS evidence_tier, "
         f"       coalesce(r.source_id, '') AS source_id "
         f"LIMIT 1"
     )
+    # Inline the matchers: Cypher doesn't support user-defined functions
+    # without APOC, so we expand the predicates here.
+    drug_pred = (
+        "(toLower({n}.entity_id) = toLower($drug) "
+        " OR toLower(replace({n}.entity_id, 'Drug:', '')) = toLower($drug) "
+        " OR toLower(coalesce({n}.common_name, '')) = toLower($drug) "
+        " OR any(_a IN coalesce({n}.aliases, []) WHERE toLower(_a) = toLower($drug)))"
+    )
+    herb_pred = (
+        "(toLower({n}.entity_id) = toLower($herb) "
+        " OR toLower(coalesce({n}.common_name, '')) = toLower($herb) "
+        " OR any(_a IN coalesce({n}.aliases, []) WHERE toLower(_a) = toLower($herb)))"
+    )
+    cypher = cypher.replace("_matches_drug(a, $drug)", drug_pred.format(n="a"))
+    cypher = cypher.replace("_matches_drug(b, $drug)", drug_pred.format(n="b"))
+    cypher = cypher.replace("_matches_herb(a, $herb)", herb_pred.format(n="a"))
+    cypher = cypher.replace("_matches_herb(b, $herb)", herb_pred.format(n="b"))
 
     tenant_id = _extract_tenant_id(request.scope_filter)
     with _scoped_audit(
