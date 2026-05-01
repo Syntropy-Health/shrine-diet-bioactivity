@@ -112,16 +112,38 @@ async def cid_props(
 
 
 async def fetch_compounds(
-    driver, workspace: str, resume: bool, limit: int,
+    driver, workspace: str, resume: bool, limit: int, mission_only: bool = True,
 ) -> list[str]:
+    """Return Compound entity_ids to enrich.
+
+    `mission_only=True` (default) restricts to compounds that participate in
+    the C1/C3 retrieval paths (have TARGETS_PROTEIN out-edges OR FOUND_IN_FOOD
+    out-edges). Per parsimony principle: enrich what we'll query.
+
+    `mission_only=False` covers all 120K Compound nodes (multi-hour run).
+    """
     ws = _safe_label(workspace)
-    cypher = (
-        f"MATCH (c:`{ws}`:Compound) "
-        f"WHERE c.scope = 'shared' "
-    )
+    if mission_only:
+        # Compound is the seed for kg_compound_to_{targets,diseases,symptoms}.
+        # Those tools traverse OUTGOING TARGETS_PROTEIN — that's the only
+        # path where Compound enrichment changes user-visible behavior.
+        # FOUND_IN_FOOD broadens to ~60K compounds (most Duke entries are
+        # in FooDB), but those compounds are NOT seeded by users — Food is
+        # the seed for kg_diet_to_compounds. Per parsimony, restrict to
+        # TARGETS_PROTEIN-active compounds (~1.2K).
+        cypher = (
+            f"MATCH (c:`{ws}`:Compound) "
+            f"WHERE c.scope = 'shared' "
+            f"  AND (c)-[:TARGETS_PROTEIN]->() "
+        )
+    else:
+        cypher = (
+            f"MATCH (c:`{ws}`:Compound) "
+            f"WHERE c.scope = 'shared' "
+        )
     if resume:
         cypher += "AND c.pubchem_cid IS NULL "
-    cypher += "RETURN c.entity_id AS eid"
+    cypher += "RETURN DISTINCT c.entity_id AS eid"
     if limit and limit > 0:
         cypher += f" LIMIT {limit}"
 
@@ -176,7 +198,8 @@ def _save_progress(p: dict[str, Any]) -> None:
 
 
 async def run(
-    *, limit: int, resume: bool, api_key: str, batch: int = 50,
+    *, limit: int, resume: bool, api_key: str,
+    mission_only: bool = True, batch: int = 50,
 ) -> tuple[int, int]:
     load_dotenv(PROJECT_ROOT / ".env")
     workspace = os.environ.get("WORKSPACE", "unified_diet_kg")
@@ -191,8 +214,11 @@ async def run(
     stamped = 0
 
     async with AsyncGraphDatabase.driver(uri, auth=(user, pwd)) as driver:
-        targets = await fetch_compounds(driver, workspace, resume, limit)
-        print(f"Targets: {len(targets)} compound(s); resume={resume}", file=sys.stderr)
+        targets = await fetch_compounds(driver, workspace, resume, limit, mission_only)
+        print(
+            f"Targets: {len(targets)} compound(s); resume={resume} mission_only={mission_only}",
+            file=sys.stderr,
+        )
 
         async with httpx.AsyncClient(timeout=20.0) as client:
             t0 = time.time()
@@ -242,6 +268,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--all-compounds",
+        action="store_true",
+        help="Enrich all 120K compounds (~hours). Default: mission-only filter (~1.2K).",
+    )
     args = parser.parse_args()
 
     load_dotenv(PROJECT_ROOT / ".env")
@@ -249,7 +280,10 @@ def main() -> int:
     if not api_key:
         print("WARNING: NCBI_API_KEY unset; PubChem still works at lower RPS", file=sys.stderr)
 
-    matched, stamped = asyncio.run(run(limit=args.limit, resume=args.resume, api_key=api_key))
+    matched, stamped = asyncio.run(run(
+        limit=args.limit, resume=args.resume, api_key=api_key,
+        mission_only=not args.all_compounds,
+    ))
     print(f"\nDone. matched={matched}, stamped={stamped}", file=sys.stderr)
     return 0
 

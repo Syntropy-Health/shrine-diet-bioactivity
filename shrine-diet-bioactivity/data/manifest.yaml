@@ -348,3 +348,115 @@ deferred:
     name: BATMAN-TCM 2.0
     reason: "No bulk download available"
     unique_value: "2.3M predicted compound-target interactions"
+
+# ─────────────────────────────────────────────────────────────
+# Aura provenance — what's actually live in the KG, per-source.
+# Cross-references the dataset definitions above with their realized
+# state in Neo4j Aura. This block is the source of truth for the
+# DATASET_PROVENANCE.md per-source counts and refresh procedures.
+# Update after every ingest run via scripts/capture_scope_state.py.
+# ─────────────────────────────────────────────────────────────
+aura_provenance:
+  workspace: unified_diet_kg
+  scope: shared
+  last_snapshot: 2026-05-01
+
+  by_source:
+    duke:
+      relationship_axis: [herb_compound, compound_target, herb_symptom, food_compound]
+      aura_node_count: 105191
+      aura_edges:
+        CONTAINS_COMPOUND: 85186
+        FOUND_IN_FOOD: 4134251
+        TARGETS_PROTEIN: 6465
+        TREATS_SYMPTOM: 41823
+      refresh_procedure: "make download && make build && python lightrag/ingest_unified.py"
+      last_refresh: 2026-04-12
+
+    foodb:
+      relationship_axis: [food_compound]
+      aura_node_count: 0  # foods integrated under Duke namespace
+      aura_edges:
+        FOUND_IN_FOOD: "(included in duke total)"
+      refresh_procedure: "make food-bridge && make enrich-nutrition"
+      last_refresh: 2026-04-29
+
+    cmaup:
+      relationship_axis: [herb_disease, compound_target]
+      aura_node_count: 7772
+      aura_edges:
+        ASSOCIATED_WITH_DISEASE: 763600
+      refresh_procedure: "python scripts/ingest_cmaup_plant_diseases.py"
+      last_refresh: 2026-04-29
+
+    symmap:
+      relationship_axis: [herb_compound, herb_symptom, bilingual]
+      aura_node_count: 50652
+      refresh_procedure: "make download-symmap && make load-symmap && python lightrag/ingest_unified.py"
+      last_refresh: 2026-04-26
+
+    herb2:
+      relationship_axis: [herb_disease]
+      aura_node_count: 5300
+      refresh_procedure: "make download-herb2 && make load-herb2 && python lightrag/ingest_unified.py"
+      last_refresh: 2026-04-12
+
+    hdi_safe_50:
+      relationship_axis: [drug_herb_interaction]
+      aura_node_count: 41
+      aura_edges:
+        INTERACTS_WITH: 50
+      refresh_procedure: "python lightrag/ingest_hdi.py && python scripts/enrich_hdi_aliases.py"
+      last_refresh: 2026-05-01
+
+    opennutrition:
+      relationship_axis: [food_nutrition]
+      aura_node_count: 962
+      enriched_nodes: 647
+      refresh_procedure: "make food-bridge && make enrich-nutrition && python scripts/enrich_food_nodes.py"
+      last_refresh: 2026-04-29
+      known_limitation: "Fuzzy-match plateau at 647/962; algorithm-bound, not data-bound"
+
+  overlays:
+    ncbi_mesh:
+      relationship_axis: [terminology_overlay]
+      target_labels: [Disease, Symptom]
+      property_added: [mesh_uid, mesh_descriptor, mesh_tree_numbers]
+      coverage_target: "5K-6K nodes (those with MeSH matches)"
+      refresh_procedure: "python scripts/ncbi/phase_1_mesh_overlay.py --resume"
+      last_refresh: 2026-05-01
+      api: "NCBI E-utilities (10 RPS with NCBI_API_KEY)"
+
+    ncbi_pubchem:
+      relationship_axis: [terminology_overlay]
+      target_labels: [Compound]
+      property_added: [pubchem_cid, inchi_key, canonical_smiles, aliases]
+      coverage_scope: "mission-only — ~1.2K compounds with TARGETS_PROTEIN edges"
+      refresh_procedure: "python scripts/ncbi/phase_2_pubchem_overlay.py --resume"
+      last_refresh: 2026-05-01
+      api: "PubChem PUG-REST (5 RPS)"
+      known_limitation: "Non-canonical Duke compound names don't all resolve to PubChem CIDs (~30-40% match rate)"
+
+  deferred:
+    ttd_drug_disease:
+      reason: "Off-mission per 2026-05-01 design — drugs aren't diet"
+    ctd_chemical_disease:
+      reason: "SQLite empty; defer until v1 eval signal"
+    tcmsp:
+      reason: "Tier-2; similar to Duke/CMAUP/SymMap"
+    stitch:
+      reason: "Tier-2; defer pending coverage gap"
+    disgenet:
+      reason: "Tier-2; defer pending coverage gap"
+    batman_tcm:
+      reason: "No bulk download available"
+
+  mcp_gateway:
+    url: https://kg-mcp-test.up.railway.app
+    transport: streamable-http
+    public_endpoint: /mcp
+    health_endpoint: /health
+    auth: "Authorization: Bearer <MCP_API_KEY or Clerk JWT>"
+    tool_count: 10
+    documentation: ../../mcp/README.md
+    capabilities_doc: ../../docs/DATASET_PROVENANCE.md
