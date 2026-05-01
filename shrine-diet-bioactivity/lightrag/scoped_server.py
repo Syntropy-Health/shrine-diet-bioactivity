@@ -396,12 +396,21 @@ def _build_traverse_cypher(
             arrow = f"(start)<-[r:`{et}`]-(tgt)"
         else:  # bidirectional
             arrow = f"(start)-[r:`{et}`]-(tgt)"
-        # Multi-label MATCH on (workspace, start_label) is faster than a
-        # post-WHERE labels() check and clearer to reviewers reading the
-        # Cypher. The allow-list at the endpoint guarantees `sl` is safe.
+        # Phase 0/2 entity-resolution: match the seed against entity_id OR
+        # any element of `aliases: list[str]` (set by Phase 0 HDI alias
+        # enrichment + Phase 2 PubChem synonym overlay) OR pubchem_cid (for
+        # Compound seeds where users pass a CID literal).
+        # Multi-label MATCH on (workspace, start_label) is the planner-friendly
+        # form; allow-list at the endpoint guarantees `sl` is safe.
         return (
-            f"MATCH (start:`{ws}`:`{sl}` {{entity_id: $seed}}) "
+            f"MATCH (start:`{ws}`:`{sl}`) "
             f"WHERE start.scope IN $scope_filter "
+            f"  AND ("
+            f"    toLower(start.entity_id) = toLower($seed) "
+            f"    OR toLower(coalesce(start.common_name, '')) = toLower($seed) "
+            f"    OR any(_a IN coalesce(start.aliases, []) WHERE toLower(_a) = toLower($seed)) "
+            f"    OR (start.pubchem_cid IS NOT NULL AND toString(start.pubchem_cid) = $seed) "
+            f"  ) "
             f"MATCH {arrow} "
             f"WHERE tgt:`{ws}` AND tgt.scope IN $scope_filter "
             f"  AND r.scope IN $scope_filter "
@@ -428,8 +437,14 @@ def _build_traverse_cypher(
             f"(start)-[r1:`{e1}`]-(mid:`{ws}`)-[r2:`{e2}`]-(tgt:`{ws}`)"
         )
     return (
-        f"MATCH (start:`{ws}`:`{sl}` {{entity_id: $seed}}) "
+        f"MATCH (start:`{ws}`:`{sl}`) "
         f"WHERE start.scope IN $scope_filter "
+        f"  AND ("
+        f"    toLower(start.entity_id) = toLower($seed) "
+        f"    OR toLower(coalesce(start.common_name, '')) = toLower($seed) "
+        f"    OR any(_a IN coalesce(start.aliases, []) WHERE toLower(_a) = toLower($seed)) "
+        f"    OR (start.pubchem_cid IS NOT NULL AND toString(start.pubchem_cid) = $seed) "
+        f"  ) "
         f"MATCH {chain} "
         f"WHERE r1.scope IN $scope_filter AND r2.scope IN $scope_filter "
         f"  AND mid.scope IN $scope_filter AND tgt.scope IN $scope_filter "
