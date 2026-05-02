@@ -33,6 +33,9 @@ from autogen import ConversableAgent
 
 from agents.models import ResearchQuestion, Triage  # type: ignore[import-not-found]
 from agents.panel.assembly import assemble_panel  # type: ignore[import-not-found]
+from agents.retrieval import (  # type: ignore[import-not-found]
+    render_bundle_for_prompt, retrieve_for_question,
+)
 
 
 QUESTION = (
@@ -77,25 +80,35 @@ def _scan_for_tool_calls(messages: list[dict]) -> dict[str, int]:
 def main() -> int:
     rq = ResearchQuestion(
         text=QUESTION,
-        intervention="Ginger (Zingiber officinale)",
+        intervention="Zingiber officinale",
         outcome="chemotherapy-induced nausea and vomiting",
         population="adults on moderately emetogenic chemo",
-        comparator="standard antiemetics",
+        comparator="Warfarin",  # forces an HDI check (well-known interaction)
     )
     triage = _fixed_triage()
     print(f"smoke: question={QUESTION[:80]}...")
     print(f"smoke: triage={triage.model_dump_json()}")
 
+    # Pre-fetched retrieval (Option A): deterministic Layer-B/C dispatch.
+    bundle = retrieve_for_question(rq, triage)
+    print(f"smoke: bundle has {bundle.total_chains()} chains, "
+          f"hdi_check={'set' if bundle.hdi_check else 'None'}, "
+          f"bilingual={'set' if bundle.bilingual else 'None'}, "
+          f"errors={list(bundle.errors)}")
+    rendered = render_bundle_for_prompt(bundle)
+    print(f"smoke: rendered bundle preview:\n{rendered[:600]}\n...")
+
     chat, manager = assemble_panel(triage)
     print(f"smoke: panel assembled with {len(chat.agents)} roles "
-          f"({[a.name for a in chat.agents]})")
+          f"({[a.name for a in chat.agents]}); max_round={chat.max_round}")
 
     moderator_input = (
         f"Research question: {rq.model_dump_json()}\n"
-        f"Triage: {triage.model_dump_json()}\n"
-        "Each role agent: emit a RoleVerdict using the role-priored MCP tools "
-        "registered for your role. Cite the tool calls you made. The "
-        "moderator emits a PanelDeliberation."
+        f"Triage: {triage.model_dump_json()}\n\n"
+        f"{rendered}\n"
+        "Each role agent: emit a RoleVerdict reasoning over the Retrieval "
+        "Bundle above. Cite chain indices in `cited_chains`. The moderator "
+        "emits a PanelDeliberation."
     )
     try:
         manager.initiate_chat(
@@ -107,8 +120,23 @@ def main() -> int:
         # Don't fail-fast — we still want to inspect the partial transcript
 
     tool_counts = _scan_for_tool_calls(chat.messages)
-    print("smoke: tool call counts =", json.dumps(tool_counts, indent=2))
+    print("smoke: tool call counts (LLM-driven) =", json.dumps(tool_counts, indent=2))
     print(f"smoke: chat had {len(chat.messages)} messages")
+
+    # Count role verdicts that cite real chain indices.
+    cited_chains_total = 0
+    role_verdicts_valid = 0
+    for m in chat.messages:
+        content = m.get("content")
+        if not isinstance(content, str):
+            continue
+        try:
+            obj = json.loads(content)
+        except json.JSONDecodeError:
+            continue
+        if "role" in obj and "verdict" in obj:
+            role_verdicts_valid += 1
+            cited_chains_total += len(obj.get("cited_chains") or [])
 
     # Persist transcript for forensic review
     out = Path("/tmp/e2e-smoke/panel-transcript.jsonl")
@@ -116,12 +144,23 @@ def main() -> int:
     out.write_text("\n".join(json.dumps(m, default=str) for m in chat.messages))
     print(f"smoke: transcript at {out}")
 
-    # Pass criterion: at least one MCP tool was called
-    if not tool_counts:
-        print("smoke: FAIL — no MCP tools called by panel", file=sys.stderr)
-        return 1
-    print("smoke: PASS — MCP tools called", file=sys.stderr)
-    return 0
+    # Pass criteria for Option A (pre-fetched retrieval):
+    #   1. The retrieval bundle was non-empty (we actually retrieved evidence).
+    #   2. All assembled roles produced valid RoleVerdict JSONs.
+    #   3. At least one role cited a chain index (so the reasoning was grounded).
+    bundle_ok = (bundle.total_chains() > 0) or (bundle.hdi_check is not None)
+    roles_ok = role_verdicts_valid >= len(chat.agents)
+    grounding_ok = cited_chains_total > 0
+
+    print(f"smoke: bundle_ok={bundle_ok}, roles_ok={roles_ok} "
+          f"({role_verdicts_valid}/{len(chat.agents)}), "
+          f"grounding_ok={grounding_ok} (cited_chains_total={cited_chains_total})")
+
+    if bundle_ok and roles_ok and grounding_ok:
+        print("smoke: PASS — pre-fetched retrieval grounded the panel", file=sys.stderr)
+        return 0
+    print("smoke: FAIL — see criteria above", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":

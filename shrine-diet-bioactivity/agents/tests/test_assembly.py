@@ -25,4 +25,6 @@ def test_assemble_panel_high_returns_full_six():
     triage = Triage(complexity="high", rationale="pregnancy + weak-evidence", red_flags=["pregnancy"])
     chat, manager = assemble_panel(triage)
     assert len(chat.agents) == 6
-    assert chat.max_round == 2  # 1 verdict + 1 rebuttal
+    # max_round = N agents — one verdict per role under pre-fetched
+    # retrieval architecture (per e2-panel-mcp-wiring-results.md Option A).
+    assert chat.max_round == len(chat.agents)

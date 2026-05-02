@@ -39,6 +39,9 @@ from agents.models import (
 )
 from agents.panel.assembly import assemble_panel
 from agents.provenance import assemble_synthesis
+from agents.retrieval import (  # type: ignore[import-not-found]
+    render_bundle_for_prompt, retrieve_for_question,
+)
 from agents.tools.kg_query import kg_query
 from agents.triage import build_triage_agent
 
@@ -61,16 +64,25 @@ def run_case_study(spec_path: Path, out_dir: Path) -> ResearchSynthesis:
     # Stage 1: triage
     rq, triage = triage_agent(spec["research_question"])
 
-    # Stage 2: KG retrieval (also called by panel agents inline as needed)
-    kg = kg_query(spec["research_question"], mode="hybrid")
+    # Stage 2: KG retrieval — pre-fetched deterministic Layer-B/C dispatch.
+    # Free-tier Nemotron does not reliably emit AG2 tool_calls (per
+    # `e2-panel-mcp-wiring-results.md`), so the panel cannot decide what
+    # to retrieve. We pre-fetch evidence based on the PICO components
+    # extracted by triage and inject it into moderator_input.
+    bundle = retrieve_for_question(rq, triage)
+    kg = kg_query(spec["research_question"], mode="mix")  # Layer A fallback context
 
     # Stage 3: panel deliberation
     chat, manager = assemble_panel(triage)
     moderator_input = (
         f"Research question: {rq.model_dump_json()}\n"
-        f"Triage: {triage.model_dump_json()}\n"
-        f"Initial KG retrieval: {kg.model_dump_json()}\n"
-        f"Each role agent emit a RoleVerdict; moderator emit a PanelDeliberation."
+        f"Triage: {triage.model_dump_json()}\n\n"
+        f"{render_bundle_for_prompt(bundle)}\n"
+        f"Layer-A NL retrieval (often empty on free-tier; supplementary): "
+        f"{kg.model_dump_json()}\n\n"
+        "Each role agent: emit a RoleVerdict reasoning over the Retrieval "
+        "Bundle above. Cite chain indices in `cited_chains`. The moderator "
+        "emits a PanelDeliberation summarizing the team."
     )
     manager.initiate_chat(cast(ConversableAgent, chat.agents[0]), message=moderator_input)
     panel = _extract_panel_deliberation(chat.messages)

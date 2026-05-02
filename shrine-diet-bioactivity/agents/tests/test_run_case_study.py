@@ -270,7 +270,9 @@ def test_run_case_study_e2e(mock_assemble, mock_kg, mock_triage, tmp_path):
     # --- Assert: mocks called correctly ---
     mock_triage.assert_called_once()
     mock_triage_callable.assert_called_once_with(spec["research_question"])
-    mock_kg.assert_called_once_with(spec["research_question"], mode="hybrid")
+    # Mode flipped from "hybrid" to "mix" when retrieval moved to the
+    # pre-fetched bundle (Option A) — Layer A is now supplementary.
+    mock_kg.assert_called_once_with(spec["research_question"], mode="mix")
     mock_assemble.assert_called_once()
     fake_manager.initiate_chat.assert_called_once()
 
