@@ -64,6 +64,8 @@ test-results/
 .claude/agents/
 .claude/commands/
 .claude/hooks/
+.claude/scheduled_tasks.lock
+.claude/*.lock
 playwright-report/
 
 # Case-study run artifacts — transcripts can contain API responses; keep local
