@@ -46,12 +46,19 @@ from agents.tools.kg_query import kg_query
 from agents.triage import build_triage_agent
 
 
-def run_case_study(spec_path: Path, out_dir: Path) -> ResearchSynthesis:
+def run_case_study(
+    spec_path: Path,
+    out_dir: Path,
+    preset_question: ResearchQuestion | None = None,
+    preset_triage: Triage | None = None,
+) -> ResearchSynthesis:
     """Load a case-study spec JSON, run the full pipeline, persist outputs.
 
     Stages:
       1. Triage  — build_triage_agent() classifies complexity + extracts PICO.
-      2. KG      — kg_query() retrieves typed provenance chains.
+                   Skipped if preset_question + preset_triage are provided
+                   (eval-time path — free-tier Nemotron triage is JSON-unreliable).
+      2. KG      — retrieve_for_question() + kg_query() Layer A supplementary.
       3. Panel   — assemble_panel() runs GroupChat deliberation.
       4. Calibrate + Synthesise — _derive_components() + assemble_synthesis().
 
@@ -59,10 +66,13 @@ def run_case_study(spec_path: Path, out_dir: Path) -> ResearchSynthesis:
                  out_dir/<case-id>/<timestamp>-transcript.jsonl.
     """
     spec = json.loads(spec_path.read_text())
-    triage_agent = build_triage_agent()
 
-    # Stage 1: triage
-    rq, triage = triage_agent(spec["research_question"])
+    # Stage 1: triage (or use the preset)
+    if preset_question is not None and preset_triage is not None:
+        rq, triage = preset_question, preset_triage
+    else:
+        triage_agent = build_triage_agent()
+        rq, triage = triage_agent(spec["research_question"])
 
     # Stage 2: KG retrieval — pre-fetched deterministic Layer-B/C dispatch.
     # Free-tier Nemotron does not reliably emit AG2 tool_calls (per

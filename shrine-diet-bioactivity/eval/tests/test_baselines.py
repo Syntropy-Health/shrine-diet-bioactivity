@@ -127,7 +127,9 @@ def _mock_baseline(name: str, mock_client: MagicMock) -> Generator[None, None, N
         )
         from pathlib import Path as _Path
 
-        def _diet_os_stub(spec_path: _Path, out_dir: _Path) -> ResearchSynthesis:
+        def _diet_os_stub(spec_path: _Path, out_dir: _Path, **_kwargs) -> ResearchSynthesis:
+            # Accept preset_question/preset_triage kwargs introduced by the
+            # eval-time triage bypass. Stub ignores them.
             spec = _json.loads(spec_path.read_text())
             return ResearchSynthesis(
                 question=ResearchQuestion(text=spec["research_question"]),

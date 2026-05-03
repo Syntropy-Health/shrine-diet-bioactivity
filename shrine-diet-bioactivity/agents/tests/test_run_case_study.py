@@ -181,6 +181,43 @@ def test_derive_components_empty_chains_defaults_to_lowest_tier():
 # Test 3 — Integration: run_case_study end-to-end with mocks
 # ---------------------------------------------------------------------------
 
+def test_run_case_study_uses_pretriaged_when_provided(tmp_path):
+    """Per Nemotron JSON-quality issue: eval-time callers pass a pre-computed
+    Triage so the triage LLM is bypassed entirely. The triage agent must NOT
+    be invoked in this path.
+    """
+    from agents.run_case_study import run_case_study  # type: ignore[import-not-found]
+    from agents.retrieval import KGRetrievalBundle  # type: ignore[import-not-found]
+
+    spec = {"id": "preset-case", "research_question": "Does X help Y?"}
+    spec_path = tmp_path / "case.json"
+    spec_path.write_text(json.dumps(spec))
+
+    fake_rq = ResearchQuestion(text="Does X help Y?", intervention="X", outcome="Y")
+    fake_triage = Triage(complexity="moderate", rationale="preset", red_flags=[])
+
+    fake_chat = MagicMock()
+    fake_chat.messages = [{"role": "assistant", "name": "Moderator",
+                           "content": json.dumps({"moderator_summary": "ok",
+                                                  "dissent": [], "verdicts": []})}]
+    fake_chat.agents = [MagicMock()]
+    fake_manager = MagicMock()
+
+    with patch("agents.run_case_study.build_triage_agent") as p_triage, \
+         patch("agents.run_case_study.kg_query", return_value=_make_kg_result("clinical_trial")), \
+         patch("agents.run_case_study.assemble_panel", return_value=(fake_chat, fake_manager)), \
+         patch("agents.run_case_study.retrieve_for_question", return_value=KGRetrievalBundle()):
+        synthesis = run_case_study(
+            spec_path, tmp_path / "runs",
+            preset_question=fake_rq, preset_triage=fake_triage,
+        )
+
+    # Triage agent must not be built or called when preset is provided.
+    p_triage.assert_not_called()
+    assert synthesis.triage.complexity == "moderate"
+    assert synthesis.question.text == "Does X help Y?"
+
+
 @patch("agents.run_case_study.retrieve_for_question")
 @patch("agents.run_case_study.build_triage_agent")
 @patch("agents.run_case_study.kg_query")
