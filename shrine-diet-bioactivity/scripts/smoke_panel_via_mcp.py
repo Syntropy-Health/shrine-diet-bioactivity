@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import sys
+import traceback
 from pathlib import Path
 from typing import cast
 
@@ -110,13 +111,16 @@ def main() -> int:
         "Bundle above. Cite chain indices in `cited_chains`. The moderator "
         "emits a PanelDeliberation."
     )
+    chat_exception: Exception | None = None
     try:
         manager.initiate_chat(
             cast(ConversableAgent, chat.agents[0]),
             message=moderator_input,
         )
     except Exception as e:
+        chat_exception = e
         print(f"smoke: panel chat raised: {type(e).__name__}: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         # Don't fail-fast — we still want to inspect the partial transcript
 
     tool_counts = _scan_for_tool_calls(chat.messages)
@@ -156,6 +160,10 @@ def main() -> int:
           f"({role_verdicts_valid}/{len(chat.agents)}), "
           f"grounding_ok={grounding_ok} (cited_chains_total={cited_chains_total})")
 
+    if chat_exception is not None:
+        print("smoke: FAIL — panel chat raised an exception (see traceback above)",
+              file=sys.stderr)
+        return 1
     if bundle_ok and roles_ok and grounding_ok:
         print("smoke: PASS — pre-fetched retrieval grounded the panel", file=sys.stderr)
         return 0

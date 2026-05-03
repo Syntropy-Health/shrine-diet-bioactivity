@@ -22,13 +22,27 @@ tool doesn't abort the bundle.
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from agents.models import ResearchQuestion, Triage  # type: ignore[import-not-found]
+_log = logging.getLogger(__name__)
+
+from agents.models import (  # type: ignore[import-not-found]
+    KGEdge, KGResult, ResearchQuestion, Triage,
+)
+from agents.models import ProvenanceChain as _LocalProvenanceChain  # type: ignore[import-not-found]
 from agents.tools import kg_tools  # type: ignore[import-not-found]
+
+# Local KGEdge.evidence_tier is a Literal — MCP may return any string. Coerce.
+_LOCAL_EVIDENCE_TIERS = {
+    "clinical_trial", "pharmacokinetic_study", "observational",
+    "case_report_series", "case_report",
+    "experimental", "in_vivo", "in_vitro",
+    "traditional", "unknown",
+}
 
 
 class KGRetrievalBundle(BaseModel):
@@ -109,12 +123,19 @@ def _extract_cn_token(text: str) -> str | None:
 
 
 def _safe_call(name: str, fn, *args, **kwargs) -> tuple[Any, str | None]:
-    """Call fn(*args, **kwargs) returning (result_or_none, error_message_or_none)."""
+    """Call fn(*args, **kwargs) returning (result_or_none, error_message_or_none).
+
+    Per code review I3: also logs the failure at WARNING so server-side
+    operators see partial-bundle issues even if the caller doesn't inspect
+    bundle.errors. Preserves the project rule "Log detailed context server-side".
+    """
     try:
         out = fn(*args, **kwargs)
         return out, None
     except Exception as e:
-        return None, f"{type(e).__name__}: {str(e)[:200]}"
+        msg = f"{type(e).__name__}: {e}"
+        _log.warning("retrieval._safe_call(%r) failed: %s", name, msg)
+        return None, msg[:300]
 
 
 def retrieve_for_question(
@@ -201,6 +222,56 @@ def retrieve_for_question(
         if err: bundle.errors["bilingual"] = err
 
     return bundle
+
+
+def flatten_bundle_to_kg_result(bundle: KGRetrievalBundle) -> KGResult:
+    """Convert MCP-shape chains in the bundle into the local KGResult shape
+    so eval/metrics.py can read them via synthesis.candidate_chains.
+
+    Field mapping per the schema collision noted in code review I1:
+      MCP ProvenanceEdge.src_id   → local KGEdge.src
+      MCP ProvenanceEdge.tgt_id   → local KGEdge.tgt
+      MCP ProvenanceEdge.rel_type → local KGEdge.edge
+      MCP ProvenanceEdge.source_id, evidence_tier → preserved
+      weight is set to 1.0 (MCP schema has no weight field)
+
+    Empty traversals are skipped (local ProvenanceChain enforces min_length=1).
+    """
+    chains: list[_LocalProvenanceChain] = []
+    total_edges = 0
+    for field in (
+        "compound_to_targets", "compound_to_symptoms", "compound_to_diseases",
+        "herb_to_diseases", "herb_to_symptoms", "diet_to_compounds",
+    ):
+        result = getattr(bundle, field)
+        if result is None:
+            continue
+        for ch in result.chains:
+            if not ch.edges:
+                continue
+            local_edges = [
+                KGEdge(
+                    src=e.src_id,
+                    edge=e.rel_type,
+                    tgt=e.tgt_id,
+                    source_id=e.source_id or f"mcp:{field}",
+                    weight=1.0,
+                    evidence_tier=(
+                        e.evidence_tier  # type: ignore[arg-type]
+                        if e.evidence_tier in _LOCAL_EVIDENCE_TIERS
+                        else "unknown"
+                    ),
+                )
+                for e in ch.edges
+            ]
+            chains.append(_LocalProvenanceChain(edges=local_edges))
+            total_edges += len(local_edges)
+    return KGResult(
+        chains=chains,
+        raw_subgraph_node_count=0,
+        raw_subgraph_edge_count=total_edges,
+        query_mode="hybrid",
+    )
 
 
 def render_bundle_for_prompt(bundle: KGRetrievalBundle) -> str:

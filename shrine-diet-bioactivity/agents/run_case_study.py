@@ -40,7 +40,7 @@ from agents.models import (
 from agents.panel.assembly import assemble_panel
 from agents.provenance import assemble_synthesis
 from agents.retrieval import (  # type: ignore[import-not-found]
-    render_bundle_for_prompt, retrieve_for_question,
+    flatten_bundle_to_kg_result, render_bundle_for_prompt, retrieve_for_question,
 )
 from agents.tools.kg_query import kg_query
 from agents.triage import build_triage_agent
@@ -70,7 +70,17 @@ def run_case_study(spec_path: Path, out_dir: Path) -> ResearchSynthesis:
     # to retrieve. We pre-fetch evidence based on the PICO components
     # extracted by triage and inject it into moderator_input.
     bundle = retrieve_for_question(rq, triage)
-    kg = kg_query(spec["research_question"], mode="mix")  # Layer A fallback context
+    bundle_kg = flatten_bundle_to_kg_result(bundle)  # for synthesis.candidate_chains
+    layer_a_kg = kg_query(spec["research_question"], mode="mix")  # supplementary
+    # Merge: bundle's typed chains (paper-grade) + Layer-A any non-empty fallback.
+    # Layer-A is degraded on free-tier Nemotron so it usually contributes nothing,
+    # but if it ever returns chains we want them too.
+    kg = type(bundle_kg)(
+        chains=bundle_kg.chains + layer_a_kg.chains,
+        raw_subgraph_node_count=bundle_kg.raw_subgraph_node_count + layer_a_kg.raw_subgraph_node_count,
+        raw_subgraph_edge_count=bundle_kg.raw_subgraph_edge_count + layer_a_kg.raw_subgraph_edge_count,
+        query_mode="hybrid",
+    )
 
     # Stage 3: panel deliberation
     chat, manager = assemble_panel(triage)

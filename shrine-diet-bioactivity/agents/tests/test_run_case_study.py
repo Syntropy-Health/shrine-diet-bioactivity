@@ -181,10 +181,11 @@ def test_derive_components_empty_chains_defaults_to_lowest_tier():
 # Test 3 — Integration: run_case_study end-to-end with mocks
 # ---------------------------------------------------------------------------
 
+@patch("agents.run_case_study.retrieve_for_question")
 @patch("agents.run_case_study.build_triage_agent")
 @patch("agents.run_case_study.kg_query")
 @patch("agents.run_case_study.assemble_panel")
-def test_run_case_study_e2e(mock_assemble, mock_kg, mock_triage, tmp_path):
+def test_run_case_study_e2e(mock_assemble, mock_kg, mock_triage, mock_retrieve, tmp_path):
     """Full run_case_study pipeline with all LLM calls mocked.
 
     Asserts:
@@ -212,9 +213,14 @@ def test_run_case_study_e2e(mock_assemble, mock_kg, mock_triage, tmp_path):
     mock_triage_callable = MagicMock(return_value=(fake_rq, fake_triage))
     mock_triage.return_value = mock_triage_callable
 
-    # --- Arrange: mock KG query ---
+    # --- Arrange: mock KG query (Layer A supplementary, usually empty) ---
     fake_kg = _make_kg_result("clinical_trial")
     mock_kg.return_value = fake_kg
+
+    # --- Arrange: mock retrieve_for_question (Option A pre-fetched bundle).
+    # Hermetic — must NOT hit the real MCP gateway. Per code review T4.
+    from agents.retrieval import KGRetrievalBundle  # type: ignore[import-not-found]
+    mock_retrieve.return_value = KGRetrievalBundle()
 
     # --- Arrange: mock GroupChat with synthetic messages (role verdict + moderator summary) ---
     role_verdict_dict = {
@@ -275,6 +281,10 @@ def test_run_case_study_e2e(mock_assemble, mock_kg, mock_triage, tmp_path):
     mock_kg.assert_called_once_with(spec["research_question"], mode="mix")
     mock_assemble.assert_called_once()
     fake_manager.initiate_chat.assert_called_once()
+    # Per code review T4: verify retrieve_for_question is invoked once with
+    # the triage'd ResearchQuestion + Triage — and is the only KG-side call
+    # that goes outside the mock perimeter.
+    mock_retrieve.assert_called_once()
 
 
 @patch("agents.run_case_study.build_triage_agent")

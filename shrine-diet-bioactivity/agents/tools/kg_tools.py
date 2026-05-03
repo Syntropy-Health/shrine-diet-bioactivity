@@ -30,11 +30,14 @@ The 10 tools:
 # types (TypeAdapter on ForwardRef). Plain Python 3.10 PEP-604 unions
 # (`X | None`) work natively without the future import.
 
+import logging
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from agents.tools.mcp_client import MCPError, default_client
+
+_log = logging.getLogger(__name__)
 
 
 # ---- MCP-shape output models (mirror tools/list inputSchema) --------------
@@ -74,13 +77,22 @@ class HDICheckOutput(BaseModel):
     evidence_tier: str | None = None
     citations: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _require_severity_when_found(self) -> "HDICheckOutput":
+        if self.found and self.severity is None:
+            raise ValueError(
+                "HDICheckOutput: severity must be set when found=True "
+                "(Safety Reviewer cannot consume a found-but-undefined hit)"
+            )
+        return self
+
 
 class BilingualTermOutput(BaseModel):
     english: str | None = None
     chinese: str | None = None
     pinyin: str | None = None
     source: str = "symmap"
-    confidence: float = 0.0
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class NodeNeighborhoodOutput(BaseModel):
@@ -255,11 +267,17 @@ def kg_node_neighborhood(
 # ---- internals -------------------------------------------------------------
 
 def _call(name: str, arguments: dict) -> dict:
-    """Single-retry wrapper around the MCP client default singleton."""
+    """Single-retry wrapper around the MCP client default singleton.
+
+    Logs the first attempt's error before retrying so paper-grade eval
+    debugging can distinguish transient timeouts from permanent failures.
+    """
     client = default_client()
     try:
         return client.call_tool(name, arguments)
-    except MCPError:
-        # One retry — transient SSE/transport failures are common on the
-        # free-tier endpoint. If the second attempt fails, propagate.
+    except MCPError as first_exc:
+        _log.warning(
+            "kg_tools._call(%r) first attempt failed, retrying once: %s",
+            name, first_exc,
+        )
         return client.call_tool(name, arguments)

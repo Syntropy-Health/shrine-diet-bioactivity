@@ -91,6 +91,32 @@ def test_connect_raises_when_initialize_returns_no_session_id():
             c.connect()
 
 
+def test_connect_swallows_initialized_notification_failure(caplog):
+    """Per code review C1: a transient failure on the initialized notification
+    must not leave the client half-initialized. The session_id is already
+    captured; the notification is best-effort. Re-raising would cause the
+    next call_tool to skip re-handshake and reuse a never-acknowledged session.
+    """
+    import logging
+    init_resp = _make_init_response("sid-half-init")
+    import requests as _req
+
+    def post_side_effect(url, **kwargs):  # noqa: ARG001
+        body = kwargs.get("json", {})
+        if body.get("method") == "initialize":
+            return init_resp
+        # initialized notification — fail
+        raise _req.ConnectionError("notification network blip")
+
+    with patch("agents.tools.mcp_client.requests.post", side_effect=post_side_effect):
+        c = MCPClient(api_key="test-key")
+        with caplog.at_level(logging.WARNING):
+            c.connect()  # must NOT raise
+        assert c._session_id == "sid-half-init"
+        # The failure must surface at WARNING level so operators see it
+        assert any("initialized notification" in r.getMessage() for r in caplog.records)
+
+
 def test_connect_raises_when_request_fails():
     import requests as _req
     with patch("agents.tools.mcp_client.requests.post",
@@ -174,6 +200,31 @@ def test_parse_sse_raises_on_no_data_line():
     c = MCPClient(api_key="x")
     with pytest.raises(MCPError, match="no data line"):
         c._parse_sse("event: message\nno-data-here")
+
+
+def test_parse_sse_skips_empty_keepalive_data_line(caplog):
+    """Per code review C3 (live bug): the Railway gateway sometimes prefixes a
+    keep-alive `data: ` line before the JSON `data: {...}` line. The previous
+    regex grabbed the first match (empty), causing json.loads to fail. The
+    fix must walk through each `data:` line and return the first one whose
+    payload is non-empty JSON.
+    """
+    c = MCPClient(api_key="x")
+    sse = (
+        ": ping\n"
+        "data: \n"  # empty keep-alive
+        "event: message\n"
+        'data: {"jsonrpc":"2.0","id":1,"result":{"k":"v"}}\n'
+        "\n"
+    )
+    out = c._parse_sse(sse)
+    assert out["result"]["k"] == "v"
+
+
+def test_parse_sse_handles_no_space_after_data_colon():
+    c = MCPClient(api_key="x")
+    out = c._parse_sse('data:{"k":1}\n\n')
+    assert out == {"k": 1}
 
 
 def test_default_client_is_singleton():
@@ -293,6 +344,32 @@ def test_kg_hdi_check_returns_typed_output():
     assert out.citations == ["pmid:12345"]
 
 
+def test_hdi_check_validator_rejects_found_with_none_severity():
+    """Per code review I5: found=True with severity=None is an invalid
+    state — Safety Reviewer would consume None severity. Validator
+    enforces the invariant."""
+    import pydantic
+    with pytest.raises(pydantic.ValidationError, match="severity"):
+        HDICheckOutput(found=True, severity=None, mechanism_class=None)
+
+
+def test_hdi_check_validator_allows_not_found_with_none_severity():
+    out = HDICheckOutput(found=False, severity=None, mechanism_class=None)
+    assert out.found is False
+
+
+def test_bilingual_term_confidence_bounded():
+    """Per code review I5: confidence is a [0, 1] match score."""
+    import pydantic
+    from agents.tools.kg_tools import BilingualTermOutput  # type: ignore[import-not-found]
+    BilingualTermOutput(confidence=0.0)
+    BilingualTermOutput(confidence=1.0)
+    with pytest.raises(pydantic.ValidationError):
+        BilingualTermOutput(confidence=1.5)
+    with pytest.raises(pydantic.ValidationError):
+        BilingualTermOutput(confidence=-0.1)
+
+
 def test_kg_bilingual_term_handles_all_null():
     fixture = {"english": None, "chinese": None, "pinyin": None,
                "source": "symmap", "confidence": 0.0}
@@ -303,8 +380,10 @@ def test_kg_bilingual_term_handles_all_null():
     assert out.confidence == 0.0
 
 
-def test_kg_call_retries_once_on_mcp_error():
-    """_call should retry once on MCPError before propagating."""
+def test_kg_call_retries_once_on_mcp_error(caplog):
+    """_call should retry once on MCPError before propagating, AND log the
+    first error per code review C2 (don't silently swallow diagnostic info)."""
+    import logging
     from agents.tools.kg_tools import _call  # type: ignore[import-not-found]
 
     client = MagicMock()
@@ -313,15 +392,19 @@ def test_kg_call_retries_once_on_mcp_error():
     def flaky(_name, _args):
         call_count["n"] += 1
         if call_count["n"] == 1:
-            raise MCPError("transient")
+            raise MCPError("transient first-attempt detail")
         return {"chains": [], "seeds_resolved": [],
                 "raw_subgraph_node_count": 0, "raw_subgraph_edge_count": 0}
 
     client.call_tool = flaky
     with patch("agents.tools.kg_tools.default_client", return_value=client):
-        out = _call("kg_compound_to_targets", {"seed": "X"})
+        with caplog.at_level(logging.WARNING):
+            out = _call("kg_compound_to_targets", {"seed": "X"})
     assert call_count["n"] == 2
     assert out["chains"] == []
+    # The first-attempt error message MUST be logged so paper-grade eval
+    # debugging can distinguish transient from permanent failures.
+    assert any("transient first-attempt detail" in r.getMessage() for r in caplog.records)
 
 
 def test_kg_call_propagates_after_two_failures():

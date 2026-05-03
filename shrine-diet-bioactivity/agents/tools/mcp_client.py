@@ -3,8 +3,9 @@
 Speaks the JSON-RPC subset of MCP that the kg-mcp server (v1.27.0) accepts:
   initialize → notifications/initialized → tools/list / tools/call
 
-The server replies in text/event-stream; this client parses the first
-`data:` line per response (single-message replies, no streaming chunks).
+The server replies in text/event-stream; this client walks each `data:` line
+and returns the first one whose payload is non-empty JSON (handles
+keep-alive prefix lines).
 
 Configuration:
   MCP_URL      — defaults to https://kg-mcp-test.up.railway.app/mcp
@@ -17,12 +18,15 @@ permutations instead of paying the initialize round-trip on every tool use.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
 from typing import Any
 
 import requests
+
+_log = logging.getLogger(__name__)
 
 DEFAULT_MCP_URL = "https://kg-mcp-test.up.railway.app/mcp"
 DEFAULT_TIMEOUT = 30.0
@@ -83,7 +87,10 @@ class MCPClient:
             raise MCPError("MCP initialize succeeded but server returned no Mcp-Session-Id")
         self._session_id = sid
 
-        # Notify the server we're ready (per MCP spec).
+        # Notify the server we're ready (per MCP spec). Best-effort: the
+        # server already issued the session id, so a failure here just means
+        # the server didn't see our acknowledgement. Logging at WARNING gives
+        # operators visibility without leaving the client half-initialized.
         try:
             requests.post(
                 self.url,
@@ -92,9 +99,10 @@ class MCPClient:
                 timeout=self.timeout,
             )
         except requests.RequestException as exc:
-            # Non-fatal — the server already issued the session id.
-            # Surface but don't drop the session.
-            raise MCPError(f"MCP initialized notification failed: {exc}") from exc
+            _log.warning(
+                "MCP initialized notification failed (session %s already issued, "
+                "continuing best-effort): %s", self._session_id, exc,
+            )
 
     # ---- tool calls --------------------------------------------------------
 
@@ -167,14 +175,26 @@ class MCPClient:
 
     @staticmethod
     def _parse_sse(text: str) -> dict[str, Any]:
-        """Parse the first `data: <json>` line from an SSE response."""
-        m = re.search(r"^data:\s*(.+)$", text, re.MULTILINE)
-        if not m:
+        """Parse the first JSON-bearing `data: ...` line from an SSE response.
+
+        The Railway gateway sometimes emits an empty `data: ` keep-alive
+        line before the JSON payload. The walker iterates every match and
+        returns the first non-empty payload that parses as JSON.
+        """
+        matches = re.findall(r"^data:\s*(.*)$", text, re.MULTILINE)
+        if not matches:
             raise MCPError(f"MCP SSE response had no data line: {text[:200]!r}")
-        try:
-            return json.loads(m.group(1))
-        except json.JSONDecodeError as exc:
-            raise MCPError(f"MCP SSE data not JSON: {exc}: {m.group(1)[:200]!r}") from exc
+        last_err: str | None = None
+        for payload in matches:
+            payload = payload.strip()
+            if not payload:
+                continue
+            try:
+                return json.loads(payload)
+            except json.JSONDecodeError as exc:
+                last_err = f"{exc}: {payload[:200]!r}"
+                continue
+        raise MCPError(f"MCP SSE data not JSON ({len(matches)} data line(s)): {last_err}")
 
     def _extract_result(self, text: str, tool: str) -> dict[str, Any]:
         body = self._parse_sse(text)

@@ -137,6 +137,51 @@ def test_retrieve_calls_hdi_check_when_comparator_is_drug():
     assert bundle.hdi_check.severity == "severe"
 
 
+def test_retrieve_falls_back_to_bilingual_when_tcm_keyword_present():
+    """Per code review T3: when no CN char in text, the elif branch fires
+    on 'tcm' keyword in question text, seeding bilingual with intervention."""
+    rq = ResearchQuestion(
+        text="What is the TCM use of Coptidis Rhizoma in modern practice?",
+        intervention="Coptidis Rhizoma",
+    )
+    triage = Triage(complexity="low", rationale="t", red_flags=[])
+
+    bilingual = BilingualTermOutput(
+        english="Coptidis Rhizoma", chinese="黄连", pinyin="Huanglian",
+        confidence=0.9,
+    )
+    with patch("agents.retrieval.kg_tools.kg_herb_to_diseases", return_value=_empty_traversal()), \
+         patch("agents.retrieval.kg_tools.kg_herb_to_symptoms", return_value=_empty_traversal()), \
+         patch("agents.retrieval.kg_tools.kg_diet_to_compounds", return_value=_empty_traversal()), \
+         patch("agents.retrieval.kg_tools.kg_bilingual_term", return_value=bilingual) as p_b:
+        bundle = retrieve_for_question(rq, triage)
+
+    p_b.assert_called_once()
+    assert bundle.bilingual is not None
+    assert bundle.bilingual.confidence == 0.9
+    assert bundle.seeds_used.get("bilingual_intervention") == "Coptidis Rhizoma"
+
+
+def test_retrieve_falls_back_to_bilingual_via_zh_language_tag():
+    """Same elif branch, triggered via rq.languages containing 'zh'."""
+    rq = ResearchQuestion(
+        text="Does Coptis chinensis lower blood glucose?",
+        intervention="Coptis chinensis", languages=["en", "zh"],
+    )
+    triage = Triage(complexity="low", rationale="t", red_flags=[])
+
+    bilingual = BilingualTermOutput(english="Coptis chinensis", chinese="黄连",
+                                    pinyin="Huanglian", confidence=0.95)
+    with patch("agents.retrieval.kg_tools.kg_herb_to_diseases", return_value=_empty_traversal()), \
+         patch("agents.retrieval.kg_tools.kg_herb_to_symptoms", return_value=_empty_traversal()), \
+         patch("agents.retrieval.kg_tools.kg_diet_to_compounds", return_value=_empty_traversal()), \
+         patch("agents.retrieval.kg_tools.kg_bilingual_term", return_value=bilingual) as p_b:
+        bundle = retrieve_for_question(rq, triage)
+
+    p_b.assert_called_once()
+    assert bundle.bilingual is not None
+
+
 def test_retrieve_extracts_cn_token_for_bilingual_lookup():
     rq = ResearchQuestion(
         text="What does 黄连 (Huanglian) treat?",
@@ -220,3 +265,83 @@ def test_render_bundle_handles_empty():
     bundle = KGRetrievalBundle()
     rendered = render_bundle_for_prompt(bundle)
     assert "empty" in rendered.lower()
+
+
+# ---------------------------------------------------------------------------
+# flatten_bundle_to_kg_result — bridges MCP-shape edges to local KGEdge shape
+# so the bundle's chains end up in synthesis.candidate_chains, where
+# eval/metrics.py reads them for provenance + bilingual_coverage. Per code
+# review C4 (metric-bundle misalignment).
+# ---------------------------------------------------------------------------
+
+def test_flatten_bundle_to_kg_result_maps_field_names():
+    """MCP src_id/tgt_id/rel_type → local src/edge/tgt."""
+    from agents.retrieval import flatten_bundle_to_kg_result  # type: ignore[import-not-found]
+    from agents.models import KGResult  # type: ignore[import-not-found]
+
+    bundle = KGRetrievalBundle(
+        compound_to_targets=_chain_traversal("CURCUMIN", "COX-2", "TARGETS_PROTEIN"),
+    )
+    out = flatten_bundle_to_kg_result(bundle)
+    assert isinstance(out, KGResult)
+    assert len(out.chains) == 1
+    edge = out.chains[0].edges[0]
+    assert edge.src == "CURCUMIN"
+    assert edge.tgt == "COX-2"
+    assert edge.edge == "TARGETS_PROTEIN"
+    assert edge.source_id  # preserved from MCP source_id
+
+
+def test_flatten_bundle_skips_empty_chains():
+    """Empty chains must be filtered (local ProvenanceChain requires
+    min_length=1 on edges)."""
+    from agents.retrieval import flatten_bundle_to_kg_result  # type: ignore[import-not-found]
+
+    bundle = KGRetrievalBundle(
+        compound_to_targets=TraversalOutput(chains=[]),
+        herb_to_diseases=_chain_traversal("Ginkgo biloba", "Dementia",
+                                          "ASSOCIATED_WITH_DISEASE"),
+    )
+    out = flatten_bundle_to_kg_result(bundle)
+    assert len(out.chains) == 1  # only the herb_to_diseases chain
+    assert out.chains[0].edges[0].src == "Ginkgo biloba"
+
+
+def test_flatten_bundle_aggregates_across_traversals():
+    from agents.retrieval import flatten_bundle_to_kg_result  # type: ignore[import-not-found]
+
+    bundle = KGRetrievalBundle(
+        compound_to_targets=_chain_traversal("CURCUMIN", "COX-2", "TARGETS_PROTEIN"),
+        herb_to_diseases=_chain_traversal("Curcuma longa", "Inflammation",
+                                          "ASSOCIATED_WITH_DISEASE"),
+        diet_to_compounds=_chain_traversal("Turmeric", "CURCUMIN", "FOUND_IN_FOOD"),
+    )
+    out = flatten_bundle_to_kg_result(bundle)
+    assert len(out.chains) == 3
+
+
+def test_flatten_bundle_coerces_unknown_evidence_tier():
+    """If MCP returns an evidence_tier not in the local Literal enum, fall
+    back to 'unknown' rather than raising ValidationError."""
+    from agents.retrieval import flatten_bundle_to_kg_result  # type: ignore[import-not-found]
+
+    bundle = KGRetrievalBundle(
+        compound_to_targets=TraversalOutput(chains=[
+            ProvenanceChain(edges=[
+                ProvenanceEdge(src_id="X", tgt_id="Y", rel_type="REL",
+                               source_id="src:1", evidence_tier="some_unknown_tier"),
+            ]),
+        ]),
+    )
+    out = flatten_bundle_to_kg_result(bundle)
+    assert len(out.chains) == 1
+    assert out.chains[0].edges[0].evidence_tier == "unknown"
+
+
+def test_flatten_empty_bundle_returns_empty_kg_result():
+    from agents.retrieval import flatten_bundle_to_kg_result  # type: ignore[import-not-found]
+
+    out = flatten_bundle_to_kg_result(KGRetrievalBundle())
+    assert out.chains == []
+    assert out.raw_subgraph_node_count == 0
+    assert out.raw_subgraph_edge_count == 0
