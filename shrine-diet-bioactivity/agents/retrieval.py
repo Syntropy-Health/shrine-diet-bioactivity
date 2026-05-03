@@ -228,11 +228,11 @@ def flatten_bundle_to_kg_result(bundle: KGRetrievalBundle) -> KGResult:
     """Convert MCP-shape chains in the bundle into the local KGResult shape
     so eval/metrics.py can read them via synthesis.candidate_chains.
 
-    Field mapping per the schema collision noted in code review I1:
-      MCP ProvenanceEdge.src_id   → local KGEdge.src
-      MCP ProvenanceEdge.tgt_id   → local KGEdge.tgt
-      MCP ProvenanceEdge.rel_type → local KGEdge.edge
-      MCP ProvenanceEdge.source_id, evidence_tier → preserved
+    Field mapping (the rename in I1 keeps these layers visually distinct):
+      MCP MCPEdge.src_id   → local KGEdge.src
+      MCP MCPEdge.tgt_id   → local KGEdge.tgt
+      MCP MCPEdge.rel_type → local KGEdge.edge
+      MCP MCPEdge.source_id, evidence_tier → preserved
       weight is set to 1.0 (MCP schema has no weight field)
 
     Empty traversals are skipped (local ProvenanceChain enforces min_length=1).

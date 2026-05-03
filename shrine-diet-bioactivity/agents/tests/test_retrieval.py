@@ -7,9 +7,12 @@ from agents.retrieval import (  # type: ignore[import-not-found]
     retrieve_for_question,
 )
 from agents.tools.kg_tools import (  # type: ignore[import-not-found]
-    BilingualTermOutput, HDICheckOutput, ProvenanceChain, ProvenanceEdge,
-    TraversalOutput,
+    BilingualTermOutput, HDICheckOutput, MCPChain, MCPEdge, TraversalOutput,
 )
+# I1 rename: tests use the new names; the back-compat aliases
+# kg_tools.ProvenanceChain / ProvenanceEdge still resolve to MCPChain / MCPEdge.
+ProvenanceEdge = MCPEdge
+ProvenanceChain = MCPChain
 
 
 # ---------------------------------------------------------------------------

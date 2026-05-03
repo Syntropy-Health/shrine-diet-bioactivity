@@ -41,8 +41,13 @@ _log = logging.getLogger(__name__)
 
 
 # ---- MCP-shape output models (mirror tools/list inputSchema) --------------
+#
+# Renamed from ProvenanceEdge/ProvenanceChain to MCPEdge/MCPChain per code
+# review I1 — eliminates the name-shadowing risk with `agents.models`'s
+# `ProvenanceChain` (which is the local synthesis-layer model with different
+# field names: src/edge/tgt/weight vs MCP's src_id/tgt_id/rel_type).
 
-class ProvenanceEdge(BaseModel):
+class MCPEdge(BaseModel):
     src_id: str
     tgt_id: str
     rel_type: str
@@ -51,12 +56,18 @@ class ProvenanceEdge(BaseModel):
     source_id: str | None = None
 
 
-class ProvenanceChain(BaseModel):
-    edges: list[ProvenanceEdge]
+class MCPChain(BaseModel):
+    edges: list[MCPEdge]
+
+
+# Back-compat aliases — kept for one minor version so any in-flight code
+# importing the old names still works. Remove after the next release.
+ProvenanceEdge = MCPEdge
+ProvenanceChain = MCPChain
 
 
 class TraversalOutput(BaseModel):
-    chains: list[ProvenanceChain] = Field(default_factory=list)
+    chains: list[MCPChain] = Field(default_factory=list)
     seeds_resolved: list[str] = Field(default_factory=list)
     raw_subgraph_node_count: int = 0
     raw_subgraph_edge_count: int = 0
