@@ -16,6 +16,7 @@ from eval.baselines.yang2025 import run as _run_yang2025
 from eval.baselines.medagents import run as _run_medagents
 from eval.baselines.mdagents import run as _run_mdagents
 from eval.baselines.diet_os import run as _run_diet_os
+from eval.baselines.diet_os_llm_triage import run as _run_diet_os_llm_triage
 
 BASELINES: dict[str, Callable[[Scenario], ResearchSynthesis]] = {
     "single_llm": _run_single_llm,
@@ -24,6 +25,7 @@ BASELINES: dict[str, Callable[[Scenario], ResearchSynthesis]] = {
     "medagents": _run_medagents,
     "mdagents": _run_mdagents,
     "diet_os": _run_diet_os,
+    "diet_os_llm_triage": _run_diet_os_llm_triage,
 }
 
 __all__ = ["BASELINES"]

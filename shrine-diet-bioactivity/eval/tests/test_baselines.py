@@ -475,10 +475,15 @@ def test_diet_os_uses_tempdir_not_research_journal(fixture_scenario: Scenario):
 
 
 def test_all_baselines_registered():
-    """BASELINES registry must contain exactly the 6 expected keys."""
+    """BASELINES registry must contain the 6 main baselines + the
+    diet_os_llm_triage ablation cell (added for paper-1 R-plan)."""
     from eval.baselines import BASELINES  # type: ignore[import-not-found]
 
-    expected = {"single_llm", "single_llm_rag", "yang2025", "medagents", "mdagents", "diet_os"}
+    expected = {
+        "single_llm", "single_llm_rag", "yang2025",
+        "medagents", "mdagents", "diet_os",
+        "diet_os_llm_triage",  # ablation: diet_os without gold-preset triage
+    }
     assert set(BASELINES.keys()) == expected
 
 
