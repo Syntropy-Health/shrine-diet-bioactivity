@@ -12,7 +12,10 @@ for _sub in ("", "lightrag", "agents"):
     _p = str(_REPO / _sub) if _sub else str(_REPO)
     if _p not in _sys.path:
         _sys.path.insert(0, _p)
-del _sys, _Path, _REPO, _sub, _p  # keep namespace clean
+# Pyright thinks the for-loop body might not execute; the tuple is hardcoded
+# 3 elements so _sub/_p are always bound at runtime. Same silencing pattern
+# as agents/run_case_study.py.
+del _sys, _Path, _REPO  # type: ignore[name-defined]
 
 import json
 import logging
