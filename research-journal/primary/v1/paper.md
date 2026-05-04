@@ -489,8 +489,11 @@ diet_os is implemented in AG2 v0.12. Pydantic-AI re-ports (estimated 1.5-day mig
 All numbers in this paper are reproducible from the public repository at
 `https://github.com/Syntropy-Health/shrine-diet-bioactivity`.
 
-- **Commit pin.** Headline matrix and §6.5 ablation paired tests render
-  cleanly at commit `6348d10` on branch `feature/mcp-herbal-botanicals`.
+- **Commit pin.** Headline matrix, §6.5 ablation paired tests, and the
+  reproducibility instructions in this section are all consistent at the
+  tip of branch `feature/mcp-herbal-botanicals` (R-plan tasks R1-R9
+  complete; commits `05743b5..0a3a481`). Camera-ready submission will
+  pin a specific SHA via `git tag`.
 - **Eval matrix.** Combined 7-system results dir at
   `research-journal/shared/results/20260504T230617Z-final-7sys/`
   (symlinks 6 systems from `20260504T042540Z` plus the
