@@ -156,7 +156,7 @@ def main(run_dir: str | None = None) -> int:
     selected_failures: list[dict] = []
     if by_mode:
         per_mode_quota = max(1, 7 // len(by_mode))
-        for mode_name, items in by_mode.items():
+        for items in by_mode.values():
             if len(selected_failures) >= 7:
                 break
             selected_failures.extend(items[:per_mode_quota])
