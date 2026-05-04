@@ -28,21 +28,38 @@ discussed in §7. Provenance is 1.000 across the board because the
 source-attribution proxy is vacuously satisfied by systems that emit no
 candidate chains; Bilingual is 0.000 across the board because the v1 metric
 reads candidate-chain language only and no system surfaces zh chains. Both
-are reframed in §6.2 and §8.
+are reframed in §6.2 and §8. The `single_llm_rag` baseline lands at κ =
+−0.013, slightly worse than the no-tool `single_llm` (κ = 0.055): naïve
+LightRAG retrieval over our KG returns dense unfiltered context that the
+30 B Nemotron model treats as conflicting evidence and answers `caution`
+to nearly every scenario, slightly mis-aligning with the gold distribution.
+This is consistent with the broader claim that grounded retrieval requires
+typed traversal, not vector dump.
 
 ### 6.2 Paired statistical tests
 
-Paired bootstrap tests (n_iter = 1000, Bonferroni-corrected at α' = 0.01;
-`tables/paired-tests.md`) confirm the headline. **Sign convention**: for
-Verdict κ, HDI Recall, Defer Acc, and Provenance, higher is better and a
-positive `mean_diff = diet_os − baseline` is favourable; for ECE, lower is
-better and a positive `mean_diff` is *adverse*. All five `diet_os`-vs-baseline
-Verdict κ comparisons reach p_adj < 0.001 (mean_diff +0.476 to +0.575). All
-five HDI Recall comparisons reach p_adj = 0.0050 (mean_diff +0.717). All five
-Defer Acc comparisons reach p_adj = 0.0100 (mean_diff +0.147). The lone
-adverse direction is ECE: `diet_os` is significantly *worse* than `medagents`
-(mean_diff +0.530, p_adj < 0.001) and `mdagents` (+0.539, p_adj < 0.001), a
-calibration trade-off (§7). The Provenance metric (source-attribution proxy)
+Paired bootstrap tests (B = 10 000 iterations, Davison–Hinkley
+`(k+1)/(B+1)` p-value, Bonferroni-corrected over the full
+n_baselines × n_metrics_tested = 5 × 4 = 20-cell family at adjusted
+α' = 0.0025; `tables/paired-tests.md`) confirm the architectural
+headline. **Sign convention**: for Verdict κ, HDI Recall, and Defer
+Acc, higher is better and a positive `mean_diff = diet_os − baseline`
+is favourable; for ECE, lower is better and a positive `mean_diff` is
+*adverse*. **Surrogate disclosure**: the paired κ test resamples
+per-scenario gold-vs-predicted verdict correctness rather than the κ
+statistic itself (κ requires a list and is not iid-resampleable), so
+the test answers "is `diet_os` more often verdict-correct than
+baseline?", not "is `diet_os`'s κ statistic higher?". The conclusions
+agree on direction.
+
+After the corrected family-size correction, all five Verdict κ
+comparisons remain significant; HDI Recall comparisons remain
+significant for all five baselines; Defer Acc comparisons drop to
+borderline / non-significant under the 20-cell correction (was
+significant under the previous under-counted 5-cell correction — see
+`tables/paired-tests.md` for the corrected p_adj column). The lone
+adverse direction is ECE: `diet_os` is significantly *worse* than
+`medagents` and `mdagents`, a calibration trade-off (§7.3). The Provenance metric (source-attribution proxy)
 returns 1.0 for any system with non-empty candidate chains and is vacuously
 1.0 for the five baselines that emit none — under v1 framing it does not
 separate `diet_os` from the field; full Cypher round-trip verification is
@@ -74,6 +91,8 @@ non-Duke compounds and TCM herbs, producing empty candidate chains.
 predicted `caution`, candidate_chains = 0, confidence = 0.016. Of the 13
 runs that *do* surface chains, 7 are panel mis-votes and 6 are correct
 verdicts under-scored by the calibrator. The 0.709 HDI Recall is therefore
-concentrated in those 13 non-empty runs; the structural separation over
-baselines (all 0.000) is preserved because no baseline has a mechanism to
-surface HDI claims at all.
+concentrated in those 13 non-empty runs; the lower 95% bound (0.286 on the
+paired-test mean_diff, 0.333 on the absolute Recall CI) reflects this
+small effective sample. The structural separation over baselines (all
+0.000) is preserved because no baseline has a mechanism to surface HDI
+claims at all — independent of how many of its 40 runs produce chains.
