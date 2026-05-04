@@ -35,7 +35,7 @@ import json
 import math
 import random
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 # Use Agg backend BEFORE any other matplotlib import to allow headless PNG
 # rendering in CI environments without a display.
@@ -75,6 +75,37 @@ _METRIC_LABELS = {
     "defer_acc": "Defer Acc",
     "bilingual": "Bilingual",
 }
+
+# ---------------------------------------------------------------------------
+# Provenance: source-attribution runner
+# ---------------------------------------------------------------------------
+
+KNOWN_KG_SOURCE_PREFIXES = (
+    "cmaup:", "duke:", "herb2:", "symmap:", "hdi-safe-50:",
+)
+
+
+def build_source_attribution_runner(
+    edge_to_source: dict[tuple[str, str, str], str],
+) -> Callable[[str, str, str], bool]:
+    """Build a cypher_runner that returns True iff edge.source_id starts
+    with a known KG-dataset prefix.
+
+    Edges retrieved by Layer-B/C MCP traversals carry source_id like
+    'cmaup:plant_disease', 'duke:found_in_food', etc. — these are
+    KG-faithful by construction (the gateway just queried them). Any
+    other prefix (e.g., 'llm:...', '') indicates an edge that did NOT
+    come from the live KG.
+
+    Per Paper 1 §E2: this is the v1 provenance proxy. Full Cypher
+    round-trip verification deferred to v2 (would call back into MCP
+    Layer-B for each edge, ~2.5 min on free-tier).
+    """
+    def runner(src: str, edge: str, tgt: str) -> bool:
+        source_id = edge_to_source.get((src, edge, tgt), "")
+        return any(source_id.startswith(p) for p in KNOWN_KG_SOURCE_PREFIXES)
+    return runner
+
 
 # ---------------------------------------------------------------------------
 # Bootstrap CI
@@ -640,6 +671,14 @@ if __name__ == "__main__":
         help="Path to a specific timestamped results directory to render.",
     )
 
+    parser.add_argument(
+        "--cypher-runner",
+        choices=["none", "source-attribution"],
+        default="none",
+        help="Provenance metric runner. 'source-attribution' uses the v1 "
+             "source-id-prefix proxy; 'none' leaves provenance as '—'.",
+    )
+
     args = parser.parse_args()
 
     # --- Resolve the target results directory ---
@@ -749,7 +788,20 @@ if __name__ == "__main__":
 
     # --- Render ---
     print(f"Rendering report for: {results_dir}", file=_sys.stderr)
-    render_report(run_results, run_scenarios, out_dir=results_dir)
+
+    cypher_runner = None
+    if args.cypher_runner == "source-attribution":
+        # Build the edge → source_id map from the loaded predictions
+        edge_to_source: dict[tuple[str, str, str], str] = {}
+        for sys_preds in run_results.values():
+            for pred in sys_preds:
+                for chain in pred.candidate_chains:
+                    for e in chain.edges:
+                        edge_to_source[(e.src, e.edge, e.tgt)] = e.source_id or ""
+        cypher_runner = build_source_attribution_runner(edge_to_source)
+
+    render_report(run_results, run_scenarios, out_dir=results_dir,
+                  cypher_runner=cypher_runner)
 
     summary_path = results_dir / "summary.md"
     diagram_path = results_dir / "reliability_diagram.png"
