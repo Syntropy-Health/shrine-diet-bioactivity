@@ -800,6 +800,10 @@ if __name__ == "__main__":
             for pred in sys_preds:
                 for chain in pred.candidate_chains:
                     for e in chain.edges:
+                        # KGEdge.source_id is str on the model; the or-fallback
+                        # guards deserialized data where the field may be empty
+                        # string from older runs. Empty source is rejected by
+                        # the runner (no known-prefix match).
                         edge_to_source[(e.src, e.edge, e.tgt)] = e.source_id or ""
         cypher_runner = build_source_attribution_runner(edge_to_source)
 
