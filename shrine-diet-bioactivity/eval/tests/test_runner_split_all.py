@@ -2,7 +2,6 @@
 import json
 import subprocess
 import sys
-from pathlib import Path
 
 
 def test_runner_split_all_combines_all_scenario_ids(tmp_path):

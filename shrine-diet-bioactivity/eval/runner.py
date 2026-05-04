@@ -153,6 +153,7 @@ if __name__ == "__main__":
         parser.error(f"Failed to load --bench file: {exc}")
 
     # --- Load splits manifest and filter scenarios ---
+    split_ids: list[str] = []
     try:
         splits_data = json.loads(splits_path.read_text())
         if args.split == "all":
