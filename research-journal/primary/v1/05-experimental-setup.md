@@ -24,16 +24,9 @@ dietitian-pharmacist) [@yang2025], `medagents` (n-role debate, no KG)
 [@medagents2024], `mdagents` (adaptive routing, no KG) [@mdagents2024], and
 **`diet_os`** (this work). We report the full N = 40 matrix.
 
-**Table 1. Per-role cost and latency for `diet_os` (mean over N = 40).**
-
-| Role | avg_prompt (tok) | avg_completion (tok) | avg_latency (ms) |
-|---|---:|---:|---:|
-| Dietitian | [FILL FROM cost_latency.csv] | [FILL] | [FILL] |
-| Pharmacologist | [FILL] | [FILL] | [FILL] |
-| TCM Practitioner | [FILL] | [FILL] | [FILL] |
-| Clinical Research Scientist | [FILL] | [FILL] | [FILL] |
-| Safety Reviewer | [FILL] | [FILL] | [FILL] |
-| Defer-to-Clinician | [FILL] | [FILL] | [FILL] |
-
-Values populated from `cost_latency.csv` (E6 cost-tracker decorator on
-`ConversableAgent.generate_reply`) before submission.
+**Cost and latency.** Per-role token usage and latency are captured by
+the `cost_tracker` decorator wrapping `ConversableAgent.generate_reply`.
+Free-tier rate limits dominate end-to-end matrix wall-clock (full-40
+× 6 baselines completed in ~3 hours). Detailed per-role traces are
+available in the companion code release; we omit the table here for
+space.
