@@ -11,7 +11,10 @@ pre-fetched retrieval and role-priored tool registration — produce
 paper-grade signal independent of frontier-model inference budget. On
 DietResearchBench-Clinical (n=40, 6-metric panel), diet_os achieves
 Bonferroni-significant verdict-κ uplift (mean_diff +0.476 to +0.575,
-p_adj < 0.0001) over MedAgents, MDAgents, and yang2025 baselines, plus
+p_adj < 0.001) over MedAgents, MDAgents, and yang2025 baselines, plus
 structural HDI Recall separation (diet_os 0.709, all baselines 0.000).
-We release the benchmark as a v1 reference resource; companion v2 (n=200,
-two-annotator IAA) is in progress.
+All gains are measured against baselines near zero; diet_os records zero
+strict successes (0/40) under v1 eval-harness heuristics, with the
+architectural signal concentrated in the 13/40 runs that surface
+non-empty retrieval bundles. We release the benchmark as a v1 reference
+resource; companion v2 (n=200, two-annotator IAA) is in progress.

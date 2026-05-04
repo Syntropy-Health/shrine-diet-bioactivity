@@ -33,12 +33,15 @@ are reframed in §6.2 and §8.
 ### 6.2 Paired statistical tests
 
 Paired bootstrap tests (n_iter = 1000, Bonferroni-corrected at α' = 0.01;
-`tables/paired-tests.md`) confirm the headline. All five `diet_os`-vs-baseline
-Verdict κ comparisons reach p_adj = 0.0000 (mean_diff +0.476 to +0.575). All
+`tables/paired-tests.md`) confirm the headline. **Sign convention**: for
+Verdict κ, HDI Recall, Defer Acc, and Provenance, higher is better and a
+positive `mean_diff = diet_os − baseline` is favourable; for ECE, lower is
+better and a positive `mean_diff` is *adverse*. All five `diet_os`-vs-baseline
+Verdict κ comparisons reach p_adj < 0.001 (mean_diff +0.476 to +0.575). All
 five HDI Recall comparisons reach p_adj = 0.0050 (mean_diff +0.717). All five
 Defer Acc comparisons reach p_adj = 0.0100 (mean_diff +0.147). The lone
 adverse direction is ECE: `diet_os` is significantly *worse* than `medagents`
-(mean_diff +0.530, p_adj = 0.0000) and `mdagents` (+0.539, p_adj = 0.0000), a
+(mean_diff +0.530, p_adj < 0.001) and `mdagents` (+0.539, p_adj < 0.001), a
 calibration trade-off (§7). The Provenance metric (source-attribution proxy)
 returns 1.0 for any system with non-empty candidate chains and is vacuously
 1.0 for the five baselines that emit none — under v1 framing it does not

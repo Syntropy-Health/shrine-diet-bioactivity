@@ -11,10 +11,13 @@ pre-fetched retrieval and role-priored tool registration — produce
 paper-grade signal independent of frontier-model inference budget. On
 DietResearchBench-Clinical (n=40, 6-metric panel), diet_os achieves
 Bonferroni-significant verdict-κ uplift (mean_diff +0.476 to +0.575,
-p_adj < 0.0001) over MedAgents, MDAgents, and yang2025 baselines, plus
+p_adj < 0.001) over MedAgents, MDAgents, and yang2025 baselines, plus
 structural HDI Recall separation (diet_os 0.709, all baselines 0.000).
-We release the benchmark as a v1 reference resource; companion v2 (n=200,
-two-annotator IAA) is in progress.
+All gains are measured against baselines near zero; diet_os records zero
+strict successes (0/40) under v1 eval-harness heuristics, with the
+architectural signal concentrated in the 13/40 runs that surface
+non-empty retrieval bundles. We release the benchmark as a v1 reference
+resource; companion v2 (n=200, two-annotator IAA) is in progress.
 ## 1. Introduction
 
 Clinical research teams operate as multi-agent systems by design — a
@@ -45,7 +48,7 @@ Three contributions:
    under constrained-inference free-tier 30B Nemotron.
 
 2. **Architectural ablation.** Bonferroni-significant verdict-κ uplift
-   (mean_diff +0.476 to +0.575, p_adj < 0.0001) and structural HDI Recall
+   (mean_diff +0.476 to +0.575, p_adj < 0.001) and structural HDI Recall
    separation (diet_os = 0.709, all 5 baselines = 0.000) over MedAgents
    [@medagents2024], MDAgents [@mdagents2024], and Yang et al. [@yang2025]
    on DietResearchBench-Clinical (n = 40).
@@ -271,12 +274,15 @@ are reframed in §6.2 and §8.
 ### 6.2 Paired statistical tests
 
 Paired bootstrap tests (n_iter = 1000, Bonferroni-corrected at α' = 0.01;
-`tables/paired-tests.md`) confirm the headline. All five `diet_os`-vs-baseline
-Verdict κ comparisons reach p_adj = 0.0000 (mean_diff +0.476 to +0.575). All
+`tables/paired-tests.md`) confirm the headline. **Sign convention**: for
+Verdict κ, HDI Recall, Defer Acc, and Provenance, higher is better and a
+positive `mean_diff = diet_os − baseline` is favourable; for ECE, lower is
+better and a positive `mean_diff` is *adverse*. All five `diet_os`-vs-baseline
+Verdict κ comparisons reach p_adj < 0.001 (mean_diff +0.476 to +0.575). All
 five HDI Recall comparisons reach p_adj = 0.0050 (mean_diff +0.717). All five
 Defer Acc comparisons reach p_adj = 0.0100 (mean_diff +0.147). The lone
 adverse direction is ECE: `diet_os` is significantly *worse* than `medagents`
-(mean_diff +0.530, p_adj = 0.0000) and `mdagents` (+0.539, p_adj = 0.0000), a
+(mean_diff +0.530, p_adj < 0.001) and `mdagents` (+0.539, p_adj < 0.001), a
 calibration trade-off (§7). The Provenance metric (source-attribution proxy)
 returns 1.0 for any system with non-empty candidate chains and is vacuously
 1.0 for the five baselines that emit none — under v1 framing it does not
@@ -317,7 +323,7 @@ surface HDI claims at all.
 ### 7.1 Architectural ablation: KG-grounding is the lift
 
 The Bonferroni-significant Verdict κ uplift (mean_diff +0.476 to +0.575
-across all five baselines, p_adj = 0.0000) and the structural HDI Recall
+across all five baselines, p_adj < 0.001) and the structural HDI Recall
 separation (0.709 vs 0.000 for every baseline, p_adj = 0.0050) localize
 the lift to role-priored Layer-B/C retrieval — not panel size, not LLM
 scale. `medagents` and `mdagents`, both multi-agent debate systems
@@ -335,7 +341,11 @@ axis is debate-style consensus among agents sharing the same
 retrieval-free input; our axis is KG-grounded retrieval. The HDI Recall
 structural separation in §6.1 (diet_os = 0.709, all five baselines =
 0.000) shows that debate without KG-grounding cannot produce non-zero
-HDI recall on DietResearchBench-Clinical regardless of panel size.
+HDI recall on DietResearchBench-Clinical regardless of panel size. HDI
+Recall is structurally non-zero only for systems that invoke
+`kg_hdi_check` and surface mechanism-tagged chains — a capability
+absent in all five baselines by design, mirroring the real-world
+absence of KG integration in those architectures.
 **Debate alone is insufficient; KG-grounded retrieval is what produces
 HDI signal.**
 
@@ -343,7 +353,7 @@ HDI signal.**
 
 ECE is highest for `diet_os` at 0.542 — significantly worse than
 `medagents` (0.024, mean_diff +0.530) and `mdagents` (0.015, mean_diff
-+0.539) at p_adj = 0.0000. The trade-off reflects panel-derived
++0.539) at p_adj < 0.001. The trade-off reflects panel-derived
 confidence variance under an uncalibrated free-tier model: `medagents`
 and `mdagents` emit near-constant low confidence, collapsing ECE toward
 the gold rate, while `diet_os`'s composite confidence (evidence-tier ×
@@ -384,4 +394,4 @@ diet_os is implemented in AG2 v0.12. Pydantic-AI re-ports (estimated 1.5-day mig
 
 ## 9.2 Conclusion
 
-We present diet_os, a 6-role multi-agent clinical research system over a unified 5M-edge diet/herb/TCM knowledge graph queried via streamable-HTTP MCP. Pre-fetched typed-traversal retrieval bundles plus role-priored Layer-B/C tools produce Bonferroni-significant verdict-κ uplift (mean_diff +0.476 to +0.575, p_adj < 0.0001) over MedAgents [@medagents2024], MDAgents [@mdagents2024], and yang2025 [@yang2025] baselines, and structural HDI Recall separation (Diet-OS 0.709, all baselines 0.000) under deliberate constrained inference (free-tier 30B Nemotron). DietResearchBench-Clinical v1 (40 scenarios, 6-metric panel) is released as a v1 reference resource; v2 expansion is in progress as a companion paper [@v2benchmark2026]. Code and benchmark are released at `https://github.com/Syntropy-Health/shrine-diet-bioactivity`.
+We present diet_os, a 6-role multi-agent clinical research system over a unified 5M-edge diet/herb/TCM knowledge graph queried via streamable-HTTP MCP. Pre-fetched typed-traversal retrieval bundles plus role-priored Layer-B/C tools produce Bonferroni-significant verdict-κ uplift (mean_diff +0.476 to +0.575, p_adj < 0.001) over MedAgents [@medagents2024], MDAgents [@mdagents2024], and yang2025 [@yang2025] baselines, and structural HDI Recall separation (Diet-OS 0.709, all baselines 0.000) under deliberate constrained inference (free-tier 30B Nemotron). DietResearchBench-Clinical v1 (40 scenarios, 6-metric panel) is released as a v1 reference resource; v2 expansion is in progress as a companion paper [@v2benchmark2026]. Code and benchmark are released at `https://github.com/Syntropy-Health/shrine-diet-bioactivity`.

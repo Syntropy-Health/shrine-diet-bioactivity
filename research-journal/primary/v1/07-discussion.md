@@ -3,7 +3,7 @@
 ### 7.1 Architectural ablation: KG-grounding is the lift
 
 The Bonferroni-significant Verdict κ uplift (mean_diff +0.476 to +0.575
-across all five baselines, p_adj = 0.0000) and the structural HDI Recall
+across all five baselines, p_adj < 0.001) and the structural HDI Recall
 separation (0.709 vs 0.000 for every baseline, p_adj = 0.0050) localize
 the lift to role-priored Layer-B/C retrieval — not panel size, not LLM
 scale. `medagents` and `mdagents`, both multi-agent debate systems
@@ -21,7 +21,11 @@ axis is debate-style consensus among agents sharing the same
 retrieval-free input; our axis is KG-grounded retrieval. The HDI Recall
 structural separation in §6.1 (diet_os = 0.709, all five baselines =
 0.000) shows that debate without KG-grounding cannot produce non-zero
-HDI recall on DietResearchBench-Clinical regardless of panel size.
+HDI recall on DietResearchBench-Clinical regardless of panel size. HDI
+Recall is structurally non-zero only for systems that invoke
+`kg_hdi_check` and surface mechanism-tagged chains — a capability
+absent in all five baselines by design, mirroring the real-world
+absence of KG integration in those architectures.
 **Debate alone is insufficient; KG-grounded retrieval is what produces
 HDI signal.**
 
@@ -29,7 +33,7 @@ HDI signal.**
 
 ECE is highest for `diet_os` at 0.542 — significantly worse than
 `medagents` (0.024, mean_diff +0.530) and `mdagents` (0.015, mean_diff
-+0.539) at p_adj = 0.0000. The trade-off reflects panel-derived
++0.539) at p_adj < 0.001. The trade-off reflects panel-derived
 confidence variance under an uncalibrated free-tier model: `medagents`
 and `mdagents` emit near-constant low confidence, collapsing ECE toward
 the gold rate, while `diet_os`'s composite confidence (evidence-tier ×
