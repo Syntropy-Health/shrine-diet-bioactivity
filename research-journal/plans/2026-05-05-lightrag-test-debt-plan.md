@@ -2,6 +2,28 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 
+## Real-data integrity preamble (2026-05-05 audit)
+
+This plan only modifies **unit-test infrastructure** (mocks for the neo4j
+driver protocol and pytest fixtures for ContextVar isolation) and one
+**module-load-time registration** (registering a custom Python class with
+upstream LightRAG's storage compatibility map). None of these changes
+introduce synthetic data, fabricated KG entities, or stubbed result
+generation:
+
+- `_FakeResult` mock in `test_bootstrap_scope.py` is a unit-test
+  scaffold for verifying that `create_indexes` runs against a session
+  without requiring a live Neo4j server. It does not appear in any
+  ingestion or query path that produces KG content.
+- `ContextVar` isolation fixtures (Issue #11 fix) reset state between
+  tests; they don't generate any data.
+- Storage-class registration (Issue #13) is a 2-line monkey-patch of an
+  upstream framework dict; it doesn't write to the KG.
+- Production ingestion paths (`ingest_hdi.py`, `ingest_unified.py`) and
+  query paths (`scoped_server.py`, `kg_query`) are not modified by this
+  plan. The KG content (Duke 15k nodes, SymMap 7.7k, HERB 1.5k,
+  HDI-Safe-50, custom_kg) remains organic and externally sourced.
+
 **Goal:** Bring the 10 failing tests in `shrine-diet-bioactivity/lightrag/` to green (issues #11, #12, #13).
 
 **Architecture:** Three independent fixes — (1) pytest fixture state-leak isolation, (2) test mock conformance to neo4j Result protocol, (3) custom storage class registration with upstream LightRAG. Each fix is local and reversible; no LightRAG submodule pointer changes.
