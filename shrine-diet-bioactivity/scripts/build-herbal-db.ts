@@ -136,6 +136,60 @@ function createSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_compound_foods_food ON compound_foods(food_name);
     CREATE INDEX IF NOT EXISTS idx_compound_name_map_normalized ON compound_name_map(normalized_name);
   `);
+
+  // -------------------------------------------------------------------------
+  // Phase 1 drug-bioactive bridge — see ADR 0007
+  // -------------------------------------------------------------------------
+  // compound_identity holds canonical structural identifiers (InChIKey + cross-refs)
+  // resolved via PubChem PUG-REST and UniChem source-mapping files.
+  // bioactivity_evidence holds measured drug-target activities from ChEMBL,
+  // joined to our compound universe by InChIKey. Both tables use TEXT compound_id
+  // to match compounds.id.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS compound_identity (
+      compound_id          TEXT PRIMARY KEY,
+      inchikey             TEXT,
+      inchi                TEXT,
+      smiles               TEXT,
+      pubchem_cid          INTEGER,
+      chembl_id            TEXT,
+      kegg_compound_id     TEXT,
+      drugbank_id          TEXT,
+      chebi_id             INTEGER,
+      unichem_src_count    INTEGER NOT NULL DEFAULT 0,
+      resolution_method    TEXT NOT NULL,
+      resolved_at          TEXT NOT NULL,
+      FOREIGN KEY (compound_id) REFERENCES compounds(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_compound_identity_inchikey ON compound_identity(inchikey);
+    CREATE INDEX IF NOT EXISTS idx_compound_identity_chembl ON compound_identity(chembl_id);
+    CREATE INDEX IF NOT EXISTS idx_compound_identity_pubchem ON compound_identity(pubchem_cid);
+
+    CREATE TABLE IF NOT EXISTS bioactivity_evidence (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      compound_id          TEXT NOT NULL,
+      chembl_compound_id   TEXT NOT NULL,
+      chembl_target_id     TEXT NOT NULL,
+      target_pref_name     TEXT,
+      target_type          TEXT,
+      target_organism      TEXT,
+      activity_type        TEXT NOT NULL,
+      relation             TEXT,
+      value                REAL,
+      units                TEXT,
+      pchembl              REAL,
+      activity_comment     TEXT,
+      assay_confidence     INTEGER,
+      chembl_doc_id        TEXT,
+      publication_year     INTEGER,
+      ingested_at          TEXT NOT NULL,
+      FOREIGN KEY (compound_id) REFERENCES compounds(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_bioactivity_compound ON bioactivity_evidence(compound_id);
+    CREATE INDEX IF NOT EXISTS idx_bioactivity_target ON bioactivity_evidence(chembl_target_id);
+    CREATE INDEX IF NOT EXISTS idx_bioactivity_pchembl ON bioactivity_evidence(pchembl);
+  `);
+  console.error('  ✓ Phase 1 bridge tables: compound_identity + bioactivity_evidence');
 }
 
 // ---------------------------------------------------------------------------
