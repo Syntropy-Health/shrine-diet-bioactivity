@@ -12,6 +12,6 @@ scipy>=1.11
 matplotlib>=3.7
 
 # Phase 1 drug-bioactive bridge
-rdkit-pypi>=2023.9.5
+rdkit>=2024.3.0
 chembl-downloader>=0.5.0
 httpx>=0.27.0
