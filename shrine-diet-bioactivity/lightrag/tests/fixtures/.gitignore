@@ -1,0 +1,3 @@
+# Allow fixture sqlites here (they are deliberately checked in for tests).
+!*.sqlite
+!.gitignore
