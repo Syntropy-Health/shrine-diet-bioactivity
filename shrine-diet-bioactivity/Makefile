@@ -364,3 +364,62 @@ eval-run: ## Run baselines × test split. Usage: make eval-run [SYSTEMS=diet_os,
 eval-report: ## Render the most recent results dir into summary.md + reliability_diagram.png
 	python3 -m eval.report \
 		--latest ../research-journal/shared/results/
+
+# ─── Phase 1 drug-bioactive bridge ──────────────────────────
+.PHONY: build-identity build-identity-smoke build-identity-full \
+        build-bioactivity build-bioactivity-smoke \
+        lightrag-ingest-bioactivity bridge-test
+
+UNICHEM_TSV ?= data/unichem_src1_22_2_6_7.tsv
+PUBCHEM_CACHE ?= data_local/pubchem_name_cache.json
+
+# Active subset (~25K compounds in herb_compounds ∪ compound_targets)
+build-identity:
+	python scripts/build_compound_identity.py \
+		--db data_local/herbal_botanicals.db \
+		--unichem-tsv $(UNICHEM_TSV) \
+		--pubchem-cache $(PUBCHEM_CACHE)
+
+# Full backfill (all 94K compounds, ~6.5h cold-cache) — Phase 2 use only.
+build-identity-full:
+	python scripts/build_compound_identity.py \
+		--db data_local/herbal_botanicals.db \
+		--unichem-tsv $(UNICHEM_TSV) \
+		--pubchem-cache $(PUBCHEM_CACHE) \
+		--include-orphans
+
+# Smoke (no network; fixture UniChem; tiny limit)
+build-identity-smoke:
+	python scripts/build_compound_identity.py \
+		--db data_local/herbal_botanicals.db \
+		--unichem-tsv lightrag/tests/fixtures/unichem_subset.tsv \
+		--pubchem-cache /tmp/pubchem_cache_smoke.json \
+		--no-pubchem --limit 50
+
+build-bioactivity:
+	python scripts/build_bioactivity_evidence.py \
+		--db data_local/herbal_botanicals.db \
+		--chembl-version 36 \
+		--min-pchembl 5.0 --min-confidence 5
+
+build-bioactivity-smoke:
+	python scripts/build_bioactivity_evidence.py \
+		--db data_local/herbal_botanicals.db \
+		--chembl-sqlite lightrag/tests/fixtures/chembl_subset.sqlite \
+		--min-pchembl 5.0 --min-confidence 5
+
+lightrag-ingest-bioactivity:
+	python lightrag/ingest_unified.py --config local \
+		--only-entities BioactivityEvidence \
+		--only-relationships HAS_EVIDENCE,EVIDENCE_FOR_TARGET \
+		--batch-size 1000
+
+# Run all bridge-related tests
+bridge-test:
+	pytest lightrag/tests/test_identity_bridge.py \
+	       lightrag/tests/test_chembl_extractor.py \
+	       lightrag/tests/test_schema.py \
+	       lightrag/tests/test_entity_schema.py \
+	       lightrag/tests/test_ingest_bioactivity.py \
+	       --cov=identity_bridge --cov=chembl_extractor \
+	       --cov-report=term-missing -v
