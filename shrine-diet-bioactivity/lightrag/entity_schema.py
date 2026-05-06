@@ -72,6 +72,19 @@ ENTITY_TYPES = {
         "name_field": "name",
         "query": "SELECT id, name, symptom_type, description FROM symptoms ORDER BY id",
     },
+    # -- Phase 1 drug-bioactive bridge (ChEMBL evidence) --
+    "BioactivityEvidence": {
+        "source_table": "bioactivity_evidence",
+        "id_field": "id",
+        # name_field is also the id — descriptions provide the human-readable text.
+        "name_field": "id",
+        "query": (
+            "SELECT id, compound_id, chembl_compound_id, chembl_target_id, "
+            "target_pref_name, target_type, target_organism, activity_type, "
+            "relation, value, units, pchembl, assay_confidence, chembl_doc_id, "
+            "publication_year FROM bioactivity_evidence ORDER BY id"
+        ),
+    },
     # -- Tenant entity types (clinical practice layer) --
     # These have no SQLite source — ingested via tenant API (Phase 4).
     "Protocol": {
@@ -166,6 +179,33 @@ RELATIONSHIP_TYPES = {
             "JOIN herbs h ON hs.herb_id = h.id "
             "JOIN symptoms s ON hs.symptom_id = s.id "
             "ORDER BY hs.herb_id, hs.symptom_id"
+        ),
+    },
+    # -- Phase 1 drug-bioactive bridge (ChEMBL evidence) --
+    "HAS_EVIDENCE": {
+        "source_table": "bioactivity_evidence",
+        "src_type": "Compound",
+        "tgt_type": "BioactivityEvidence",
+        "query": (
+            "SELECT c.name AS src_name, be.id AS tgt_name, "
+            "be.pchembl AS pchembl, be.activity_type AS activity_type "
+            "FROM bioactivity_evidence be "
+            "JOIN compounds c ON c.id = be.compound_id "
+            "ORDER BY be.id"
+        ),
+    },
+    "EVIDENCE_FOR_TARGET": {
+        "source_table": "bioactivity_evidence",
+        "src_type": "BioactivityEvidence",
+        "tgt_type": "Target",
+        "query": (
+            "SELECT be.id AS src_name, "
+            "  COALESCE(t.name, be.target_pref_name) AS tgt_name, "
+            "  be.assay_confidence AS confidence_score, "
+            "  be.publication_year AS year "
+            "FROM bioactivity_evidence be "
+            "LEFT JOIN targets t ON t.name = be.target_pref_name "
+            "ORDER BY be.id"
         ),
     },
     # -- Tenant relationship types (clinical practice layer) --
@@ -334,6 +374,52 @@ def describe_symptom(row: dict[str, Any]) -> str:
     return ". ".join(parts)
 
 
+def describe_bioactivity_evidence(row: dict[str, Any]) -> str:
+    """Render a single ChEMBL bioactivity record as a search-rich description.
+
+    Phase 1 drug-bioactive bridge — see ADR 0007. Each row is a measured
+    drug-target activity from ChEMBL, joined to our compound universe by
+    InChIKey via compound_identity.
+    """
+    relation = row.get("relation") or "="
+    value = row.get("value")
+    units = row.get("units") or ""
+    activity_type = row.get("activity_type") or "activity"
+    target = (
+        row.get("target_pref_name")
+        or row.get("chembl_target_id")
+        or "unknown target"
+    )
+    organism = row.get("target_organism") or ""
+    pchembl = row.get("pchembl")
+    confidence = row.get("assay_confidence")
+    year = row.get("publication_year")
+    doc_id = row.get("chembl_doc_id") or ""
+    chembl_compound = row.get("chembl_compound_id") or "?"
+
+    parts: list[str] = [
+        (
+            f"BioactivityEvidence: {chembl_compound} {relation} "
+            f"{value if value is not None else '?'}{units} {activity_type} "
+            f"against {target}"
+        )
+    ]
+    if organism:
+        parts.append(f" ({organism})")
+    extras: list[str] = []
+    if pchembl is not None:
+        extras.append(f"pChEMBL {pchembl}")
+    if confidence is not None:
+        extras.append(f"assay confidence {confidence}")
+    if year:
+        extras.append(f"year {year}")
+    if doc_id:
+        extras.append(f"doc {doc_id}")
+    if extras:
+        parts.append("; " + ", ".join(extras))
+    return "".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Tenant entity description generators (clinical practice layer)
 # ---------------------------------------------------------------------------
@@ -482,6 +568,8 @@ DESCRIPTION_GENERATORS = {
     "Target": describe_target,
     "Disease": describe_disease,
     "Symptom": describe_symptom,
+    # Phase 1 drug-bioactive bridge
+    "BioactivityEvidence": describe_bioactivity_evidence,
     # Tenant entity types (clinical practice layer)
     "Protocol": describe_protocol,
     "Intervention": describe_intervention,
@@ -537,6 +625,30 @@ def describe_relationship(rel_type: str, row: dict[str, Any]) -> tuple[str, str]
     if rel_type == "TREATS_SYMPTOM":
         desc = f"{src} treats {tgt}"
         return desc, "herb symptom treatment traditional medicine"
+
+    # -- Phase 1 drug-bioactive bridge (ChEMBL evidence) --
+
+    if rel_type == "HAS_EVIDENCE":
+        pchembl = row.get("pchembl")
+        atype = row.get("activity_type") or ""
+        desc = f"{src} has measured evidence ({atype}"
+        if pchembl is not None:
+            desc += f", pChEMBL {pchembl}"
+        desc += f") in {tgt}"
+        return desc, "compound bioactivity evidence chembl measurement"
+
+    if rel_type == "EVIDENCE_FOR_TARGET":
+        confidence = row.get("confidence_score")
+        year = row.get("year")
+        desc = f"{src} reports activity against {tgt}"
+        extras: list[str] = []
+        if confidence is not None:
+            extras.append(f"assay confidence {confidence}")
+        if year:
+            extras.append(f"year {year}")
+        if extras:
+            desc += " (" + ", ".join(extras) + ")"
+        return desc, "evidence target measurement assay confidence"
 
     # -- Tenant relationship types (clinical practice layer) --
 
