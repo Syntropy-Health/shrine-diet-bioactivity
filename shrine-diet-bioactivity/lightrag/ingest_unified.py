@@ -269,7 +269,36 @@ async def main() -> None:
         default=None,
         help="Max rows to extract per SymMap/HERB 2.0 entity table (default: unlimited)",
     )
+    parser.add_argument(
+        "--only-entities",
+        default=None,
+        help=(
+            "Comma-separated entity type names to include "
+            "(e.g. 'BioactivityEvidence' for the Phase 1 bridge layer). "
+            "Default: all entity types."
+        ),
+    )
+    parser.add_argument(
+        "--only-relationships",
+        default=None,
+        help=(
+            "Comma-separated relationship type names to include "
+            "(e.g. 'HAS_EVIDENCE,EVIDENCE_FOR_TARGET'). "
+            "Default: all relationship types."
+        ),
+    )
     args = parser.parse_args()
+
+    only_entities = (
+        {s.strip() for s in args.only_entities.split(",") if s.strip()}
+        if args.only_entities
+        else None
+    )
+    only_relationships = (
+        {s.strip() for s in args.only_relationships.split(",") if s.strip()}
+        if args.only_relationships
+        else None
+    )
 
     # 1. Load Aura creds from gitignored .env at project root.
     project_env = SCRIPT_DIR.parent / ".env"
@@ -309,6 +338,8 @@ async def main() -> None:
     all_entities: dict[str, list[dict]] = {}
     total_entities = 0
     for entity_type in ENTITY_TYPES:
+        if only_entities is not None and entity_type not in only_entities:
+            continue
         print(f"Extracting {entity_type} entities...")
         entities = extract_entities(conn, entity_type, max_count=limits.get(entity_type))
         all_entities[entity_type] = entities
@@ -339,6 +370,8 @@ async def main() -> None:
     all_relationships: dict[str, list[dict]] = {}
     total_relationships = 0
     for rel_type in RELATIONSHIP_TYPES:
+        if only_relationships is not None and rel_type not in only_relationships:
+            continue
         print(f"Extracting {rel_type} relationships...")
         rels = extract_relationships(conn, rel_type, max_count=args.max_relationships)
         all_relationships[rel_type] = rels
