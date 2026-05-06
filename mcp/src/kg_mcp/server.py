@@ -18,6 +18,7 @@ from typing import AsyncIterator, Literal
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
+from . import analytics
 from . import tools as t
 from .client import ScopedServerClient
 from .schemas import (
@@ -208,6 +209,12 @@ def main() -> None:
             "stdio | sse | streamable-http"
         )
     transport = cast(Literal["stdio", "sse", "streamable-http"], transport_env)
+
+    analytics.capture(
+        analytics.SERVER_DISTINCT_ID,
+        "mcp_server_started",
+        {"transport": transport},
+    )
 
     if transport == "stdio":
         server.run()

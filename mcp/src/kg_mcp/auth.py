@@ -29,6 +29,8 @@ from typing import Any
 
 import httpx
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from . import analytics
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
@@ -178,6 +180,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         token = _extract_bearer(request)
         if token is None:
+            analytics.capture(
+                analytics.AUTH_DISTINCT_ID,
+                "mcp_auth_failed",
+                {"failure_reason": "missing_bearer", "path": request.url.path},
+            )
             return JSONResponse(
                 {"error": "missing_bearer", "detail": "Authorization: Bearer <token> required"},
                 status_code=401,
@@ -189,6 +196,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if verify_clerk_token(token, _admin_emails()):
             return await call_next(request)
 
+        analytics.capture(
+            analytics.AUTH_DISTINCT_ID,
+            "mcp_auth_failed",
+            {"failure_reason": "invalid_token", "path": request.url.path},
+        )
         return JSONResponse(
             {"error": "invalid_token", "detail": "token rejected by both validators"},
             status_code=401,
