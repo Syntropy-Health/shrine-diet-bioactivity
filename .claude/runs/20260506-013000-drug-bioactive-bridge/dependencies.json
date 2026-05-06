@@ -1,0 +1,40 @@
+{
+  "run_id": "20260506-013000-drug-bioactive-bridge",
+  "probed_at": "2026-05-06T01:32:00Z",
+  "summary": {
+    "verified": 12,
+    "patched": 5,
+    "stubbed": 5
+  },
+  "deps": [
+    {"type": "cli", "name": "python3", "result": "present", "referenced_in": ["preflight", "tasks 1-12"]},
+    {"type": "cli", "name": "pytest", "result": "present"},
+    {"type": "cli", "name": "pip", "result": "present"},
+    {"type": "cli", "name": "sqlite3", "result": "present"},
+    {"type": "cli", "name": "git", "result": "present"},
+    {"type": "cli", "name": "make", "result": "present"},
+    {"type": "cli", "name": "npm", "result": "present"},
+    {"type": "cli", "name": "npx", "result": "present"},
+    {"type": "cli", "name": "curl", "result": "present"},
+    {"type": "skill", "name": "superpowers:executing-plans", "result": "present"},
+    {"type": "skill", "name": "superpowers:test-driven-development", "result": "present"},
+    {"type": "python_pkg", "name": "httpx", "result": "present"},
+    {"type": "python_pkg", "name": "python-dotenv", "result": "present"},
+
+    {"type": "python_pkg", "name": "rdkit-pypi", "result": "missing", "patch": "Task 0 added: pip install"},
+    {"type": "python_pkg", "name": "chembl-downloader", "result": "missing", "patch": "Task 0 added: pip install"},
+
+    {"type": "data", "name": "compounds.smiles column", "result": "missing", "patch": "Re-architect Task 5 around name→PubChem; RDKit kept for verification only", "stub": "harden-plan/data/missing-smiles-column"},
+    {"type": "data", "name": "compounds.pubchem_cid populated", "result": "missing", "patch": "Same — name-based resolution as primary", "stub": "harden-plan/data/empty-pubchem-cid-column"},
+    {"type": "code", "name": "lightrag/__init__.py", "result": "missing", "patch": "Imports flattened: 'from identity_bridge' not 'from lightrag.identity_bridge'", "stub": "harden-plan/code/lightrag-not-a-package"},
+    {"type": "schema", "name": "compounds.id type", "result": "TEXT (not INTEGER as plan assumed)", "patch": "DDL changed: compound_identity.compound_id TEXT"},
+    {"type": "scope", "name": "full 94K compound resolution", "result": "infeasible-in-one-PR", "patch": "Phase 1 scoped to active subset (~25K in herb_compounds ∪ compound_targets)", "stub": "harden-plan/scope/full-94k-name-resolution-deferred"},
+
+    {"type": "url", "name": "https://pubchem.ncbi.nlm.nih.gov/rest/pug", "result": "present (HTTP 200)"},
+    {"type": "url", "name": "https://www.ebi.ac.uk/unichem", "result": "present (HTTP 308 redirect)"},
+    {"type": "url", "name": "https://ftp.ebi.ac.uk/pub/databases/chembl/ChEMBLdb/latest/", "result": "present (HTTP 200)"},
+
+    {"type": "data", "name": "data_local/herbal_botanicals.db", "result": "present (5.5 GB)"},
+    {"type": "data", "name": "targets.uniprot_id populated", "result": "present (sample: Q92753, B2RXH2) — enables UniProt→ChEMBL target join as bonus path"}
+  ]
+}

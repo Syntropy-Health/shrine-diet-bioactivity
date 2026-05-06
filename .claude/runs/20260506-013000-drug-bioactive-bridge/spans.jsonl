@@ -1,0 +1,5 @@
+{"offset":0,"event":"harden-plan.stub","stub_id":"harden-plan/data/missing-smiles-column","ts":"2026-05-06T01:32:00Z","severity":"high","note":"compounds table lacks smiles column entirely"}
+{"offset":1,"event":"harden-plan.stub","stub_id":"harden-plan/data/empty-pubchem-cid-column","ts":"2026-05-06T01:32:01Z","severity":"medium","note":"pubchem_cid 0/94512 populated"}
+{"offset":2,"event":"harden-plan.stub","stub_id":"harden-plan/python-pkg/rdkit-and-chembl-downloader-not-installed","ts":"2026-05-06T01:32:02Z","severity":"low","note":"trivial pip install via Task 0"}
+{"offset":3,"event":"harden-plan.stub","stub_id":"harden-plan/code/lightrag-not-a-package","ts":"2026-05-06T01:32:03Z","severity":"low","note":"add empty __init__.py in Task 0"}
+{"offset":4,"event":"harden-plan.stub","stub_id":"harden-plan/scope/full-94k-name-resolution-deferred","ts":"2026-05-06T01:32:04Z","severity":"medium","note":"Phase 1 limited to ~25K active subset"}
