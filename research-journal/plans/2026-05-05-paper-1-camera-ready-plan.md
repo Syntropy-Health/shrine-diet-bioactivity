@@ -2,9 +2,40 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Camera-ready trim of `paper.md` from 4052 → ≤3500 words for ML4H 2026 Findings (Sep 8 deadline) plus resolution of the unverified `yang2025` citation.
+## Real-data integrity preamble (2026-05-05 audit)
 
-**Architecture:** Phase 1 — citation rename (Option B: drop the unverified citation, rename baseline). Phase 2 — 10 surgical section trims. Phase 3 — re-assembly + numeric-consistency sweep + tag.
+Before this plan can be executed, the following audit findings on real-data
+integrity have been verified — none of the work below introduces synthetic
+data, fabricated results, or stubbed pipeline outputs:
+
+- **Benchmark (DietResearchBench-Clinical v1)**: 40/40 scenarios are
+  organically authored, citing 122 real PMID/guideline references (avg 3
+  per scenario) — e.g. Ryan 2012 PMID:21818642 for ginger CINV, Khanna
+  2014 / Alammar 2019 for peppermint IBS. Not LLM-generated.
+- **Headline matrix**: every number in §6.1 is computed from 280 real
+  per-prediction JSON artifacts (40 scenarios × 7 systems) sitting on
+  disk at `research-journal/shared/results/`.
+- **§6.5 ablation**: `diet_os_llm_triage`'s 33/40 (82.5%) parse failures
+  are real Pydantic `Invalid JSON: EOF` errors on real free-tier
+  Nemotron-3-nano-30B output — not synthetic stubs.
+- **`_neutral_stub` defensive fallback** in `eval/report.py` L870 is the
+  only synthetic-data code path in the eval pipeline and **never fired**
+  in our paper-grade render (manifest scenario_ids ∩ benchmark
+  scenario_ids = 40, set-difference = 0). Filed as follow-up issue for
+  defensive harden (fail-loud instead of silent stub).
+- **`yang2025` citation** is now verified (Yang E et al., JMIR Formative
+  Research 2025, DOI 10.2196/75421). The plan's Phase 1 below was
+  originally written for Option B (drop) before the verification surfaced;
+  it has been revised to **Option A (replace stub with verified bib
+  entry)** — see updated Phase 1.
+- **Test mocks** like `_FakeResult` in lightrag tests and
+  `"test-placeholder"` API key fallbacks in baselines are unit-test
+  infrastructure scoped to test execution; they do not appear in any
+  paper-grade prediction or render path.
+
+**Goal:** Camera-ready trim of `paper.md` from 4052 → ≤3500 words for ML4H 2026 Findings (Sep 8 deadline) plus replacement of the `yang2025` BibTeX stub with the verified JMIR citation.
+
+**Architecture:** Phase 1 — citation update (Option A: replace stub with verified JMIR entry; baseline stays as-is). Phase 2 — 10 surgical section trims. Phase 3 — re-assembly + numeric-consistency sweep + tag.
 
 **Tech Stack:** Markdown sources at `research-journal/primary/v1/`, BibTeX references, Python eval baseline rename, pytest regression gates.
 
@@ -42,55 +73,73 @@ Reserve T11 (`§4` benchmark category-example parens): held back ~40w if needed.
 
 ---
 
-## Phase 1: Citation rename (Option B)
+## Phase 1: Citation update (Option A — verified JMIR entry)
 
-**Recommendation rationale:** stub bib note already declares "Unverified — no public preprint located". Camera-ready with unverified citation = reviewer-risk surface for zero benefit. Drop bib stub, do prose substitutions, rename eval baseline. Fully reversible if a verified Yang et al. preprint surfaces (~10 min).
+**Recommendation rationale:** The 2026-05-05 web-research follow-up located
+the actual publication: **Yang E, Garcia T, Williams HG, Kumar B, Rame M,
+Rivera E, Ma Y, Amar J, Catalani C, Jia Y. "A Behavioral Science-Informed
+Agentic Workflow for Personalized Nutrition Coaching: Development and
+Validation Study." JMIR Formative Research, Vol 9, 2025. DOI:
+10.2196/75421. URL: https://formative.jmir.org/2025/1/e75421**. Match
+confirmation against `eval/baselines/yang2025.py`: two-agent
+(barrier-identification + strategy-execution), 28-barrier taxonomy, lead
+author Yang, year 2025 — all correspond. The baseline is therefore a
+faithful re-implementation of a real peer-reviewed JMIR paper. The
+previous arXiv-only search missed the JMIR venue; the Option-B
+"drop and rename" path is no longer the right call.
 
-### T0a — Drop yang2025 stub bib entry
+**Action**: replace the stub bib entry with the verified JMIR `@article`
+entry. **Keep all `[@yang2025]` cite-keys intact in section files. Do
+NOT rename the eval baseline.** No code changes; bib-only update.
+
+### T0 — Replace yang2025 BibTeX stub with verified JMIR entry
 
 - File: `research-journal/primary/v1/references.bib` L20-32
-- Action: Delete the stub block. Replace with one-line removal-marker comment:
+- **Before** (stub block):
   ```
-  % yang2025 baseline citation removed pre-submission per camera-ready audit;
-  % see eval/baselines/dietitian_pharmacist_2role.py for the design-pattern re-implementation.
+  % yang2025: NO PUBLIC PREPRINT LOCATED via arXiv search. The 2-role
+  % dietitian-pharmacist baseline implementation in eval/baselines/yang2025.py
+  % follows a design pattern attributed to "Yang et al. 2025" in our
+  % pre-submission notes, but we could not locate a citable preprint.
+  % Stub kept so existing [@yang2025] cite keys still resolve; before
+  % submission the user must either supply a verified citation or drop the
+  % citation in favour of an "after the design pattern of" prose note.
+  @misc{yang2025,
+    title={A 2-role dietitian-pharmacist multi-agent setup (design pattern)},
+    author={Yang and others},
+    year={2025},
+    note={Unverified — no public preprint located. Cited as a baseline design pattern; supply verified bibinfo or remove before submission.}
+  }
   ```
+- **After** (verified JMIR entry):
+  ```
+  @article{yang2025,
+    title={A Behavioral Science-Informed Agentic Workflow for Personalized Nutrition Coaching: Development and Validation Study},
+    author={Yang, Eric and Garcia, Tomas and Williams, Hannah G. and Kumar, Bhawesh and Rame, Martin and Rivera, Eileen and Ma, Yiran and Amar, Jonathan and Catalani, Caricia and Jia, Yugang},
+    journal={JMIR Formative Research},
+    volume={9},
+    year={2025},
+    doi={10.2196/75421},
+    url={https://formative.jmir.org/2025/1/e75421},
+    note={Published 2025-09-24}
+  }
+  ```
+- Also update the in-text mention if any section file describes the cited paper as a "design pattern" or "pre-submission note" — check `02-related-work.md` for outdated wording. Replace any "design pattern" framing with a one-clause description of the JMIR two-agent behavioral workflow.
+- Net word delta in section files: ≈ 0 (cite-keys unchanged; only references.bib content changes).
+- Dependencies: none.
+- Risk: Low — text-only update.
 
-### T0b — Replace `[@yang2025]` cite-keys with prose
+### T0-verify — Confirm BibTeX entry resolves
 
-Apply same substitution across four section files:
+- Action: run pandoc preview (if available) on `paper.md` or visually inspect the rendered bibliography. Confirm `[@yang2025]` resolves to the new entry without warnings.
+- Expected: entry renders as "Yang E, Garcia T, Williams HG, et al. A behavioral science-informed agentic workflow… JMIR Formative Research. 2025;9. doi:10.2196/75421."
+- Risk: Low.
 
-1. `00-abstract.md` L14: `over MedAgents, MDAgents, and yang2025 baselines, plus` → `over MedAgents, MDAgents, and a 2-role dietitian-pharmacist baseline we re-implemented, plus`
-2. `01-introduction.md` L8 + L33: replace `Yang et al. [@yang2025]` with `the 2-role dietitian-pharmacist setup we re-implemented`
-3. `02-related-work.md` L8-9: combined with T3 for the Wu trim
-4. `05-experimental-setup.md` L23: `\`yang2025\` (2-role dietitian-pharmacist) [@yang2025]` → `\`dietitian_pharmacist_2role\` (2-role dietitian-pharmacist baseline, re-implemented after an external design pattern)`
-5. `09-future-work-conclusion.md` L45: `and yang2025 [@yang2025] baselines` → `and a re-implemented 2-role dietitian-pharmacist baseline`
-
-Net citation-rename word delta: ~+30w (absorbed by trim budget).
-
-### T0c — Rename eval baseline file
-
-- `git mv eval/baselines/yang2025.py eval/baselines/dietitian_pharmacist_2role.py`
-- Update module-level docstring header.
-
-### T0d — Update baselines registry
-
-- File: `eval/baselines/__init__.py`
-- Replace registry key `"yang2025"` → `"dietitian_pharmacist_2role"`. Update import.
-
-### T0e — Update test expectations
-
-- File: `eval/tests/test_baselines.py`
-- Substitute `"yang2025"` → `"dietitian_pharmacist_2role"` in expected-set assertion.
-
-### T0f — Sweep for stale references
-
-- `rg "yang2025" -n .` (excluding `lightrag/`, `agents/`, `scripts/cost_tracker`, and `research-journal/shared/results/` historical artifacts)
-- Expected: zero hits in `research-journal/primary/v1/`, `eval/baselines/`, `eval/tests/`. Hits in historical results dirs are acceptable (frozen artifacts).
-
-### T0g — Run eval test suite (regression gate)
-
-- `cd eval && python -m pytest -x` (or project-standard invocation)
-- Pass criterion: all green; in particular `test_baselines.py` passes with renamed registry key.
+(Tasks T0a-T0g from the original Option-B plan are no longer needed. The
+section-file prose substitutions, baseline file rename, registry update,
+test-set update, stale-reference sweep, and rename-regression pytest
+gate are all skipped because the cite-key and baseline name remain
+unchanged.)
 
 ---
 
@@ -176,7 +225,7 @@ with the question, not an architectural strength.
 
 Numbers preserved: 33 of 40 (82.5%), all 40 runs, 0.090. First paragraph (L110-126) untouched.
 
-### T3 — §2 Multi-agent: trim Wu et al. + apply T0b prose (~60w)
+### T3 — §2 Multi-agent: trim Wu et al. (~60w; cite-keys preserved per Option A)
 
 File: `02-related-work.md` L5-15
 
@@ -199,14 +248,22 @@ the two findings on orthogonal axes.
 ```
 MedAgents [@medagents2024] frames zero-shot medical reasoning as a
 multi-role panel; MDAgents [@mdagents2024] adds adaptive routing
-between solo and multi-disciplinary configurations. As a third
-baseline we re-implement an external 2-role dietitian-pharmacist setup
-for diet-drug interaction reasoning. We extend all three with Layer-B/C
-role-priored KG retrieval. Wu et al. [@wu2025] report single-GP
-performance comparable to a multi-disciplinary debate panel on
-medication-conflict resolution; §7.2 places that finding on an axis
-orthogonal to ours.
+between solo and multi-disciplinary configurations. Yang et al.
+[@yang2025] propose a two-agent behavioral-intervention workflow
+(barrier-identification + strategy-execution) for personalized
+nutrition coaching, which we re-implement as our third baseline. We
+extend all three with Layer-B/C role-priored KG retrieval. Wu et al.
+[@wu2025] report single-GP performance comparable to a
+multi-disciplinary debate panel on medication-conflict resolution;
+§7.2 places that finding on an axis orthogonal to ours.
 ```
+
+(Note: the JMIR Yang et al. paper is on dietary adherence behavioral
+intervention — barrier-identification + strategy-execution — not
+"dietitian-pharmacist diet-drug interaction" as the previous draft
+claimed. The corrected description matches the actual `eval/baselines/yang2025.py`
+implementation and the verified citation. This corrects a small but
+real misstatement in the prior draft.)
 
 ### T4 — §2 Existing benchmarks: trim TCM/MedQA paragraph (~50w)
 
@@ -372,15 +429,14 @@ Numbers preserved: 0.167, 0.153, 0.138, -0.081, 0.062.
 
 ### T10 — §5 Baselines paragraph trim (~90w)
 
-File: `05-experimental-setup.md` L21-30 (post-T0b form)
+File: `05-experimental-setup.md` L21-30 (Option A — no rename; cite-key intact)
 
-**Before** (post-T0b):
+**Before**:
 ```
 **Baselines.** Five external baselines plus `diet_os` and a within-system
 ablation share LLM, KG, and gateway: `single_llm` (no tools),
-`single_llm_rag` (naïve RAG), `dietitian_pharmacist_2role` (2-role
-dietitian-pharmacist baseline, re-implemented after an external design
-pattern), `medagents` (n-role debate, no KG) [@medagents2024],
+`single_llm_rag` (naïve RAG), `yang2025` (2-role dietitian-pharmacist)
+[@yang2025], `medagents` (n-role debate, no KG) [@medagents2024],
 `mdagents` (adaptive routing, no KG) [@mdagents2024], **`diet_os`** (this
 work, deterministic gold-triage substitute — see §5.4 for the bypass
 disclosure), and **`diet_os_llm_triage`** (identical to `diet_os` but
@@ -393,13 +449,18 @@ in §6.5). We report the full N = 40 matrix across all seven systems.
 ```
 **Baselines.** Five external baselines plus `diet_os` and a within-system
 ablation share LLM, KG, and gateway: `single_llm` (no tools),
-`single_llm_rag` (naïve RAG), `dietitian_pharmacist_2role` (re-implemented
-external 2-role design pattern), `medagents` [@medagents2024], `mdagents`
-[@mdagents2024], **`diet_os`** (this work; deterministic gold-triage
-substitute, see §5.4), and **`diet_os_llm_triage`** (the §6.5 ablation
-replacing deterministic triage with a free-tier LLM call). We report the
-full N = 40 matrix across all seven systems.
+`single_llm_rag` (naïve RAG), `yang2025` (two-agent
+barrier-identification + strategy-execution) [@yang2025], `medagents`
+[@medagents2024], `mdagents` [@mdagents2024], **`diet_os`** (this work;
+deterministic gold-triage substitute, see §5.4), and
+**`diet_os_llm_triage`** (the §6.5 ablation replacing deterministic
+triage with a free-tier LLM call). We report the full N = 40 matrix
+across all seven systems.
 ```
+
+(Note: the parenthetical for `yang2025` corrects the prior draft's
+"2-role dietitian-pharmacist" mislabel to the actual JMIR
+"barrier-identification + strategy-execution" architecture.)
 
 ---
 
@@ -422,11 +483,12 @@ Grep `paper.md` for headline numbers and confirm presence + identical value:
 - `0.258` (diet_os κ), `0.476` / `0.576` (mean_diff bounds), `0.713` (HDI Recall), `0.000` (baselines), `0.019` (diet_os_llm_triage κ), `0.715` / `0.149` / `0.462` (ablation mean_diffs), `p_adj = 0.002` / `0.006`, `33 of 40 (82.5%)`, `13` non-empty runs, `0.090` ablation ECE, `0.543` / `0.024` / `0.015` ECE, `0.699` Defer Acc, `n=40`, `5M` edges, `166K` nodes, `20 RPM`.
 
 ### T13 — Final cite-key audit
-- `rg "@yang2025|yang2025" research-journal/primary/v1/` — expect zero hits in paper text.
 - Audit remaining cite-keys in `paper.md` against `references.bib`.
+- Confirm `[@yang2025]` resolves to the new JMIR `@article` entry (not the old stub).
+- Expected keys present: `medagents2024, mdagents2024, yang2025, wu2025, amgrag2025, medrag2025, kgsmile2025, jingfang2025, opentcm2025, agentclinic2024, tcmeval2025, tcm5ceval2025, medqa2021, medmcqa2022, ag2v0_12, v2benchmark2026`.
 
-### T14 — Re-run eval test suite
-- `cd eval && python -m pytest -x` — confirms rename didn't break anything.
+### T14 — Re-run eval test suite (no-regression check)
+- `cd eval && python -m pytest -x` — confirms no test broke during the trim. Under Option A, no rename happened, so this is a generic no-regression gate, not a rename-regression gate.
 
 ### T15 — Update §9.2 reproducibility commit pin
 - File: `09-future-work-conclusion.md` L17-21
@@ -463,22 +525,28 @@ Grep `paper.md` for headline numbers and confirm presence + identical value:
 
 - [ ] `paper.md` word count ≤ 3500 after T11
 - [ ] No paper-grade number changed (T12 sweep passes)
-- [ ] Zero `yang2025` cite-keys in paper text (T13 audit passes)
-- [ ] `references.bib` has no unverified stub entries
-- [ ] `eval/` test suite green after rename (T0g and T14)
-- [ ] `eval/baselines/dietitian_pharmacist_2role.py` exists; `eval/baselines/yang2025.py` does not
+- [ ] All `[@yang2025]` cite-keys resolve to the verified JMIR `@article` entry (T13 audit passes)
+- [ ] `references.bib` has no unverified stub entries (the JMIR entry replaces the old stub)
+- [ ] `eval/` test suite green (T14)
+- [ ] `eval/baselines/yang2025.py` unchanged (no rename under Option A)
 - [ ] §9.2 commit pin matches actual head SHA of `paper-1/camera-ready`
 - [ ] Tag `paper-1-v1-arxiv-submission` pushed to origin
+- [ ] The §2 / §5 in-text descriptions of the Yang et al. baseline match the
+  actual JMIR architecture (barrier-identification + strategy-execution) and
+  are not misattributed as "dietitian-pharmacist diet-drug interaction"
 
 ---
 
-## Appendix: Option A path (if a verified Yang et al. citation surfaces)
+## Appendix: Option B fallback (if the JMIR entry is later retracted or unavailable)
 
-1. Skip T0a, T0b, T0c, T0d, T0e, T0f, T0g, T13 rename steps (and T14 rename-regression check).
-2. Replace bib stub with verified `@misc{yang2025, ...}` block.
-3. Leave all four `[@yang2025]` cite-keys intact in section files.
-4. Trim tasks T1–T11 still apply; the +30w prose substitution is not incurred → post-trim ~3410w.
-5. T15 and T16 still apply.
+(Option B is now a fallback rather than the primary path. Retained for
+reference; do not execute unless the JMIR DOI 10.2196/75421 stops
+resolving.)
+
+1. Drop the verified bib entry; restore one-line removal-marker comment.
+2. Replace `[@yang2025]` cite-keys with prose substitutions in §00, §01, §02, §05, §09.
+3. Rename `eval/baselines/yang2025.py` → `eval/baselines/yang2025_jmir_pattern.py` (preserving "yang2025" as a sub-pattern label so the baseline ID stays attributable to the original JMIR design even when the citation isn't formally available). Update registry in `eval/baselines/__init__.py` and the test set in `eval/tests/test_baselines.py`.
+4. The trim budget then incurs +30w of substitution overhead; expect post-trim ~3470w.
 
 ---
 
