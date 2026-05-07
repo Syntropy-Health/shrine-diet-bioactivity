@@ -123,9 +123,7 @@ def load_unichem_mapping(tsv_path: Path) -> dict[str, dict[str, Any]]:
 
     for entry in out.values():
         # unichem_src_count = number of source-id-derived columns set for this row.
-        entry["unichem_src_count"] = sum(
-            1 for k in entry if k != "unichem_src_count"
-        )
+        entry["unichem_src_count"] = sum(1 for k in entry if k != "unichem_src_count")
     return out
 
 

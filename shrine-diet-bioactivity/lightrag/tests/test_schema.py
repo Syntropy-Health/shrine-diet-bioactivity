@@ -5,6 +5,7 @@ spins up an ephemeral SQLite, applies the same DDL inline, and asserts the
 columns. Keeps the test reproducible in any worktree even when the heavy DB
 is absent.
 """
+
 import sqlite3
 
 DDL = """
@@ -65,9 +66,17 @@ def test_compound_identity_schema_matches_spec():
     # compound_id MUST be TEXT to match compounds.id.
     assert cols["compound_id"] == "TEXT"
     expected = {
-        "inchikey", "inchi", "smiles", "pubchem_cid", "chembl_id",
-        "kegg_compound_id", "drugbank_id", "chebi_id",
-        "unichem_src_count", "resolution_method", "resolved_at",
+        "inchikey",
+        "inchi",
+        "smiles",
+        "pubchem_cid",
+        "chembl_id",
+        "kegg_compound_id",
+        "drugbank_id",
+        "chebi_id",
+        "unichem_src_count",
+        "resolution_method",
+        "resolved_at",
     }
     assert expected.issubset(cols.keys()), cols.keys()
 
@@ -77,10 +86,20 @@ def test_bioactivity_evidence_schema_matches_spec():
     cols = _columns(conn, "bioactivity_evidence")
     assert cols["compound_id"] == "TEXT"
     expected = {
-        "chembl_compound_id", "chembl_target_id", "target_pref_name",
-        "target_type", "target_organism", "activity_type", "relation",
-        "value", "units", "pchembl", "activity_comment",
-        "assay_confidence", "chembl_doc_id", "publication_year",
+        "chembl_compound_id",
+        "chembl_target_id",
+        "target_pref_name",
+        "target_type",
+        "target_organism",
+        "activity_type",
+        "relation",
+        "value",
+        "units",
+        "pchembl",
+        "activity_comment",
+        "assay_confidence",
+        "chembl_doc_id",
+        "publication_year",
         "ingested_at",
     }
     assert expected.issubset(cols.keys()), cols.keys()

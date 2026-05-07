@@ -1,4 +1,5 @@
 """End-to-end check that bioactivity_evidence flows through extract_entities."""
+
 import sqlite3
 import sys
 from pathlib import Path

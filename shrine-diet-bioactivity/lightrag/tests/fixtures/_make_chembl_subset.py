@@ -2,6 +2,7 @@
 
 Run once; the resulting `chembl_subset.sqlite` is committed to git (~50 KB).
 """
+
 import sqlite3
 from pathlib import Path
 

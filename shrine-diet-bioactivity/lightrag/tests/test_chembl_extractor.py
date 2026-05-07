@@ -1,4 +1,5 @@
 """Tests for ChEMBL bioactivity extractor."""
+
 import sqlite3
 import sys
 from pathlib import Path

@@ -8,6 +8,7 @@ Accepts an open sqlite3 connection so callers can choose:
   - a local ChEMBL SQLite dump (production: chembl-downloader auto-fetched)
   - the test fixture at lightrag/tests/fixtures/chembl_subset.sqlite
 """
+
 from __future__ import annotations
 
 import sqlite3

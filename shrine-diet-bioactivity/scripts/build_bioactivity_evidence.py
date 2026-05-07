@@ -15,6 +15,7 @@ Usage:
       --db data_local/herbal_botanicals.db \\
       --chembl-version 36
 """
+
 from __future__ import annotations
 
 import argparse

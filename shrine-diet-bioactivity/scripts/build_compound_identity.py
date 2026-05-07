@@ -21,6 +21,7 @@ Usage:
       --unichem-tsv data/unichem_src1_22_2_6_7.tsv \\
       --pubchem-cache data_local/pubchem_name_cache.json
 """
+
 from __future__ import annotations
 
 import argparse

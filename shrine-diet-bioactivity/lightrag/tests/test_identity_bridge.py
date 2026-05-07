@@ -1,4 +1,5 @@
 """Tests for compound identity bridge."""
+
 import json
 import sys
 from pathlib import Path
@@ -72,9 +73,7 @@ def test_load_unichem_mapping_handles_multi_source():
 def test_load_unichem_mapping_skips_unknown_src_ids(tmp_path: Path):
     bogus = tmp_path / "bogus.tsv"
     bogus.write_text(
-        "inchikey\tsrc_id\tsrc_compound_id\n"
-        "AAA-BBB\t9999\tX\n"
-        "AAA-BBB\t1\tCHEMBL999\n"
+        "inchikey\tsrc_id\tsrc_compound_id\nAAA-BBB\t9999\tX\nAAA-BBB\t1\tCHEMBL999\n"
     )
     mapping = load_unichem_mapping(bogus)
     assert "AAA-BBB" in mapping
@@ -117,11 +116,15 @@ def test_resolve_compound_by_name_returns_inchikey_and_smiles(tmp_path: Path):
 def test_resolve_compound_by_name_uses_cache(tmp_path: Path):
     cache = tmp_path / "pubchem_cache.json"
     cache.write_text(
-        json.dumps({"Curcumin": {
-            "cid": 969516,
-            "inchikey": "VFLDPWHFBUODDF-FCXRPNKRSA-N",
-            "smiles": "C...",
-        }})
+        json.dumps(
+            {
+                "Curcumin": {
+                    "cid": 969516,
+                    "inchikey": "VFLDPWHFBUODDF-FCXRPNKRSA-N",
+                    "smiles": "C...",
+                }
+            }
+        )
     )
     with patch("httpx.get") as mock_get:
         result = resolve_compound_by_name("Curcumin", cache_path=cache)
@@ -168,8 +171,7 @@ def test_resolve_compound_by_name_handles_smiles_with_embedded_commas(tmp_path: 
     """
     cache = tmp_path / "c.json"
     body = (
-        'CID,InChIKey,CanonicalSMILES\n'
-        '5234,FAPWRFPIFSIZLT-UHFFFAOYSA-M,"[Na+].[Cl-]"\n'
+        'CID,InChIKey,CanonicalSMILES\n5234,FAPWRFPIFSIZLT-UHFFFAOYSA-M,"[Na+].[Cl-]"\n'
     )
     with patch("httpx.get", return_value=httpx.Response(status_code=200, text=body)):
         result = resolve_compound_by_name("sodium chloride", cache_path=cache)
@@ -193,7 +195,9 @@ def test_resolve_compound_by_name_robust_to_column_reordering(tmp_path: Path):
     assert result.cid == 2519
 
 
-def test_resolve_compound_by_name_returns_none_on_missing_required_columns(tmp_path: Path):
+def test_resolve_compound_by_name_returns_none_on_missing_required_columns(
+    tmp_path: Path,
+):
     """If the CSV lacks CID or InChIKey we must fail closed, not return garbage."""
     cache = tmp_path / "c.json"
     body = "RandomColumn,CanonicalSMILES\nfoo,bar\n"
