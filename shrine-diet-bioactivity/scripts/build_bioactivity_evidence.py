@@ -114,36 +114,42 @@ def main() -> int:
     print(f"Got {len(bioactivities)} bioactivity rows passing filters")
 
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    cur.execute("DELETE FROM bioactivity_evidence")
     inserted = 0
-    for r in bioactivities:
-        compound_id = inchikey_to_compound.get(r["inchikey"])
-        if compound_id is None:
-            continue
-        cur.execute(
-            INSERT_SQL,
-            (
-                compound_id,
-                r["chembl_compound_id"],
-                r["chembl_target_id"],
-                r["target_pref_name"],
-                r["target_type"],
-                r["target_organism"],
-                r["activity_type"],
-                r["relation"],
-                r["value"],
-                r["units"],
-                r["pchembl"],
-                r["activity_comment"],
-                r["assay_confidence"],
-                r["chembl_doc_id"],
-                r["publication_year"],
-                now_iso,
-            ),
-        )
-        inserted += 1
-    target_conn.commit()
-    target_conn.close()
+    # Atomic DELETE-then-INSERT: if anything throws mid-loop (OOM, SIGTERM,
+    # malformed row), the transaction rolls back and the table keeps its
+    # pre-run contents instead of being left empty or partially populated.
+    # `with target_conn:` commits on clean exit and rolls back on exception.
+    try:
+        with target_conn:
+            cur.execute("DELETE FROM bioactivity_evidence")
+            for r in bioactivities:
+                compound_id = inchikey_to_compound.get(r["inchikey"])
+                if compound_id is None:
+                    continue
+                cur.execute(
+                    INSERT_SQL,
+                    (
+                        compound_id,
+                        r["chembl_compound_id"],
+                        r["chembl_target_id"],
+                        r["target_pref_name"],
+                        r["target_type"],
+                        r["target_organism"],
+                        r["activity_type"],
+                        r["relation"],
+                        r["value"],
+                        r["units"],
+                        r["pchembl"],
+                        r["activity_comment"],
+                        r["assay_confidence"],
+                        r["chembl_doc_id"],
+                        r["publication_year"],
+                        now_iso,
+                    ),
+                )
+                inserted += 1
+    finally:
+        target_conn.close()
     print(f"Inserted {inserted} bioactivity_evidence rows")
     return 0
 
