@@ -36,12 +36,10 @@ HDI signal.**
 
 ### 7.3 Calibration trade-off
 
-ECE is highest for `diet_os` at 0.543 — significantly worse than
-`medagents` (0.024, mean_diff +0.531) and `mdagents` (0.015, mean_diff
-+0.540) at p_adj = 0.002. The trade-off reflects panel-derived
-confidence variance under an uncalibrated free-tier model: `medagents`
-and `mdagents` emit near-constant low confidence, collapsing ECE toward
-the gold rate, while `diet_os`'s composite confidence (evidence-tier ×
-HDI-risk × question-fit, §3.3) carries honest but uncalibrated signal.
-Post-hoc Platt/isotonic calibration on a held-out fold is straightforward
-v2 work (§8.2, §9).
+ECE is highest for `diet_os` at 0.543, significantly worse than
+`medagents` (0.024) and `mdagents` (0.015) at p_adj = 0.002. The
+trade-off reflects panel-derived confidence variance: baselines emit
+near-constant low confidence that collapses ECE toward the gold rate,
+while `diet_os`'s composite confidence carries honest but uncalibrated
+signal. Post-hoc Platt/isotonic calibration is straightforward v2 work
+(§8.2, §9).

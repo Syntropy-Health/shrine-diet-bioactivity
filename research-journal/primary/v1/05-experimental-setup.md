@@ -20,13 +20,7 @@ singleton-per-process across the eval matrix.
 
 **Baselines.** Five external baselines plus `diet_os` and a within-system
 ablation share LLM, KG, and gateway: `single_llm` (no tools),
-`single_llm_rag` (naïve RAG), `yang2025` (two-agent barrier-identification + strategy-execution; JMIR Yang behavioral baseline) [@yang2025], `medagents` (n-role debate, no KG) [@medagents2024],
-`mdagents` (adaptive routing, no KG) [@mdagents2024], **`diet_os`** (this
-work, deterministic gold-triage substitute — see §5.4 for the bypass
-disclosure), and **`diet_os_llm_triage`** (identical to `diet_os` but
-replacing the deterministic triage with a free-tier LLM call; introduced
-to address peer-review concern C1 about gold-triage bypass, full discussion
-in §6.5). We report the full N = 40 matrix across all seven systems.
+`single_llm_rag` (naïve RAG), `yang2025` (two-agent barrier-identification + strategy-execution; JMIR Yang behavioral baseline) [@yang2025], `medagents` [@medagents2024], `mdagents` [@mdagents2024], **`diet_os`** (this work; deterministic gold-triage substitute, see §5.4), and **`diet_os_llm_triage`** (the §6.5 ablation replacing deterministic triage with a free-tier LLM call). We report the full N = 40 matrix across all seven systems.
 
 **Cost and latency.** Per-role token usage and latency are captured by
 the `cost_tracker` decorator wrapping `ConversableAgent.generate_reply`.

@@ -76,15 +76,12 @@ deferred to v2 (§8).
 ### 6.3 Per-category breakdown
 
 The per-category Verdict κ heatmap (`figures/per-category-heatmap.png`,
-data in `tables/per-category.md`) shows `diet_os` strongest on `tcm_bilingual`
-(κ = 0.167), `nutrition` (0.153), and `multi_drug_hdi` (0.138), and weakest
-on `herbal_single_symptom` (κ = -0.081). Baselines are essentially flat
-across categories (max non-`diet_os` cell: `single_llm` on `multi_drug_hdi`,
-0.062). The `herbal_single_symptom` regression is consistent with eval-time
-intervention extraction missing the herb's canonical KG name in
-single-symptom scenarios — the `_intervention_from_scenario_id` heuristic
-favours multi-token names (e.g. "St John's wort + sertraline") and degrades
-on bare herbal mononyms.
+data in `tables/per-category.md`) shows `diet_os` strongest on
+`tcm_bilingual` (κ = 0.167), `nutrition` (0.153), and `multi_drug_hdi`
+(0.138), and weakest on `herbal_single_symptom` (κ = -0.081). Baselines
+are flat across categories (max non-`diet_os` cell: 0.062). The
+`herbal_single_symptom` regression traces to the same intervention-name
+extraction issue documented in §6.4.
 
 ### 6.4 Failure-mode taxonomy
 
@@ -127,18 +124,14 @@ prior, exactly the behaviour a calibrated panel should not exhibit.
 The proximate failure mode is the LLM triage step itself: 33 of 40 runs
 (82.5%) terminate with `runner-error: Invalid JSON: EOF while parsing a
 list` — the free-tier Nemotron-3-nano-30B (≤20 RPM) emits malformed JSON
-on the structured `ResearchQuestion` output. The runner falls back to
-default `complexity='low'`, `red_flags=[]`, `clarification_questions=[]`,
-which seeds zero retrieval keys; consequently 40 of 40 runs (100%) have
-empty candidate chains, and 33 of 40 panels terminate at
-`moderator_summary='error'` after exhausting AG2's `Maximum rounds (3)`.
-Two architectural components are therefore load-bearing in combination:
-(i) the deterministic triage substitute, which is invariably
-parse-clean, and (ii) the gold-question-anchored retrieval seed, which
-requires triage output the panel can actually use. Removing (i) breaks
-(ii) by cascading failure, regressing the system to the `single_llm`
-envelope. We discuss the v2 path — a small purpose-trained triage model
-or schema-constrained decoding — in §8. The 0.090 ECE that
-`diet_os_llm_triage` posts is *not* an architectural strength to retain;
-it is the spurious low-error of a system that has stopped engaging with
-the question.
+on the structured `ResearchQuestion` output. The runner's default
+fallback seeds zero retrieval keys, so all 40 runs have empty candidate
+chains and the panels terminate at `moderator_summary='error'`. Two
+architectural components are therefore load-bearing in combination: the
+deterministic triage substitute (invariably parse-clean) and the
+gold-question-anchored retrieval seed; removing the first cascades into
+the second, regressing the system to the `single_llm` envelope. The
+v2 path — a small purpose-trained triage model or schema-constrained
+decoding — is discussed in §8. The 0.090 ECE that `diet_os_llm_triage`
+posts is the spurious low-error of a system that has stopped engaging
+with the question, not an architectural strength.

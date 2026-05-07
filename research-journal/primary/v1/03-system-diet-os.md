@@ -47,13 +47,12 @@ one verdict per role, no rebuttal. Each role registers a *subset* of the
 | Safety Reviewer | `kg_hdi_check` |
 | Defer-to-Clinician | `kg_query` |
 
-Tools remain available as fallbacks when the LLM does emit valid `tool_calls`,
-but the bundle dominates the evidence pathway. Each role emits a `RoleVerdict`
-∈ {prefer, caution, reject, abstain} with `support[]`, `concerns[]`, and
-`cited_chains[]` indices into the bundle. Single-pass round-robin (rather
-than multi-round rebuttal) is forced by the 20-RPM rate limit and is
-defensible because pre-fetching removes the information asymmetry rebuttal
-would normally resolve (§7.2).
+Tools remain available as fallbacks when the LLM emits valid
+`tool_calls`, but the bundle dominates the evidence pathway. Each role
+emits a `RoleVerdict` ∈ {prefer, caution, reject, abstain} with
+`support[]`, `concerns[]`, and `cited_chains[]` indices. Single-pass
+round-robin is forced by the 20-RPM rate limit; pre-fetching removes
+the information asymmetry rebuttal would resolve (§7.2).
 
 ### 3.3 Moderator, calibrator, synthesis
 
