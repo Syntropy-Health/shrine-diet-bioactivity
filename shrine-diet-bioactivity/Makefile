@@ -380,3 +380,10 @@ bridge-test:
 	       lightrag/tests/test_ingest_bioactivity.py \
 	       --cov=identity_bridge --cov=chembl_extractor \
 	       --cov-report=term-missing -v
+
+# ─── Phase 2 symptom→disease map ────────────────────────────
+.PHONY: build-symptom-disease-map
+
+build-symptom-disease-map:
+	python scripts/build_symptom_disease_map.py \
+		--db data_local/herbal_botanicals.db

@@ -17,6 +17,7 @@ line and watch it pass.
 Live-DB gating: every test skips cleanly if the 5.5GB
 ``data_local/herbal_botanicals.db`` is absent (CI doesn't ship it).
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -24,9 +25,7 @@ from pathlib import Path
 
 import pytest
 
-DB_PATH = (
-    Path(__file__).parent.parent.parent / "data_local" / "herbal_botanicals.db"
-)
+DB_PATH = Path(__file__).parent.parent.parent / "data_local" / "herbal_botanicals.db"
 
 
 def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
@@ -72,22 +71,13 @@ def test_chemical_diseases_has_meaningful_coverage(db_conn: sqlite3.Connection) 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Audit §3 Gap 2: symptom_disease_map table not yet built. "
-        "Highest-leverage gap for use case A. Implementation spec at §4.2; "
-        "schema + build pipeline + acceptance criteria defined. "
-        "Flip xfail off once make build-symptom-disease-map exists."
-    ),
-)
 def test_symptom_disease_map_table_exists(db_conn: sqlite3.Connection) -> None:
+    """Schema landed by phase2/symptom-disease-map (audit §4.2)."""
     assert _table_exists(db_conn, "symptom_disease_map"), (
         "symptom_disease_map table not present. See audit §4.2 for schema."
     )
 
 
-@pytest.mark.xfail(strict=True, reason="depends on symptom_disease_map (audit §4.2)")
 def test_symptom_disease_map_covers_most_symptoms(db_conn: sqlite3.Connection) -> None:
     """≥40 of the 47 hand-curated symptoms must have ≥1 disease mapping."""
     n_symptoms = db_conn.execute("SELECT COUNT(*) FROM symptoms").fetchone()[0]
@@ -102,7 +92,6 @@ def test_symptom_disease_map_covers_most_symptoms(db_conn: sqlite3.Connection) -
     )
 
 
-@pytest.mark.xfail(strict=True, reason="depends on symptom_disease_map (audit §4.2)")
 def test_inflammation_diabetes_hypertension_have_mesh_ids(
     db_conn: sqlite3.Connection,
 ) -> None:
@@ -131,13 +120,39 @@ def test_inflammation_diabetes_hypertension_have_mesh_ids(
     )
 
 
-@pytest.mark.xfail(strict=True, reason="depends on symptom_disease_map (audit §4.2)")
 def test_match_score_in_valid_range(db_conn: sqlite3.Connection) -> None:
     bad = db_conn.execute(
         "SELECT COUNT(*) FROM symptom_disease_map "
         "WHERE match_score < 0.0 OR match_score > 1.0"
     ).fetchone()[0]
     assert bad == 0, f"{bad} rows have match_score outside [0,1]"
+
+
+def test_maps_to_disease_relationship_query_runs(db_conn: sqlite3.Connection) -> None:
+    """MAPS_TO_DISEASE in entity_schema must query the symptom_disease_map cleanly."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from entity_schema import RELATIONSHIP_TYPES, describe_relationship
+
+    assert "MAPS_TO_DISEASE" in RELATIONSHIP_TYPES
+    spec = RELATIONSHIP_TYPES["MAPS_TO_DISEASE"]
+    assert spec["src_type"] == "Symptom"
+    assert spec["tgt_type"] == "Disease"
+
+    # The query must execute against the populated map.
+    rows = list(db_conn.execute(spec["query"]))
+    assert len(rows) >= 40, (
+        f"Expected ≥40 MAPS_TO_DISEASE edges (one per mapped symptom); got {len(rows)}"
+    )
+
+    cols = [d[0] for d in db_conn.execute(spec["query"]).description]
+    sample = dict(zip(cols, rows[0]))
+    desc, kw = describe_relationship("MAPS_TO_DISEASE", sample)
+    assert sample["src_name"] in desc
+    assert sample["tgt_name"] in desc
+    assert "symptom" in kw and "disease" in kw
 
 
 # ---------------------------------------------------------------------------
