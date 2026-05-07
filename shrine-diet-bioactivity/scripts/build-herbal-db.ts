@@ -136,6 +136,32 @@ function createSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_compound_foods_food ON compound_foods(food_name);
     CREATE INDEX IF NOT EXISTS idx_compound_name_map_normalized ON compound_name_map(normalized_name);
   `);
+
+  // -------------------------------------------------------------------------
+  // Phase 2 — symptom→disease materialized map (audit §4.2 / KG audit Gap 2)
+  // -------------------------------------------------------------------------
+  // Eliminates the implicit string-LIKE bridge between our 47 hand-curated
+  // symptoms and target_diseases.disease_name. Joined upstream against
+  // SymMap (modern + TCM) so each symptom carries formal MeSH/UMLS/ICD-10
+  // IDs into use case A queries. Built by scripts/build_symptom_disease_map.py.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS symptom_disease_map (
+      symptom_id     TEXT NOT NULL,
+      disease_name   TEXT NOT NULL,
+      source         TEXT NOT NULL,        -- 'symmap_modern' | 'symmap_tcm' | 'string_match'
+      symmap_id      TEXT,
+      mesh_id        TEXT,
+      umls_id        TEXT,
+      icd10cm_id     TEXT,
+      match_score    REAL NOT NULL,
+      PRIMARY KEY (symptom_id, disease_name, source),
+      FOREIGN KEY (symptom_id) REFERENCES symptoms(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_sdm_symptom ON symptom_disease_map(symptom_id);
+    CREATE INDEX IF NOT EXISTS idx_sdm_mesh    ON symptom_disease_map(mesh_id);
+    CREATE INDEX IF NOT EXISTS idx_sdm_score   ON symptom_disease_map(match_score);
+  `);
+  console.error('  ✓ symptom_disease_map table');
 }
 
 // ---------------------------------------------------------------------------

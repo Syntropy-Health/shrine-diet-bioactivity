@@ -364,3 +364,10 @@ eval-run: ## Run baselines × test split. Usage: make eval-run [SYSTEMS=diet_os,
 eval-report: ## Render the most recent results dir into summary.md + reliability_diagram.png
 	python3 -m eval.report \
 		--latest ../research-journal/shared/results/
+
+# ─── Phase 2 symptom→disease map ────────────────────────────
+.PHONY: build-symptom-disease-map
+
+build-symptom-disease-map:
+	python scripts/build_symptom_disease_map.py \
+		--db data_local/herbal_botanicals.db
