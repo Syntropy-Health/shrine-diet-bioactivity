@@ -13,6 +13,7 @@ This repository aggregates authoritative open-source nutrition databases for use
 | **USDA FoodData Central** | Gold-standard US nutrition database | 900k+ foods | ❌ No |
 | **OpenNutrition MCP** | MCP server for LLM food queries | 300k+ foods | ❌ No |
 | **NIH DSLD** | Dietary supplement label database | 100k+ products | ❌ No |
+| **ChEMBL 36 + UniChem + PubChem** | Compound-identity bridge → drug-target bioactivity evidence (Phase 1 — see [ADR 0007](docs/adr/0007-compound-identity-bridge.md)) | ~25k active compounds; measured IC50/Ki/EC50 | ❌ No |
 
 ## Repository Structure
 
