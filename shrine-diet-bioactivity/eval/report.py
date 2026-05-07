@@ -85,6 +85,10 @@ _METRIC_LABELS = {
     "bilingual": "Bilingual",
 }
 
+# Default category assigned to synthetic neutral-gold stubs; matches the
+# pre-refactor `_neutral_stub` behaviour.
+_STUB_CATEGORY: str = "herbal_single_symptom"
+
 # ---------------------------------------------------------------------------
 # Provenance: source-attribution runner
 # ---------------------------------------------------------------------------
@@ -424,7 +428,7 @@ def _synthetic_neutral_gold(scen_id: str) -> Scenario:
     """
     return Scenario(
         id=scen_id,
-        category="herbal_single_symptom",
+        category=_STUB_CATEGORY,
         research_question=scen_id,
         gold=GoldStandard(
             expected_complexity="low",
@@ -471,8 +475,13 @@ def load_run_scenarios(
         Scenario objects in the manifest's ``scenario_ids`` order.
 
     Raises:
-        RuntimeError: When ``allow_stubs=False`` and either:
-            - no ``manifest-*.json`` exists in ``results_dir``,
+        RuntimeError: Always raised (regardless of ``allow_stubs``) when:
+            - no ``manifest-*.json`` exists in ``results_dir``, or
+            - the manifest's ``scenario_ids`` list is empty (indicates a
+              failed or partial ``eval.runner`` run; lenient mode does not
+              apply because there is nothing to be lenient about).
+
+            Additionally raised when ``allow_stubs=False`` and either:
             - the benchmark file is absent on disk, or
             - a ``scenario_id`` is not in the benchmark. The message
               contains the substring ``"not in benchmark"`` and the
@@ -487,6 +496,11 @@ def load_run_scenarios(
 
     manifest_data = json.loads(manifests[-1].read_text())
     scenario_ids: list[str] = manifest_data.get("scenario_ids", [])
+    if not scenario_ids:
+        raise RuntimeError(
+            f"Manifest {manifests[-1]} has an empty scenario_ids list — "
+            "was this produced by a failed or partial eval.runner run?"
+        )
 
     candidate_bench = (
         results_dir.parents[1] / "datasets" / "dietresearchbench_v1.json"
@@ -987,6 +1001,7 @@ if __name__ == "__main__":
         )
     except RuntimeError as exc:
         parser.error(str(exc))
+        raise SystemExit(2)  # unreachable; satisfies static analysis
 
     # Ensure list lengths are consistent
     min_len = min((len(v) for v in run_results.values()), default=0)
