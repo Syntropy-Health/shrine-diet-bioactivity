@@ -61,6 +61,7 @@ from eval.scenario import (  # type: ignore[import-not-found]
     BenchmarkSet,
     GoldStandard,
     Scenario,
+    ScenarioCategory,
 )
 
 # ---------------------------------------------------------------------------
@@ -87,7 +88,7 @@ _METRIC_LABELS = {
 
 # Default category assigned to synthetic neutral-gold stubs; matches the
 # pre-refactor `_neutral_stub` behaviour.
-_STUB_CATEGORY: str = "herbal_single_symptom"
+_STUB_CATEGORY: ScenarioCategory = "herbal_single_symptom"
 
 # ---------------------------------------------------------------------------
 # Provenance: source-attribution runner
@@ -1001,7 +1002,6 @@ if __name__ == "__main__":
         )
     except RuntimeError as exc:
         parser.error(str(exc))
-        raise SystemExit(2)  # unreachable; satisfies static analysis
 
     # Ensure list lengths are consistent
     min_len = min((len(v) for v in run_results.values()), default=0)
