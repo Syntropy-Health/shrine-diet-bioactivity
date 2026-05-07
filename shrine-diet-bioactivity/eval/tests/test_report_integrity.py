@@ -44,6 +44,16 @@ from eval.scenario import (  # type: ignore[import-not-found]
 
 
 # ---------------------------------------------------------------------------
+# Module constants
+# ---------------------------------------------------------------------------
+
+# Paper-1 v1 benchmark cardinality (research-journal/shared/datasets/
+# dietresearchbench_v1.json). Used by the all-found regression test (test 3)
+# to assert the production-data shape.
+_PAPER_1_V1_SCENARIO_COUNT = 40
+
+
+# ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
 
@@ -56,7 +66,18 @@ def _write_manifest(
     systems: list[str] | None = None,
     benchmark_version: str = "v1",
 ) -> Path:
-    """Write a manifest-<ts>.json mirroring the eval.runner schema."""
+    """Write a manifest-<ts>.json mirroring the eval.runner schema.
+
+    Note:
+        When ``systems`` is omitted (or ``None``), the manifest's ``systems``
+        list is empty. Tests using this fixture in that mode therefore exercise
+        only the scenario-resolution code path of ``load_run_scenarios`` —
+        i.e. the manifest ``scenario_ids`` -> benchmark lookup. If future
+        extensions of ``load_run_scenarios`` also load per-system predictions
+        from disk, those code paths will need fixtures that pass
+        ``systems=[...]`` *and* pre-populate per-system JSON dirs alongside
+        the manifest.
+    """
     manifest_path = results_dir / f"manifest-{timestamp}.json"
     manifest_path.write_text(
         json.dumps(
@@ -241,18 +262,23 @@ def test_full_benchmark_render_unaffected(tmp_path: Path) -> None:
         / "dietresearchbench_v1.json"
     )
 
-    if real_bench.exists():
-        bench_data = json.loads(real_bench.read_text())
-        bench_set = BenchmarkSet.model_validate(bench_data)
-        benchmark_scenarios = list(bench_set.scenarios)
-    else:
-        # Synthetic 40-scenario fallback so the test is self-contained.
-        benchmark_scenarios = [_mk_scenario(f"synthetic-{i:03d}") for i in range(40)]
+    if not real_bench.exists():
+        pytest.skip(
+            f"Real benchmark not found at {real_bench}; "
+            "this test only validates the production-data path. "
+            "Run from the lightrag-test-debt worktree where "
+            "research-journal/shared/datasets/ is present."
+        )
+    # Only reached when the real benchmark file exists — no synthetic fallback.
+    bench_data = json.loads(real_bench.read_text())
+    bench_set = BenchmarkSet.model_validate(bench_data)
+    benchmark_scenarios = list(bench_set.scenarios)
 
     manifest_scenario_ids = [s.id for s in benchmark_scenarios]
-    assert len(manifest_scenario_ids) == 40, (
-        f"Test 3 expects a 40-scenario benchmark to mirror the paper-1 v1 "
-        f"condition; got {len(manifest_scenario_ids)} scenarios"
+    assert len(manifest_scenario_ids) == _PAPER_1_V1_SCENARIO_COUNT, (
+        f"Test 3 expects a {_PAPER_1_V1_SCENARIO_COUNT}-scenario benchmark "
+        f"to mirror the paper-1 v1 condition; got "
+        f"{len(manifest_scenario_ids)} scenarios"
     )
 
     results_dir = _make_results_layout(
@@ -271,8 +297,9 @@ def test_full_benchmark_render_unaffected(tmp_path: Path) -> None:
     # Default args, no allow_stubs — should succeed because every id matches.
     run_scenarios = load_fn(results_dir)
 
-    assert len(run_scenarios) == 40, (
-        f"Expected 40 run scenarios; got {len(run_scenarios)}"
+    assert len(run_scenarios) == _PAPER_1_V1_SCENARIO_COUNT, (
+        f"Expected {_PAPER_1_V1_SCENARIO_COUNT} run scenarios; "
+        f"got {len(run_scenarios)}"
     )
     bench_id_set = {s.id for s in benchmark_scenarios}
     for s in run_scenarios:
