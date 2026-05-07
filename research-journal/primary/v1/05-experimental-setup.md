@@ -20,8 +20,7 @@ singleton-per-process across the eval matrix.
 
 **Baselines.** Five external baselines plus `diet_os` and a within-system
 ablation share LLM, KG, and gateway: `single_llm` (no tools),
-`single_llm_rag` (naïve RAG), `yang2025` (2-role dietitian-pharmacist)
-[@yang2025], `medagents` (n-role debate, no KG) [@medagents2024],
+`single_llm_rag` (naïve RAG), `yang2025` (two-agent barrier-identification + strategy-execution; JMIR Yang behavioral baseline) [@yang2025], `medagents` (n-role debate, no KG) [@medagents2024],
 `mdagents` (adaptive routing, no KG) [@mdagents2024], **`diet_os`** (this
 work, deterministic gold-triage substitute — see §5.4 for the bypass
 disclosure), and **`diet_os_llm_triage`** (identical to `diet_os` but

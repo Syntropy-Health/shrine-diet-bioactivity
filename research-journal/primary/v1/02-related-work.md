@@ -5,8 +5,7 @@
 MedAgents [@medagents2024] frames zero-shot medical reasoning as a multi-role
 panel deliberating over nine medical datasets, and MDAgents [@mdagents2024]
 adds adaptive routing between solo and multi-disciplinary-team configurations.
-Yang et al. [@yang2025] propose a 2-role dietitian-pharmacist setup for
-diet-drug interaction reasoning. We compare against all three as architectural
+Yang et al. [@yang2025], the JMIR baseline of behavioral-science-informed agentic workflows, propose a two-agent design (barrier-identification + strategy-execution) for personalized-nutrition adherence coaching, which we re-implement as our third behavioral baseline. We compare against all three as architectural
 baselines and extend them with Layer-B/C role-priored KG retrieval. A
 contemporary threat is Wu et al.'s "Safer Therapy" [@wu2025], which reports
 single-GP performance comparable to a multi-disciplinary debate panel on
