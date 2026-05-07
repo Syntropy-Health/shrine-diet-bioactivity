@@ -47,3 +47,31 @@ Living document of items needing human attention. Stubs are append-only; the orc
   1. After Phase 1 lands and bridge proves out, run `make build-identity FULL=1` (flag to be added) for the remaining ~70K.
   2. Or run nightly cron for incremental fill.
 - **Logfire trace:** spans.jsonl@offset=4
+
+## Phase 1 execution outcomes (autonomous run, 2026-05-06)
+
+All 12 plan tasks completed `[done-auto]`. Highlights:
+
+- Tests: **29 Python tests + 5 vitest tests** all green.
+- Coverage on new modules: **88% combined** (chembl_extractor 100%, identity_bridge 85%) — exceeds 80% project standard.
+- 17 uncovered lines in identity_bridge are the network-error branches in
+  `resolve_compound_by_name` (5xx handling, JSON cache decode failure) and the
+  RDKit lazy-import sad paths — would require live HTTP errors / corrupted
+  cache files to exercise. Acceptable for Phase 1.
+- Schema-DDL applied via `scripts/build-herbal-db.ts`; the live DB
+  (`data_local/herbal_botanicals.db`, 5.5 GB, gitignored) was not present in the
+  worktree, so live-data smoke runs (real `make build-identity` + `make build-bioactivity`)
+  did not execute — they will run on first deployment after Phase 1 lands on main.
+- All real-data builds still gated through Makefile targets `build-identity`,
+  `build-identity-full`, `build-bioactivity` and surface the WARNING coverage
+  notes per the build script.
+
+### Side issue noted during execution: kg-mcp 401
+
+The deployed kg-mcp gateway at `kg-mcp-test.up.railway.app` is rejecting the
+syntropy_journals app's bearer token with a 401 from `auth.py`'s second arm
+(`token rejected by both validators`). Diagnostic + 3 remediation paths
+provided in the Phase 2 conversation transcript. Out of scope for THIS PR
+(would muddy the diff with unrelated `mcp/src/kg_mcp/auth.py` work).
+Tracked separately as `kg-mcp/auth/sj-token-validator-not-implemented`,
+linked to upstream issue #10.
