@@ -172,8 +172,16 @@ def resolve_compound_by_name(
         f"{PUBCHEM_PUG_REST}/compound/name/{safe_name}"
         f"/property/InChIKey,CanonicalSMILES/CSV"
     )
-    resp = httpx.get(url, timeout=timeout_s)
-    time.sleep(PUBCHEM_RATE_LIMIT_SLEEP_S)
+    # Wrap network call in try/finally so the rate-limit sleep always fires
+    # (we want to spread requests evenly even when one fails) and so a
+    # transient RequestError doesn't abort a 25K-compound batch. Transient
+    # errors return None and are NOT cached — the next run can retry.
+    try:
+        resp = httpx.get(url, timeout=timeout_s)
+    except httpx.RequestError:
+        return None
+    finally:
+        time.sleep(PUBCHEM_RATE_LIMIT_SLEEP_S)
 
     parsed: Any
     if resp.status_code == 404:
@@ -200,17 +208,37 @@ def _parse_pubchem_csv(text: str) -> Optional[dict[str, Any]]:
     """Parse PubChem PUG-REST CSV body into the cache row.
 
     PubChem returns a header line ``CID,InChIKey,CanonicalSMILES`` followed by
-    one or more data rows. We use only the first data row.
+    one or more data rows. We index columns by header NAME (not position) so
+    the parser is robust if PubChem ever reorders columns or adds new ones.
+    Uses csv.reader so embedded commas inside quoted SMILES strings (e.g.
+    ``[Na+].[Cl-]``) are handled correctly.
     """
-    lines = [ln for ln in text.strip().splitlines() if ln.strip()]
-    if len(lines) < 2:
+    import csv as _csv
+    import io as _io
+
+    reader = _csv.reader(_io.StringIO(text))
+    rows = [r for r in reader if r and any(c.strip() for c in r)]
+    if len(rows) < 2:
         return None
-    cols = lines[1].split(",", 2)
-    if len(cols) < 2:
+    header = [h.strip() for h in rows[0]]
+    try:
+        cid_idx = header.index("CID")
+        inchikey_idx = header.index("InChIKey")
+    except ValueError:
+        # Header doesn't contain the columns we asked for — fail closed.
         return None
-    cid_raw = cols[0].strip()
-    inchikey = cols[1].strip()
-    smiles = cols[2].strip() if len(cols) > 2 else None
+    smiles_idx: Optional[int]
+    try:
+        smiles_idx = header.index("CanonicalSMILES")
+    except ValueError:
+        smiles_idx = None
+
+    data = rows[1]
+    if max(cid_idx, inchikey_idx, smiles_idx or 0) >= len(data):
+        return None
+    cid_raw = data[cid_idx].strip()
+    inchikey = data[inchikey_idx].strip()
+    smiles = data[smiles_idx].strip() if smiles_idx is not None else None
     try:
         cid = int(cid_raw)
     except ValueError:

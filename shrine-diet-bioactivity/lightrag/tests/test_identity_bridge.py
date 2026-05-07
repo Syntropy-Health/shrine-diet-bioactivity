@@ -147,3 +147,56 @@ def test_resolve_compound_by_name_500_returns_none_without_caching(tmp_path: Pat
         assert resolve_compound_by_name("Some Compound", cache_path=cache) is None
     # Unexpected status should not poison the cache (allow retry next run).
     assert not cache.exists()
+
+
+def test_resolve_compound_by_name_network_error_returns_none_no_cache(tmp_path: Path):
+    """Transient network errors must NOT abort a batch run nor poison the cache."""
+    cache = tmp_path / "c.json"
+    with patch("httpx.get", side_effect=httpx.ConnectError("boom")):
+        result = resolve_compound_by_name("Curcumin", cache_path=cache)
+    assert result is None
+    # Negative cache should NOT be written for transient errors — the next run
+    # must retry (vs. 404 which IS cached as a stable negative).
+    assert not cache.exists()
+
+
+def test_resolve_compound_by_name_handles_smiles_with_embedded_commas(tmp_path: Path):
+    """CanonicalSMILES strings can contain commas (e.g. salt forms like Na+/Cl-).
+
+    Header-name-indexed parsing + csv.reader handle the quoting correctly
+    where the old positional split would have truncated the SMILES.
+    """
+    cache = tmp_path / "c.json"
+    body = (
+        'CID,InChIKey,CanonicalSMILES\n'
+        '5234,FAPWRFPIFSIZLT-UHFFFAOYSA-M,"[Na+].[Cl-]"\n'
+    )
+    with patch("httpx.get", return_value=httpx.Response(status_code=200, text=body)):
+        result = resolve_compound_by_name("sodium chloride", cache_path=cache)
+    assert result is not None
+    assert result.cid == 5234
+    assert result.inchikey == "FAPWRFPIFSIZLT-UHFFFAOYSA-M"
+    assert result.smiles == "[Na+].[Cl-]"
+
+
+def test_resolve_compound_by_name_robust_to_column_reordering(tmp_path: Path):
+    """If PubChem ever returns InChIKey,CID,CanonicalSMILES the parser must still work."""
+    cache = tmp_path / "c.json"
+    body = (
+        "InChIKey,CID,CanonicalSMILES\n"
+        "RYYVLZVUVIJVGH-UHFFFAOYSA-N,2519,Cn1cnc2c1c(=O)n(C)c(=O)n2C\n"
+    )
+    with patch("httpx.get", return_value=httpx.Response(status_code=200, text=body)):
+        result = resolve_compound_by_name("Caffeine", cache_path=cache)
+    assert result is not None
+    assert result.inchikey == "RYYVLZVUVIJVGH-UHFFFAOYSA-N"
+    assert result.cid == 2519
+
+
+def test_resolve_compound_by_name_returns_none_on_missing_required_columns(tmp_path: Path):
+    """If the CSV lacks CID or InChIKey we must fail closed, not return garbage."""
+    cache = tmp_path / "c.json"
+    body = "RandomColumn,CanonicalSMILES\nfoo,bar\n"
+    with patch("httpx.get", return_value=httpx.Response(status_code=200, text=body)):
+        result = resolve_compound_by_name("Foo", cache_path=cache)
+    assert result is None
