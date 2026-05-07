@@ -2,6 +2,12 @@
 
 Open-source nutrition and dietary supplement data sources for RAG-powered health applications.
 
+## 📚 Documentation index
+
+**Start here:** [`docs/INDEX.md`](docs/INDEX.md) — single source of navigation for the project, grouped by audience (newcomer / architect / data-engineer / researcher / clinical / ops).
+
+**KG completeness audit:** [`docs/KG_COMPLETENESS_AUDIT.md`](docs/KG_COMPLETENESS_AUDIT.md) — quantitative gap analysis vs the two priority use cases (Symptom→food, Diet→effects), with concrete TDD specs for the top three remediations.
+
 ## Overview
 
 This repository aggregates authoritative open-source nutrition databases for use in AI-powered dietary recommendation systems. It serves as the data foundation for the [Diet Insight Engine](https://github.com/Syntropy-Health/diet-insight-engine) and related Syntropy Health applications.
