@@ -7,6 +7,7 @@
  *   tsx scripts/download-sources.ts --foodb-only
  *   tsx scripts/download-sources.ts --cmaup-only
  *   tsx scripts/download-sources.ts --ttd-only
+ *   tsx scripts/download-sources.ts --ctd-only
  */
 
 import * as fs from 'fs';
@@ -78,6 +79,20 @@ const SOURCES: Record<string, DownloadTarget> = {
     description: 'TTD Drug-Disease Associations',
     expectedMinSize: 100_000,
   },
+  // CTD: the website's downloads page is CAPTCHA-gated, but the static
+  // file URLs under /reports/ are not. ~50 MB and ~30 MB respectively.
+  ctd_chemicals_diseases: {
+    url: 'https://ctdbase.org/reports/CTD_chemicals_diseases.csv.gz',
+    filename: 'CTD_chemicals_diseases.csv.gz',
+    description: 'CTD Chemical-Disease Associations (gzipped CSV)',
+    expectedMinSize: 30_000_000,
+  },
+  ctd_pheno_term_ixns: {
+    url: 'https://ctdbase.org/reports/CTD_pheno_term_ixns.csv.gz',
+    filename: 'CTD_pheno_term_ixns.csv.gz',
+    description: 'CTD Chemical-Phenotype Interactions (gzipped CSV)',
+    expectedMinSize: 5_000_000,
+  },
 };
 
 async function downloadFile(target: DownloadTarget): Promise<void> {
@@ -145,6 +160,7 @@ async function main(): Promise<void> {
   const foodbOnly = args.includes('--foodb-only');
   const cmaupOnly = args.includes('--cmaup-only');
   const ttdOnly = args.includes('--ttd-only');
+  const ctdOnly = args.includes('--ctd-only');
 
   console.error('=== Downloading source data ===');
 
@@ -154,6 +170,7 @@ async function main(): Promise<void> {
   else if (foodbOnly) keysToDownload.push('foodb');
   else if (cmaupOnly) keysToDownload.push(...Object.keys(SOURCES).filter(k => k.startsWith('cmaup')));
   else if (ttdOnly) keysToDownload.push(...Object.keys(SOURCES).filter(k => k.startsWith('ttd')));
+  else if (ctdOnly) keysToDownload.push(...Object.keys(SOURCES).filter(k => k.startsWith('ctd')));
   else keysToDownload.push(...Object.keys(SOURCES));
 
   for (const key of keysToDownload) {

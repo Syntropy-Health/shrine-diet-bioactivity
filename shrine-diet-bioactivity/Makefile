@@ -371,3 +371,13 @@ eval-report: ## Render the most recent results dir into summary.md + reliability
 build-symptom-disease-map:
 	python scripts/build_symptom_disease_map.py \
 		--db data_local/herbal_botanicals.db
+
+# ─── CTD chem→disease ingest (audit §4.1 / Gap 1) ─────────
+.PHONY: download-ctd load-ctd
+
+download-ctd:
+	@echo "Downloading CTD source files (~50 MB chemicals_diseases + ~20 MB pheno_term_ixns)..."
+	npm run download:ctd
+
+load-ctd:
+	npm run load:ctd

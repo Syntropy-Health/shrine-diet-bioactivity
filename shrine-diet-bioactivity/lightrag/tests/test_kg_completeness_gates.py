@@ -48,21 +48,16 @@ def db_conn() -> sqlite3.Connection:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Audit §3 Gap 1: chemical_diseases table is empty in live DB despite "
-        "the architecture promising ~3.8M CTD rows. Implementation tracked at "
-        "audit §4.1 — load-ctd ingest script. Flip xfail off once implemented."
-    ),
-)
 def test_chemical_diseases_has_meaningful_coverage(db_conn: sqlite3.Connection) -> None:
-    """CTD chem→disease map should have ≥10K rows after ingest."""
+    """CTD chem→disease map populated by load-ctd (audit §4.1).
+
+    Audit floor is 10K rows. Live DB ingest produces ~900K unique
+    (compound_id, disease_name) pairs after the PRIMARY KEY dedup.
+    """
     assert _table_exists(db_conn, "chemical_diseases")
     n = db_conn.execute("SELECT COUNT(*) FROM chemical_diseases").fetchone()[0]
     assert n >= 10_000, (
-        f"chemical_diseases has {n} rows; CTD ingest never ran. "
-        "See docs/KG_COMPLETENESS_AUDIT.md §3 Gap 1 + §4.1."
+        f"chemical_diseases has {n} rows. Run `make load-ctd` to populate."
     )
 
 

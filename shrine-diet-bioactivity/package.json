@@ -13,7 +13,9 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "build-food-bridge": "npx tsx scripts/build-food-bridge.ts",
-    "enrich-nutrition": "npx tsx scripts/enrich-nutrition.ts"
+    "enrich-nutrition": "npx tsx scripts/enrich-nutrition.ts",
+    "download:ctd": "npx tsx scripts/download-sources.ts --ctd-only",
+    "load:ctd": "npx tsx scripts/load-ctd.ts"
   },
   "files": [
     "build"

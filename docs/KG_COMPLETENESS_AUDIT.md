@@ -88,11 +88,25 @@ Symptom (1 of 47)
 
 Sorted by use-case impact × ease of remediation.
 
-### Gap 1 — `chemical_diseases` table is empty (CRITICAL — silent ingestion failure)
+### Gap 1 — ~~`chemical_diseases` table is empty~~ ✅ **RESOLVED 2026-05-07**
 
-- **Severity:** HIGH for use case A; the architecture diagram (`docs/unified-diet-kg-architecture.md`) advertises 17.7K chemicals × 3.8M chem-disease pairs from CTD, but the live DB has 0.
-- **Likely root cause:** the CTD `load-ctd.ts` script either never ran or failed silently during ingest.
-- **Remediation:** see [§4.1](#41-spec-load-ctd-chemicaldiseases). Concrete TDD spec below.
+- **Status:** Resolved by `phase2/ctd-ingest`. Live DB now contains:
+  - **934,070 unique (compound_id, disease_name) pairs** (audit floor was 10K — 93× over)
+  - **45,836 chemical_phenotypes** rows
+  - **2,569 distinct compounds** with disease evidence
+  - **6,678 distinct diseases** with MeSH IDs (most carry `MESH:Dxxxxxx` form)
+- **Root cause** confirmed: the existing `scripts/load-ctd.ts` had three independently-blocking bugs that left it dormant:
+  1. `line.split(',')` corrupted rows where MeSH disease names contain commas (e.g., "Lymphoma, Mantle-Cell"), shifting every subsequent field.
+  2. Phenotype filename was `CTD_chem_phenotype_interactions.csv.gz`; CTD's actual filename is `CTD_pheno_term_ixns.csv.gz`. The loader silently skipped this file.
+  3. CTD source files were not in `download-sources.ts` (the docstring claimed they required CAPTCHA, but the static file URLs at `ctdbase.org/reports/` are not gated).
+- **What landed:**
+  - `scripts/_csv-parse.ts` — RFC-4180 row parser with 9 vitest unit tests covering quoted fields, embedded commas, `""` escapes, and a real-world CTD row sample.
+  - `scripts/_normalize.ts` — extracted `normalizeCompoundName` so `load-ctd` no longer transitively imports `papaparse` via `build-herbal-db`.
+  - `scripts/download-sources.ts` — adds `ctd_chemicals_diseases` and `ctd_pheno_term_ixns` entries plus a `--ctd-only` flag.
+  - `scripts/load-ctd.ts` — uses `parseCsvLine`; accepts both old and new phenotype filenames; clearer "run npm run download:ctd" hint.
+  - `package.json` — `download:ctd` and `load:ctd` npm scripts.
+  - `Makefile` — `download-ctd` and `load-ctd` targets.
+- **Verification:** ingest run on the live DB took 59 seconds end-to-end; `test_chemical_diseases_has_meaningful_coverage` xfail flipped GREEN.
 
 ### Gap 2 — ~~Symptom → Disease map is implicit~~ ✅ **RESOLVED 2026-05-07**
 
