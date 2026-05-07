@@ -57,7 +57,12 @@ from eval.metrics import (  # type: ignore[import-not-found]
     provenance_faithfulness,
     verdict_agreement_kappa,
 )
-from eval.scenario import Scenario  # type: ignore[import-not-found]
+from eval.scenario import (  # type: ignore[import-not-found]
+    BenchmarkSet,
+    GoldStandard,
+    Scenario,
+    ScenarioCategory,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -80,6 +85,10 @@ _METRIC_LABELS = {
     "defer_acc": "Defer Acc",
     "bilingual": "Bilingual",
 }
+
+# Default category assigned to synthetic neutral-gold stubs; matches the
+# pre-refactor `_neutral_stub` behaviour.
+_STUB_CATEGORY: ScenarioCategory = "herbal_single_symptom"
 
 # ---------------------------------------------------------------------------
 # Provenance: source-attribution runner
@@ -403,6 +412,126 @@ def _per_scenario_metric(
             val = float("nan")
         out.append(val)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Manifest -> scenario resolution (lenient mode opt-in)
+# ---------------------------------------------------------------------------
+
+
+def _synthetic_neutral_gold(scen_id: str) -> Scenario:
+    """Build a synthetic neutral-gold ``Scenario`` for a missing benchmark id.
+
+    Used only by ``load_run_scenarios`` when ``allow_stubs=True`` (lenient
+    mode). The function name makes the intent explicit: this is a fabricated
+    neutral-gold record, not a real benchmark scenario, and must never be
+    introduced silently into a fail-loud render path.
+    """
+    return Scenario(
+        id=scen_id,
+        category=_STUB_CATEGORY,
+        research_question=scen_id,
+        gold=GoldStandard(
+            expected_complexity="low",
+            expected_panel_verdict="abstain",
+            expected_evidence_tier="unknown",
+            expected_min_chains=0,
+            expected_defer=False,
+            expected_red_flags=[],
+            languages=["en"],
+        ),
+        rationale="reconstructed stub",
+    )
+
+
+def load_run_scenarios(
+    results_dir: Path,
+    *,
+    allow_stubs: bool = False,
+) -> list[Scenario]:
+    """Load run scenarios for a results directory.
+
+    Reads the manifest at ``results_dir/manifest-*.json``, looks up each
+    ``scenario_id`` in the benchmark at
+    ``results_dir.parents[1] / 'datasets' / 'dietresearchbench_v1.json'``,
+    and returns the list of resolved ``Scenario`` objects.
+
+    When ``allow_stubs=False`` (default), raises ``RuntimeError`` if any
+    ``scenario_id`` from the manifest is not present in the benchmark — i.e.
+    refuses to silently fabricate gold values. This is the SRE / PEP 661
+    fail-loud-by-default convention.
+
+    When ``allow_stubs=True``, falls back to
+    :func:`_synthetic_neutral_gold` for missing ids, preserving the prior
+    lenient behavior for debug renders and for the (rare) case where the
+    benchmark file is unavailable on disk.
+
+    Args:
+        results_dir: Path to the timestamped results directory containing a
+            ``manifest-*.json``.
+        allow_stubs: If ``True``, missing ``scenario_id``\\ s yield a
+            synthetic neutral gold; if ``False`` (default), raises.
+
+    Returns:
+        Scenario objects in the manifest's ``scenario_ids`` order.
+
+    Raises:
+        RuntimeError: Always raised (regardless of ``allow_stubs``) when:
+            - no ``manifest-*.json`` exists in ``results_dir``, or
+            - the manifest's ``scenario_ids`` list is empty (indicates a
+              failed or partial ``eval.runner`` run; lenient mode does not
+              apply because there is nothing to be lenient about).
+
+            Additionally raised when ``allow_stubs=False`` and either:
+            - the benchmark file is absent on disk, or
+            - a ``scenario_id`` is not in the benchmark. The message
+              contains the substring ``"not in benchmark"`` and the
+              offending id.
+    """
+    manifests = sorted(results_dir.glob("manifest-*.json"))
+    if not manifests:
+        raise RuntimeError(
+            f"No manifest-*.json found in results dir: {results_dir} — "
+            "was this directory produced by eval.runner?"
+        )
+
+    manifest_data = json.loads(manifests[-1].read_text())
+    scenario_ids: list[str] = manifest_data.get("scenario_ids", [])
+    if not scenario_ids:
+        raise RuntimeError(
+            f"Manifest {manifests[-1]} has an empty scenario_ids list — "
+            "was this produced by a failed or partial eval.runner run?"
+        )
+
+    candidate_bench = (
+        results_dir.parents[1] / "datasets" / "dietresearchbench_v1.json"
+    )
+
+    # If the benchmark file is missing, treat every manifest scenario_id as
+    # "not in benchmark". scen_map is empty, so the unified loop below either
+    # raises (fail-loud) on the first id, or stubs every id (lenient).
+    if candidate_bench.exists():
+        bench_data = json.loads(candidate_bench.read_text())
+        loaded_bench = BenchmarkSet.model_validate(bench_data)
+        scen_map: dict[str, Scenario] = {s.id: s for s in loaded_bench.scenarios}
+    else:
+        scen_map = {}
+
+    run_scenarios: list[Scenario] = []
+    for scen_id in scenario_ids:
+        scen = scen_map.get(scen_id)
+        if scen is not None:
+            run_scenarios.append(scen)
+        elif allow_stubs:
+            run_scenarios.append(_synthetic_neutral_gold(scen_id))
+        else:
+            raise RuntimeError(
+                f"scenario_id {scen_id!r} not in benchmark — "
+                "refusing to render with synthetic gold "
+                "(re-run with --allow-stubs to permit lenient mode)"
+            )
+
+    return run_scenarios
 
 
 # ---------------------------------------------------------------------------
@@ -805,6 +934,14 @@ if __name__ == "__main__":
              "source-id-prefix proxy; 'none' leaves provenance as '—'.",
     )
 
+    parser.add_argument(
+        "--allow-stubs",
+        action="store_true",
+        default=False,
+        help="Permit synthetic neutral gold for scenario_ids not in benchmark "
+             "(lenient mode; default fails loud on mismatch).",
+    )
+
     args = parser.parse_args()
 
     # --- Resolve the target results directory ---
@@ -858,46 +995,13 @@ if __name__ == "__main__":
                 )
         run_results[sys_name] = per_system
 
-    # --- Reconstruct scenario stubs from manifest ---
-    from eval.scenario import BenchmarkSet as _BS, GoldStandard as _GS, Scenario as _S  # type: ignore[import-not-found]
-
-    # Try to discover benchmark file relative to the results directory
-    # (expected layout: research-journal/shared/results/<run>/,
-    #  benchmark at research-journal/shared/datasets/dietresearchbench_v1.json)
-    _candidate_bench = results_dir.parents[1] / "datasets" / "dietresearchbench_v1.json"
-    run_scenarios: list[_S] = []
-
-    def _neutral_stub(scen_id: str) -> "_S":
-        return _S(
-            id=scen_id,
-            category="herbal_single_symptom",
-            research_question=scen_id,
-            gold=_GS(
-                expected_complexity="low",
-                expected_panel_verdict="abstain",
-                expected_evidence_tier="unknown",
-                expected_min_chains=0,
-                expected_defer=False,
-                expected_red_flags=[],
-                languages=["en"],
-            ),
-            rationale="reconstructed stub",
+    # --- Resolve scenario gold via the public loader (fail-loud by default) ---
+    try:
+        run_scenarios = load_run_scenarios(
+            results_dir, allow_stubs=args.allow_stubs
         )
-
-    if _candidate_bench.exists():
-        bench_data = json.loads(_candidate_bench.read_text())
-        loaded_bench = _BS.model_validate(bench_data)
-        scen_map = {s.id: s for s in loaded_bench.scenarios}
-        for scen_id in scenario_ids:
-            run_scenarios.append(scen_map.get(scen_id) or _neutral_stub(scen_id))
-    else:
-        print(
-            f"WARNING: benchmark file not found at {_candidate_bench}; "
-            "using neutral stubs for scenario gold standards.",
-            file=_sys.stderr,
-        )
-        for scen_id in scenario_ids:
-            run_scenarios.append(_neutral_stub(scen_id))
+    except RuntimeError as exc:
+        parser.error(str(exc))
 
     # Ensure list lengths are consistent
     min_len = min((len(v) for v in run_results.values()), default=0)
