@@ -70,6 +70,11 @@ def main() -> int:
         return 2
 
     conn = sqlite3.connect(str(args.db))
+    # SQLite disables FK enforcement by default; turn it on so the
+    # FOREIGN KEY clauses in herb_resolution_map's DDL actually validate
+    # at insert time. Per code review: without this the FK clauses are
+    # documentation-only.
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(DDL)
 
     print("Loading herbs ...")
@@ -101,19 +106,23 @@ def main() -> int:
     finally:
         conn.close()
 
-    # Re-open to compute coverage stats.
+    # Re-open to compute coverage stats. try/finally guarantees the
+    # connection closes even if a stats query throws (e.g., concurrent
+    # schema change between the load and the report).
     conn = sqlite3.connect(str(args.db))
-    n_duke = conn.execute("SELECT COUNT(*) FROM herbs").fetchone()[0]
-    n_resolved = conn.execute(
-        "SELECT COUNT(DISTINCT duke_id) FROM herb_resolution_map"
-    ).fetchone()[0]
-    by_tier = dict(
-        conn.execute(
-            "SELECT match_type, COUNT(DISTINCT duke_id) "
-            "FROM herb_resolution_map GROUP BY match_type"
-        ).fetchall()
-    )
-    conn.close()
+    try:
+        n_duke = conn.execute("SELECT COUNT(*) FROM herbs").fetchone()[0]
+        n_resolved = conn.execute(
+            "SELECT COUNT(DISTINCT duke_id) FROM herb_resolution_map"
+        ).fetchone()[0]
+        by_tier = dict(
+            conn.execute(
+                "SELECT match_type, COUNT(DISTINCT duke_id) "
+                "FROM herb_resolution_map GROUP BY match_type"
+            ).fetchall()
+        )
+    finally:
+        conn.close()
 
     coverage = n_resolved / n_duke if n_duke else 0.0
     print(f"\nInserted {inserted} match rows")
