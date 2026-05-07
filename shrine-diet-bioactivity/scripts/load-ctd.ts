@@ -67,7 +67,13 @@ async function streamGzipCsv(
   const input = fs.createReadStream(filePath);
   const rl = readline.createInterface({ input: input.pipe(gunzip) });
 
-  for await (const line of rl) {
+  for await (const rawLine of rl) {
+    // Defense-in-depth against CRLF: CTD currently ships LF-only files
+    // (verified May 2026), but readline does NOT strip a trailing \r if
+    // the upstream ever switches to Windows endings. Strip it here so
+    // the last field on every row never carries a stray \r into the DB.
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+
     // Skip comment lines
     if (line.startsWith('#')) {
       continue;

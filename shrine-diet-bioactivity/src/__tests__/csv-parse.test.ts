@@ -78,4 +78,13 @@ describe('parseCsvLine', () => {
   it('preserves a single field with no commas', () => {
     expect(parseCsvLine('Curcumin')).toEqual(['Curcumin']);
   });
+
+  it('does NOT strip trailing \\r — load-ctd handles CRLF before calling', () => {
+    // The defense-in-depth \r strip lives in load-ctd's streamGzipCsv
+    // (rawLine.endsWith('\r') ? slice(0,-1) : rawLine). The parser
+    // itself stays line-ending agnostic. This test pins that contract:
+    // if a caller passes a CR-terminated line through, it shows up in
+    // the last field — that's the caller's responsibility to handle.
+    expect(parseCsvLine('a,b,c\r')).toEqual(['a', 'b', 'c\r']);
+  });
 });
