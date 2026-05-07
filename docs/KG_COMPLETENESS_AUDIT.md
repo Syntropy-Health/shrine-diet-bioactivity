@@ -94,10 +94,15 @@ Sorted by use-case impact × ease of remediation.
 - **Likely root cause:** the CTD `load-ctd.ts` script either never ran or failed silently during ingest.
 - **Remediation:** see [§4.1](#41-spec-load-ctd-chemicaldiseases). Concrete TDD spec below.
 
-### Gap 2 — Symptom → Disease map is implicit (HIGH — hurts A query quality)
+### Gap 2 — ~~Symptom → Disease map is implicit~~ ✅ **RESOLVED 2026-05-07**
 
-- **Severity:** HIGH for use case A; today every symptom→evidence query reduces to string-LIKE on `target_diseases.disease_name`. SymMap has the MeSH/UMLS/ICD-10/HPO crosswalk; ground-truth our 47 symptoms against SymMap modern symptoms once and freeze the resolution as a `symptom_disease_map` table.
-- **Remediation:** see [§4.2](#42-spec-materialized-symptom-disease-map). Concrete TDD spec below — has a RED test scaffolded in this PR.
+- **Status:** Resolved by `phase2/symptom-disease-map`. 40/47 symptoms mapped (audit acceptance ≥40), 33 with MeSH IDs, 1 fallback-only. All four audit-gate tests in `test_kg_completeness_gates.py` are now GREEN.
+- **What landed:**
+  - `symptom_disease_map` table populated by 4-tier matcher (exact / Jaccard / substring / content-token / target_diseases fallback) with MeSH/UMLS/ICD-10 cross-refs from SymMap.
+  - LightRAG `MAPS_TO_DISEASE` relationship type so the bridge surfaces in Neo4j queries.
+  - 13 unit tests + 5 audit-gate tests covering each tier, the stopword filter, and the mesh-id tie-breaker.
+- **Original spec:** see [§4.2](#42-spec-materialized-symptom-disease-map).
+- **Remaining 7 unmapped symptoms** (Allergies, Bile insufficiency, Blood clotting, Fluid retention, Low immunity, Low milk supply, Neurodegeneration, Poor circulation) are clinical-concept terms with no literal hit in either source; flagged as Phase 2.5 hand-curation candidates.
 
 ### Gap 3 — HERB 2.0 herbs are siloed (MEDIUM — A coverage gap)
 
