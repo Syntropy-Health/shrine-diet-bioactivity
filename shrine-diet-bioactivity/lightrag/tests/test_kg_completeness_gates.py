@@ -155,17 +155,14 @@ def test_maps_to_disease_relationship_query_runs(db_conn: sqlite3.Connection) ->
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Audit §3 Gap 3: herb_resolution_map table missing. HERB 2.0 herbs "
-        "are siloed from Duke herb_compounds. Implementation spec at §4.3; "
-        "depends on a herb-name normalization library."
-    ),
-)
 def test_herb_resolution_covers_majority_of_duke_herbs(
     db_conn: sqlite3.Connection,
 ) -> None:
+    """Audit §4.3 — Duke ↔ HERB 2.0 resolution.
+
+    Multi-tier matcher (latin_exact / binomial / common_name / genus)
+    populates herb_resolution_map. Live-DB result was 1,818/2,376 (76.5%).
+    """
     n_duke = db_conn.execute("SELECT COUNT(*) FROM herbs").fetchone()[0]
     n_resolved = db_conn.execute(
         "SELECT COUNT(DISTINCT duke_id) FROM herb_resolution_map"

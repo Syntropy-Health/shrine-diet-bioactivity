@@ -191,6 +191,29 @@ function createSchema(db: Database.Database): void {
   `);
   console.error('  ✓ Phase 1 bridge tables: compound_identity + bioactivity_evidence');
 
+  // Phase 2 — Duke ↔ HERB 2.0 herb resolution (audit §4.3 / Gap 3)
+  // -------------------------------------------------------------------------
+  // Multi-tier name resolution between Dr. Duke's herbs (2,376 rows) and
+  // HERB 2.0 (7,263 rows). Built by scripts/build_herb_resolution_map.py
+  // using four match tiers (latin_exact, binomial, common_name, genus).
+  // PK is (duke_id, herb2_id, match_type) so a single Duke→HERB2 pair can
+  // be recorded under multiple tiers; consumers rank by match_score.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS herb_resolution_map (
+      duke_id      TEXT NOT NULL,
+      herb2_id     TEXT NOT NULL,
+      match_type   TEXT NOT NULL,
+      match_score  REAL NOT NULL,
+      PRIMARY KEY (duke_id, herb2_id, match_type),
+      FOREIGN KEY (duke_id)  REFERENCES herbs(id),
+      FOREIGN KEY (herb2_id) REFERENCES herb2_herbs(herb_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_hrm_duke   ON herb_resolution_map(duke_id);
+    CREATE INDEX IF NOT EXISTS idx_hrm_herb2  ON herb_resolution_map(herb2_id);
+    CREATE INDEX IF NOT EXISTS idx_hrm_score  ON herb_resolution_map(match_score);
+  `);
+  console.error('  ✓ herb_resolution_map table');
+
   // Phase 2 — symptom→disease materialized map (audit §4.2 / KG audit Gap 2)
   // -------------------------------------------------------------------------
   // Eliminates the implicit string-LIKE bridge between our 47 hand-curated

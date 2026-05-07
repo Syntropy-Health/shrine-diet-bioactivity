@@ -118,11 +118,20 @@ Sorted by use-case impact × ease of remediation.
 - **Original spec:** see [§4.2](#42-spec-materialized-symptom-disease-map).
 - **Remaining 7 unmapped symptoms** (Allergies, Bile insufficiency, Blood clotting, Fluid retention, Low immunity, Low milk supply, Neurodegeneration, Poor circulation) are clinical-concept terms with no literal hit in either source; flagged as Phase 2.5 hand-curation candidates.
 
-### Gap 3 — HERB 2.0 herbs are siloed (MEDIUM — A coverage gap)
+### Gap 3 — ~~HERB 2.0 herbs are siloed~~ ✅ **RESOLVED 2026-05-07**
 
-- **Severity:** MEDIUM for use case A; `herb2_herbs` (7,263 rows, with English / Chinese / Pinyin / Latin names) is unreachable from `herb_symptoms` and `herb_compounds`. The 1.8M `herb2_herb_disease` edges are rich but cannot join through to compounds or food sources.
-- **Remediation:** add a `herb_resolution_map(duke_id, herb2_id, name_match_type, name_match_score)` table built by joining `herbs.scientific_name` ↔ `herb2_herbs.latin` (exact match, fall back to Duke alternate_names). Once this lands, `herb2_herb_disease` becomes a transitively-queryable evidence layer for our 2,376 Duke herbs.
-- **Spec status:** identified, not yet drafted.
+- **Status:** Resolved by `phase2/herb2-resolution`. Live DB now has **1,818 / 2,376 (76.5%) Duke herbs** mapped to HERB 2.0 — exceeds audit acceptance ≥75%.
+- **What landed:**
+  - `herb_resolution_map(duke_id, herb2_id, match_type, match_score)` populated by `scripts/build_herb_resolution_map.py` using a 4-tier matcher.
+  - **Tier coverage** (distinct Duke herbs reaching each tier):
+    - `latin_exact` (score 1.0): 708
+    - `binomial` (score 0.85): 787 — strips subspecies/variety annotations
+    - `common_name` (score 0.7): 249 — Duke common_name ↔ HERB2 name_en
+    - `genus` (score 0.5): 1,814 — broad recall; same-genus species are useful for traversal even when species don't align
+  - 17,618 total match rows across all tiers (multi-tier records preserved so consumers can rank).
+  - 13 unit tests in `lightrag/tests/test_herb_matcher.py` + 1 audit-gate test all GREEN.
+- **What this unlocks:** the 1.8M `herb2_herb_disease` evidence rows now join transitively to Duke herbs via this map; HERB 2.0's English/Chinese/Pinyin name variants become reachable from `herb_compounds`.
+- **Phase 2.5 follow-up:** wire `herb_resolution_map` into LightRAG's `extract_relationships` so `Herb -ASSOCIATED_WITH_DISEASE-> Disease` edges sourced from HERB 2.0 surface alongside the existing CMAUP target_diseases-derived edges. Not in this PR — schema additions only.
 
 ### Gap 4 — Phase 1 compound-identity coverage is unknown (MEDIUM — D quality gate)
 

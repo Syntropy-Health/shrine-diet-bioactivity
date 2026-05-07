@@ -397,3 +397,10 @@ download-ctd:
 
 load-ctd:
 	npm run load:ctd
+
+# ─── Phase 2 herb resolution map (audit §4.3 / Gap 3) ──────
+.PHONY: build-herb-resolution
+
+build-herb-resolution:
+	python scripts/build_herb_resolution_map.py \
+		--db data_local/herbal_botanicals.db
