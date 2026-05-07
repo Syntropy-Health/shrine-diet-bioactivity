@@ -131,3 +131,35 @@ served via a FastMCP gateway exposing 10 typed tools at https://kg-mcp-test.up.r
 - [`research-journal/shared/scope-state-snapshot.md`](../research-journal/shared/scope-state-snapshot.md) — live Aura snapshot
 - [`research-journal/plans/2026-05-01-ncbi-enrichment-and-entity-resolution-design.md`](../research-journal/plans/2026-05-01-ncbi-enrichment-and-entity-resolution-design.md) — Phase 0/1/2 plan
 - [`docs/adr/0001-vector-storage-on-aura.md`](adr/0001-vector-storage-on-aura.md) — ADR on Aura-native vectors
+
+## Phase 1 drug-bioactive bridge sources (added 2026-05-06)
+
+These three sources back the new `compound_identity` and `bioactivity_evidence`
+SQLite tables and the `BioactivityEvidence` LightRAG entity. See
+[`docs/adr/0007-compound-identity-bridge.md`](adr/0007-compound-identity-bridge.md).
+
+### ChEMBL 36
+
+- **Source:** EBI ChEMBL — https://chembl.gitbook.io/chembl-interface-documentation/downloads
+- **Version:** Release 36 (July 2025)
+- **DOI:** 10.6019/CHEMBL.database.36
+- **License:** CC BY-SA 3.0
+- **Access:** [`chembl-downloader`](https://pypi.org/project/chembl-downloader/) (PyPI, MIT) auto-fetches and unpacks the SQLite dump.
+- **Used by:** `shrine-diet-bioactivity/scripts/build_bioactivity_evidence.py`
+- **Filters at ingest:** `assays.confidence_score >= 5`; `activities.pchembl_value >= 5.0`; `activities.standard_relation IN ('=', '<', '<=')`; `activities.standard_value IS NOT NULL`.
+
+### UniChem source-mapping (EBI)
+
+- **Source:** EBI UniChem — https://www.ebi.ac.uk/unichem/
+- **Sources mapped:** `src_id` ∈ {1 (ChEMBL), 2 (DrugBank), 6 (KEGG), 7 (ChEBI), 22 (PubChem)}.
+- **License:** Free, follows ChEMBL's CC BY-SA 3.0.
+- **Used by:** `shrine-diet-bioactivity/scripts/build_compound_identity.py`
+- **License note:** see [`shrine-diet-bioactivity/data/UNICHEM_LICENSE.md`](../shrine-diet-bioactivity/data/UNICHEM_LICENSE.md).
+
+### PubChem PUG-REST
+
+- **Source:** NCBI PubChem — https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest
+- **License:** Public Domain (US Gov).
+- **Endpoint used:** `GET /compound/name/{name}/property/InChIKey,CanonicalSMILES/CSV`
+- **Rate-limit policy:** ~4 req/s (under the 5/s soft cap) with on-disk JSON cache; 404s cached as negative results.
+- **Used by:** `shrine-diet-bioactivity/scripts/build_compound_identity.py` (primary name → InChIKey resolution).
