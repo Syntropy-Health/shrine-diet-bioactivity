@@ -81,7 +81,8 @@ data in `tables/per-category.md`) shows `diet_os` strongest on
 (0.138), and weakest on `herbal_single_symptom` (κ = -0.081). Baselines
 are flat across categories (max non-`diet_os` cell: 0.062). The
 `herbal_single_symptom` regression traces to the same intervention-name
-extraction issue documented in §6.4.
+extraction issue documented in §6.4 (the `_intervention_from_scenario_id`
+heuristic degrades on bare herbal mononyms).
 
 ### 6.4 Failure-mode taxonomy
 
