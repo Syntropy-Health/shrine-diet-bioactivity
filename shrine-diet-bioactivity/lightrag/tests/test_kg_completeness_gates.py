@@ -269,3 +269,59 @@ def test_herb_resolution_covers_majority_of_duke_herbs(
     assert n_resolved >= int(0.75 * n_duke), (
         f"{n_resolved}/{n_duke} Duke herbs resolved to HERB 2.0 (need ≥75%)."
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — KEGG pathway overlay (spec 2026-05-08-kegg-pathway-overlay-design)
+# ---------------------------------------------------------------------------
+
+
+def test_kegg_pathways_table_populated(db_conn: sqlite3.Connection) -> None:
+    """Live-DB ingest produces ~370 hsa pathways (KEGG baseline)."""
+    assert _table_exists(db_conn, "kegg_pathways")
+    n = db_conn.execute("SELECT COUNT(*) FROM kegg_pathways").fetchone()[0]
+    assert n >= 300, (
+        f"kegg_pathways has {n} rows; expected ≥300. Run `make build-kegg-pathways`."
+    )
+
+
+def test_kegg_pathway_gene_resolution_coverage(
+    db_conn: sqlite3.Connection,
+) -> None:
+    """≥80% of KEGG genes should resolve to HUGO symbols (live-DB hits 100%)."""
+    total = db_conn.execute("SELECT COUNT(*) FROM kegg_pathway_genes").fetchone()[0]
+    with_symbol = db_conn.execute(
+        "SELECT COUNT(*) FROM kegg_pathway_genes WHERE gene_symbol IS NOT NULL"
+    ).fetchone()[0]
+    assert total > 0
+    coverage = with_symbol / total
+    assert coverage >= 0.80, (
+        f"only {coverage:.1%} of KEGG genes have HUGO symbols; expected ≥80%"
+    )
+
+
+def test_pathway_includes_target_join_works_at_scale(
+    db_conn: sqlite3.Connection,
+) -> None:
+    """Closes Phase 4 — pathway↔target join via gene_symbol resolves
+    at meaningful scale (≥400 joins on live DB today)."""
+    n = db_conn.execute(
+        "SELECT COUNT(*) FROM kegg_pathway_genes kpg "
+        "JOIN targets t ON t.gene_symbol = kpg.gene_symbol"
+    ).fetchone()[0]
+    assert n >= 400, (
+        f"only {n} pathway-target joins; expected ≥400. "
+        "Indicates KEGG ingest or targets table is incomplete."
+    )
+
+
+def test_kegg_compound_pathway_covers_meaningful_set(
+    db_conn: sqlite3.Connection,
+) -> None:
+    """Spec §6: ≥5,000 compound-pathway links. Live DB hits 10,556."""
+    n = db_conn.execute(
+        "SELECT COUNT(*) FROM kegg_compound_pathways"
+    ).fetchone()[0]
+    assert n >= 5_000, (
+        f"only {n} compound-pathway links; expected ≥5,000."
+    )

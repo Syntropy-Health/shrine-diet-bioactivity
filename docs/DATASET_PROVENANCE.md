@@ -150,3 +150,21 @@ Re-ingested from CTD with three signals the legacy loader dropped:
 - explicit `evidence_type` (`direct_therapeutic` / `direct_marker` / `inferred_via_gene`) enforced by CHECK constraint
 
 `chemical_diseases` is **DEPRECATED** as of 2026-05-08; will be dropped after one stable production cycle (≥1 week).
+
+---
+
+## Phase 4 schema additions (2026-05-08)
+
+### KEGG Pathway Database
+
+⚠️  **License: KEGG is academic-use-only.** Commercial deployments require a paid license from Pathway Solutions, Inc. (https://www.kegg.jp/kegg/legal.html). This project's stated scope is academic research collaboration with the Diet Insight Engine; if scope ever shifts to commercial, drop the `build-kegg-pathways` Make target and substitute Reactome/WikiPathways data. Per ADR 0009, this is a clean opt-out — the rest of the pipeline doesn't depend on KEGG.
+
+**Endpoints used (REST, unauthenticated for academic use):**
+- `https://rest.kegg.jp/list/pathway/hsa` — human pathway list (~370)
+- `https://rest.kegg.jp/link/pathway/cpd` — compound↔pathway (organism-agnostic, translated `map → hsa`)
+- `https://rest.kegg.jp/link/hsa/pathway` — pathway↔gene (KEGG-prefixed Entrez)
+- `https://rest.kegg.jp/list/<id1>+<id2>+...` — gene alias resolution (HUGO symbols)
+
+**Tables:** `kegg_pathways`, `kegg_compound_pathways`, `kegg_pathway_genes`. See ADR 0009 for schema details.
+
+**Caching:** Per-endpoint TSV cache under `data_local/kegg_cache/`. First-time ingest ~30 min (gene-resolution batches); re-runs are sub-second.

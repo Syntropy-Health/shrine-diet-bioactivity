@@ -395,3 +395,12 @@ build-herb-resolution:
 build-disease-canonical:
 	python scripts/build_disease_canonical.py \
 		--db data_local/herbal_botanicals.db
+
+# ─── Phase 4 KEGG pathway overlay ─────────────────────────
+# License: KEGG is academic-use-only. Drop this target for commercial use.
+.PHONY: build-kegg-pathways
+
+build-kegg-pathways:
+	python scripts/build_kegg_pathways.py \
+		--db data_local/herbal_botanicals.db \
+		--cache-dir data_local/kegg_cache
