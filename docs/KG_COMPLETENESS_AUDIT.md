@@ -279,3 +279,33 @@ After PR #23 closed all 7 original audit gates, Phase 3 added a layer of archite
 - Harvest English translations for the 14,833 HERB 2.0 disease names that fell to local-slug canonical IDs
 - Wire `chemical_phenotypes` (currently empty) into a similar pheno_canonical structure
 - The 8 review-comment items from issue #24 still pending (review polish on PRs #21/#22/#23)
+
+---
+
+## Phase 4 closeout (2026-05-08) — KEGG Pathway Overlay
+
+After Phase 3 closed disease canonicalization, the only remaining audit doneness criterion (§5.4: "Pathway-level rollup available") needed a pathway entity layer. Phase 4 ships KEGG pathway overlay.
+
+**Live-DB outcome:**
+- 370 KEGG human (`hsa`) pathways
+- 10,556 compound→pathway links (with 9,008 reference-only pathways dropped — no organism-specific counterpart)
+- 39,340 pathway→gene links
+- 100% HUGO-symbol resolution (9,378 / 9,378)
+- **455 pathway↔target joins** via `gene_symbol = targets.gene_symbol`
+
+**4 new audit-gate tests** (all GREEN against the live DB):
+- `test_kegg_pathways_table_populated` (≥300)
+- `test_kegg_pathway_gene_resolution_coverage` (≥80%)
+- `test_pathway_includes_target_join_works_at_scale` (≥400)
+- `test_kegg_compound_pathway_covers_meaningful_set` (≥5,000)
+
+**LightRAG additions:**
+- `Pathway` entity (description renders pathway name + KEGG ID + organism)
+- `PATHWAY_INCLUDES_TARGET` relationship (works today, 455 edges)
+- `COMPOUND_IN_PATHWAY` relationship (lazy — activates when Phase 1 `compound_identity` is populated)
+
+**Phase 4.5 candidates:**
+- Reactome integration (cell-signaling complement to KEGG's metabolic focus)
+- KEGG REACTION ingest (chemical-reaction-level for pharmacokinetics)
+- Pathway-level diet scoring function (aggregate compound exposures over pathways)
+- Run Phase 1 ingest end-to-end (currently `compound_identity` is empty schema; ingest activates `COMPOUND_IN_PATHWAY` + everything else that depends on InChIKey resolution)
