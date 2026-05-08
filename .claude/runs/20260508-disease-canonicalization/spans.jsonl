@@ -1,0 +1,5 @@
+{"offset":0,"event":"harden-plan.start","ts":"2026-05-08T19:00:00Z","run_id":"20260508-disease-canonicalization"}
+{"offset":1,"event":"harden-plan.probe.deps","ts":"2026-05-08T19:00:01Z","verified":11}
+{"offset":2,"event":"harden-plan.patch","stub_id":"plan/task-3-herb2-column-name","ts":"2026-05-08T19:00:02Z","note":"herb2_herb_disease.disease → disease_label"}
+{"offset":3,"event":"harden-plan.patch","stub_id":"plan/task-4-empty-string-direct-evidence","ts":"2026-05-08T19:00:03Z","note":"CTD direct_evidence='' detected; classifier updated"}
+{"offset":4,"event":"harden-plan.complete","ts":"2026-05-08T19:00:04Z","verified":11,"patched":2,"stubbed":0}
