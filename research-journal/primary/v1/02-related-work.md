@@ -14,8 +14,9 @@ strategy-execution) for personalized-nutrition adherence coaching,
 which we re-implement as our third behavioral baseline. NutriOrion
 [@nutriorion2026] forward-extends the JMIR Yang design with a
 four-specialist panel, validating that the behavioral-nutrition
-multi-agent design space remains active. We extend all three with
-Layer-B/C role-priored KG retrieval. Wu et al. [@wu2025] report
+multi-agent design space remains active. We extend MedAgents, MDAgents,
+and Yang with Layer-B/C role-priored KG retrieval; CAMP and NutriOrion
+are positioning peers, not re-implemented baselines. Wu et al. [@wu2025] report
 single-GP performance comparable to a multi-disciplinary debate panel
 on medication-conflict resolution; §7.2 places that finding on an axis
 orthogonal to ours.
