@@ -561,9 +561,10 @@ Full reproducibility detail relocated from §9.2 of the body:
 
 - **Commit pin.** Headline matrix, §6.5 ablation paired tests, and the
   reproducibility instructions in this section are all consistent at the
-  tip of branch `feature/mcp-herbal-botanicals` (R-plan tasks R1-R9
-  complete; commits `05743b5..0a3a481`). Camera-ready submission will
-  pin a specific SHA via `git tag`.
+  tip of branch `paper-1/camera-ready` (tag `paper-1-v1-arxiv-submission`).
+  Eval-pipeline integrity fix (issue #16: fail-loud `_neutral_stub`
+  refactor with `--allow-stubs` opt-in) lands on `main` at merge commit
+  `9657c1f` (`fix/lightrag-test-debt` → `main`).
 - **Eval matrix.** Combined 7-system results dir at
   `research-journal/shared/results/20260504T230617Z-final-7sys/`
   (symlinks 6 systems from `20260504T042540Z` plus the
@@ -574,6 +575,10 @@ Full reproducibility detail relocated from §9.2 of the body:
   `paired_tests.md`, `category_breakdown_verdict_kappa.md`, and
   `reliability_diagram.png`. `python3 -m scripts.render_ablation_test
   --results-dir <dir>` regenerates `ablation_test.md`.
+- **Stub safety.** The `eval.report` renderer fails-fast when manifest
+  `scenario_ids` and benchmark `scenario_ids` diverge; permissive
+  rendering for partial debug runs requires explicit `--allow-stubs`.
+  Paper-grade renders use the default fail-loud mode.
 - **Stats.** Paired bootstrap with B = 10 000, Davison-Hinkley
   `(k+1)/(B+1)` p-value, fixed seed = 42, Bonferroni over 5 baselines ×
   4 metrics_tested = 20 cells (provenance + bilingual excluded as
