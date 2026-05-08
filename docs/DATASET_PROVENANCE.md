@@ -131,3 +131,22 @@ served via a FastMCP gateway exposing 10 typed tools at https://kg-mcp-test.up.r
 - [`research-journal/shared/scope-state-snapshot.md`](../research-journal/shared/scope-state-snapshot.md) — live Aura snapshot
 - [`research-journal/plans/2026-05-01-ncbi-enrichment-and-entity-resolution-design.md`](../research-journal/plans/2026-05-01-ncbi-enrichment-and-entity-resolution-design.md) — Phase 0/1/2 plan
 - [`docs/adr/0001-vector-storage-on-aura.md`](adr/0001-vector-storage-on-aura.md) — ADR on Aura-native vectors
+
+---
+
+## Phase 3 schema additions (2026-05-08)
+
+### `diseases_canonical` — unified disease registry
+
+Sources: SymMap (MeSH/UMLS-anchored, 1,148 rows) + CTD (MeSH-anchored via stripping the `MESH:` prefix, 6,678 rows) + CMAUP `target_diseases` (bare names, alias-resolved when possible, 2,398 new) + HERB 2.0 `herb2_herb_disease.disease_label` (mostly Chinese-language bare names, 14,833 new).
+
+License inheritance: same as upstream sources (CC BY-SA 3.0 from CTD; CC BY 4.0 from SymMap; CMAUP and HERB 2.0 academic-use).
+
+### `compound_disease_evidence` — replaces `chemical_diseases`
+
+Re-ingested from CTD with three signals the legacy loader dropped:
+- `pubmed_ids` (CTD column 9, pipe-separated literature anchors)
+- `inference_gene_symbol` (CTD column 6, mediating gene for inferred associations)
+- explicit `evidence_type` (`direct_therapeutic` / `direct_marker` / `inferred_via_gene`) enforced by CHECK constraint
+
+`chemical_diseases` is **DEPRECATED** as of 2026-05-08; will be dropped after one stable production cycle (≥1 week).

@@ -129,3 +129,14 @@ PRD/plan/report/review documents from earlier phases live in `.claude/PRPs/{prds
 - ADRs 0002–0006 do not exist; the numbering jumps. Either re-number or add stub ADRs explaining what wasn't captured.
 - `.claude/PRPs/plans/` has both active and completed plans, but the in-tree completed/ subdir is a partial archive — some "completed" plans live in the parent.
 - No top-level `CHANGELOG.md` exists; release-level changes are tracked only via git tags + paper drafts.
+
+---
+
+## Phase 3 — disease canonicalization (added 2026-05-08)
+
+| File | One-line description |
+|---|---|
+| [`adr/0008-disease-canonicalization.md`](adr/0008-disease-canonicalization.md) | Architectural decision record — promotes Disease to a first-class unified entity |
+| [`superpowers/specs/2026-05-08-disease-canonicalization-design.md`](superpowers/specs/2026-05-08-disease-canonicalization-design.md) | Phase 3 design spec |
+
+Run via `make build-disease-canonical && make load-ctd`. See ADR 0008 for live-DB outcomes (24K canonical diseases, 2.9M evidence rows with 94% PubMed citation preservation).

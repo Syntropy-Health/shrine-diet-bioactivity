@@ -113,32 +113,110 @@ export async function loadCtd(db: Database.Database): Promise<{ diseases: number
   console.error(`  Compound lookup built: ${compoundLookup.size} entries (name + CAS)`);
 
   // --- Load chemical-disease associations ---
+  // Phase 3 dual-write: legacy chemical_diseases (single-string disease_id)
+  // PLUS the new compound_disease_evidence table (canonical disease_id +
+  // evidence_type + PubMed citations + gene-symbol inference). Both written
+  // in the same batch transaction so a partial run can't desynchronize them.
+  // The new table is preferred by all post-Phase-3 queries; the legacy table
+  // is kept for one stable cycle then dropped (spec §4.5).
   const cdFile = path.join(DATA_DIR, 'CTD_chemicals_diseases.csv.gz');
   if (fs.existsSync(cdFile)) {
-    console.error('  Loading CTD chemical-disease associations...');
+    console.error('  Loading CTD chemical-disease associations (dual-write)...');
     const insertCD = db.prepare(`
       INSERT OR IGNORE INTO chemical_diseases (compound_id, chemical_name, disease_name, disease_id, direct_evidence, inference_score)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
 
+    // New: prepared statements for canonical-disease lookup + CDE insert.
+    const lookupCanonByMesh = db.prepare(
+      'SELECT id FROM diseases_canonical WHERE mesh_id = ?',
+    );
+    const lookupCanonByAlias = db.prepare(
+      'SELECT disease_id FROM disease_name_aliases WHERE lower(alias) = lower(?) LIMIT 1',
+    );
+    const insertCDE = db.prepare(`
+      INSERT INTO compound_disease_evidence
+        (compound_id, disease_id, evidence_type, inference_gene_symbol,
+         inference_score, pubmed_ids, ingested_at)
+      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    `);
+
+    // Idempotent dual-write: clear compound_disease_evidence so a re-run
+    // doesn't duplicate. (chemical_diseases dedupes via PK so it's
+    // append-safe; CDE has SERIAL id so we need explicit cleanup.)
+    db.exec('DELETE FROM compound_disease_evidence');
+
     let batch: Array<() => void> = [];
     const BATCH_SIZE = 10000;
+    let cdeInserted = 0;
+    let cdeSkippedNoCanonical = 0;
+    let cdeSkippedTypology = 0;
 
     const stats = await streamGzipCsv(cdFile, compoundLookup, (compoundId, fields) => {
       const chemName = fields[0] || '';
       const diseaseName = fields[3] || '';
       const diseaseId = fields[4] || '';
       const directEvidence = fields[5] || '';
+      const inferenceGene = fields[6] || '';
       const inferenceScore = fields[7] ? parseFloat(fields[7]) || null : null;
+      // PubMed IDs at column 9; pipe-separated, preserve as-is.
+      const pubmedIds = fields[9] || null;
 
       if (!diseaseName) return;
 
-      // Only keep direct evidence entries to avoid millions of inferred rows
-      if (!directEvidence && !inferenceScore) return;
+      // Skip rows with no evidence at all. (Note: CTD writes empty string,
+      // not NULL, for the inferred case — caught at harden-plan probe.)
+      const hasDirectTherapeutic = directEvidence === 'therapeutic';
+      const hasDirectMarker = directEvidence === 'marker/mechanism';
+      const hasInferredViaGene = !hasDirectTherapeutic && !hasDirectMarker
+        && inferenceScore !== null && inferenceGene.length > 0;
+
+      if (!hasDirectTherapeutic && !hasDirectMarker && !hasInferredViaGene) {
+        cdeSkippedTypology++;
+        return;
+      }
+
+      // Resolve canonical disease id. Prefer MeSH-anchored row.
+      let canonicalId: string | null = null;
+      if (diseaseId.startsWith('MESH:')) {
+        const mesh = diseaseId.substring(5);
+        const row = lookupCanonByMesh.get(mesh) as { id: string } | undefined;
+        if (row) canonicalId = row.id;
+      }
+      if (!canonicalId) {
+        // Fall back to alias lookup (covers UMLS-anchored rows + bare-name).
+        const row = lookupCanonByAlias.get(diseaseName) as
+          | { disease_id: string }
+          | undefined;
+        if (row) canonicalId = row.disease_id;
+      }
+
+      // Compute evidence_type for the new CDE table.
+      const evidenceType = hasDirectTherapeutic
+        ? 'direct_therapeutic'
+        : hasDirectMarker
+          ? 'direct_marker'
+          : 'inferred_via_gene';
+      const cdeGene = hasInferredViaGene ? inferenceGene : null;
+      const cdeScore = hasInferredViaGene ? inferenceScore : null;
 
       batch.push(() => {
-        insertCD.run(compoundId, chemName, diseaseName, diseaseId, directEvidence, inferenceScore);
+        // Always write legacy chemical_diseases so existing queries survive.
+        insertCD.run(
+          compoundId, chemName, diseaseName, diseaseId,
+          directEvidence, inferenceScore,
+        );
         result.diseases++;
+        // Dual-write to compound_disease_evidence (skip if canonical missing).
+        if (canonicalId !== null) {
+          insertCDE.run(
+            compoundId, canonicalId, evidenceType,
+            cdeGene, cdeScore, pubmedIds,
+          );
+          cdeInserted++;
+        } else {
+          cdeSkippedNoCanonical++;
+        }
       });
 
       if (batch.length >= BATCH_SIZE) {
@@ -153,7 +231,15 @@ export async function loadCtd(db: Database.Database): Promise<{ diseases: number
 
     result.matched += stats.matched;
     result.skipped += stats.skipped;
-    console.error(`  CTD diseases: ${result.diseases} loaded (${stats.matched} matched, ${stats.skipped} skipped)`);
+    console.error(
+      `  CTD legacy chemical_diseases: ${result.diseases} loaded ` +
+      `(${stats.matched} matched, ${stats.skipped} skipped)`,
+    );
+    console.error(
+      `  CTD compound_disease_evidence: ${cdeInserted} inserted, ` +
+      `${cdeSkippedNoCanonical} skipped (no canonical), ` +
+      `${cdeSkippedTypology} skipped (no evidence type)`,
+    );
   } else {
     console.error(`  CTD chemical-disease file not found: ${cdFile}`);
     console.error(

@@ -162,6 +162,67 @@ function createSchema(db: Database.Database): void {
   console.error('  ✓ herb_resolution_map table');
 
   // -------------------------------------------------------------------------
+  // Phase 3 — disease canonicalization (spec 2026-05-08-disease-canonicalization-design)
+  // -------------------------------------------------------------------------
+  // Promotes Disease to a first-class unified entity. Three tables:
+  //   diseases_canonical    — registry, one row per real-world concept
+  //   disease_name_aliases  — free-text alias registry, points at canonical
+  //   compound_disease_evidence — replaces chemical_diseases (parallel write
+  //                                during the migration cycle)
+  // Built by scripts/build_disease_canonical.py and the modified
+  // scripts/load-ctd.ts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS diseases_canonical (
+      id              TEXT PRIMARY KEY,
+      preferred_name  TEXT NOT NULL,
+      mesh_id         TEXT,
+      umls_id         TEXT,
+      icd10cm_id      TEXT,
+      hpo_id          TEXT,
+      source_origin   TEXT NOT NULL,
+      created_at      TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_dc_unique_mesh ON diseases_canonical(mesh_id) WHERE mesh_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_dc_unique_umls ON diseases_canonical(umls_id) WHERE umls_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_dc_name ON diseases_canonical(preferred_name);
+
+    CREATE TABLE IF NOT EXISTS disease_name_aliases (
+      disease_id  TEXT NOT NULL,
+      alias       TEXT NOT NULL,
+      source      TEXT NOT NULL,
+      PRIMARY KEY (disease_id, alias, source),
+      FOREIGN KEY (disease_id) REFERENCES diseases_canonical(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_dna_alias_lower ON disease_name_aliases(lower(alias));
+
+    CREATE TABLE IF NOT EXISTS compound_disease_evidence (
+      id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+      compound_id            TEXT NOT NULL,
+      disease_id             TEXT NOT NULL,
+      evidence_type          TEXT NOT NULL,
+      inference_gene_symbol  TEXT,
+      inference_score        REAL,
+      pubmed_ids             TEXT,
+      source                 TEXT NOT NULL DEFAULT 'ctd',
+      ingested_at            TEXT NOT NULL,
+      FOREIGN KEY (compound_id) REFERENCES compounds(id),
+      FOREIGN KEY (disease_id)  REFERENCES diseases_canonical(id),
+      CHECK (
+        (evidence_type IN ('direct_therapeutic', 'direct_marker')
+           AND inference_gene_symbol IS NULL AND inference_score IS NULL)
+        OR
+        (evidence_type = 'inferred_via_gene' AND inference_score IS NOT NULL)
+      )
+    );
+    CREATE INDEX IF NOT EXISTS idx_cde_compound ON compound_disease_evidence(compound_id);
+    CREATE INDEX IF NOT EXISTS idx_cde_disease  ON compound_disease_evidence(disease_id);
+    CREATE INDEX IF NOT EXISTS idx_cde_gene     ON compound_disease_evidence(inference_gene_symbol)
+      WHERE inference_gene_symbol IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_cde_type     ON compound_disease_evidence(evidence_type);
+  `);
+  console.error('  ✓ Phase 3: diseases_canonical + disease_name_aliases + compound_disease_evidence');
+
+  // -------------------------------------------------------------------------
   // Phase 2 — symptom→disease materialized map (audit §4.2 / KG audit Gap 2)
   // -------------------------------------------------------------------------
   // Eliminates the implicit string-LIKE bridge between our 47 hand-curated

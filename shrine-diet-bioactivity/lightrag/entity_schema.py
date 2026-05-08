@@ -60,11 +60,16 @@ ENTITY_TYPES = {
         "query": "SELECT id, name, uniprot_id, gene_symbol, druggability_status FROM targets ORDER BY id",
     },
     "Disease": {
-        "source_table": None,  # aggregated from multiple tables
-        "id_field": "disease_name",
-        "name_field": "disease_name",
-        "query": None,
-        "query_builder": "build_disease_query",
+        # Phase 3 — sources from the canonical disease registry. Replaces the
+        # multi-table aggregation that used build_disease_query (which is kept
+        # for backward-compat in QUERY_BUILDERS but no longer referenced).
+        "source_table": "diseases_canonical",
+        "id_field": "id",
+        "name_field": "preferred_name",
+        "query": (
+            "SELECT id, preferred_name, mesh_id, umls_id, icd10cm_id, hpo_id, "
+            "source_origin FROM diseases_canonical ORDER BY id"
+        ),
     },
     "Symptom": {
         "source_table": "symptoms",
@@ -173,14 +178,64 @@ RELATIONSHIP_TYPES = {
         "source_table": "symptom_disease_map",
         "src_type": "Symptom",
         "tgt_type": "Disease",
+        # Phase 3 — JOIN through diseases_canonical when a MeSH match exists
+        # so the edge points at the canonical Disease entity, not a free-text
+        # alias. Falls back to symptom_disease_map.disease_name for rows that
+        # don't yet have a canonical anchor.
         "query": (
-            "SELECT s.name AS src_name, sdm.disease_name AS tgt_name, "
-            "sdm.source AS source, sdm.mesh_id AS mesh_id, "
-            "sdm.umls_id AS umls_id, sdm.icd10cm_id AS icd10cm_id, "
-            "sdm.match_score AS match_score "
+            "SELECT s.name AS src_name, "
+            "       COALESCE(d.preferred_name, sdm.disease_name) AS tgt_name, "
+            "       sdm.source AS source, sdm.mesh_id AS mesh_id, "
+            "       sdm.umls_id AS umls_id, sdm.icd10cm_id AS icd10cm_id, "
+            "       sdm.match_score AS match_score "
             "FROM symptom_disease_map sdm "
             "JOIN symptoms s ON s.id = sdm.symptom_id "
+            "LEFT JOIN diseases_canonical d ON d.mesh_id = sdm.mesh_id "
             "ORDER BY s.id, sdm.match_score DESC"
+        ),
+    },
+    # -- Phase 3 evidence-typed compound→disease relationships --
+    "COMPOUND_TREATS_DISEASE": {
+        "source_table": "compound_disease_evidence",
+        "src_type": "Compound",
+        "tgt_type": "Disease",
+        "query": (
+            "SELECT c.name AS src_name, d.preferred_name AS tgt_name, "
+            "       cde.pubmed_ids AS pubmed_ids, cde.source AS source "
+            "FROM compound_disease_evidence cde "
+            "JOIN compounds c ON c.id = cde.compound_id "
+            "JOIN diseases_canonical d ON d.id = cde.disease_id "
+            "WHERE cde.evidence_type = 'direct_therapeutic' "
+            "ORDER BY cde.id"
+        ),
+    },
+    "COMPOUND_MARKER_FOR_DISEASE": {
+        "source_table": "compound_disease_evidence",
+        "src_type": "Compound",
+        "tgt_type": "Disease",
+        "query": (
+            "SELECT c.name AS src_name, d.preferred_name AS tgt_name, "
+            "       cde.pubmed_ids AS pubmed_ids "
+            "FROM compound_disease_evidence cde "
+            "JOIN compounds c ON c.id = cde.compound_id "
+            "JOIN diseases_canonical d ON d.id = cde.disease_id "
+            "WHERE cde.evidence_type = 'direct_marker' "
+            "ORDER BY cde.id"
+        ),
+    },
+    "COMPOUND_INFERRED_DISEASE": {
+        "source_table": "compound_disease_evidence",
+        "src_type": "Compound",
+        "tgt_type": "Disease",
+        "query": (
+            "SELECT c.name AS src_name, d.preferred_name AS tgt_name, "
+            "       cde.inference_gene_symbol AS gene, "
+            "       cde.inference_score AS score, cde.pubmed_ids AS pubmed_ids "
+            "FROM compound_disease_evidence cde "
+            "JOIN compounds c ON c.id = cde.compound_id "
+            "JOIN diseases_canonical d ON d.id = cde.disease_id "
+            "WHERE cde.evidence_type = 'inferred_via_gene' "
+            "ORDER BY cde.id"
         ),
     },
     # -- Tenant relationship types (clinical practice layer) --
@@ -335,8 +390,26 @@ def describe_target(row: dict[str, Any]) -> str:
 
 
 def describe_disease(row: dict[str, Any]) -> str:
-    """Generate a description for a Disease entity."""
-    return row.get("disease_name", "Unknown disease")
+    """Generate a rich description for a Disease entity (Phase 3 canonical).
+
+    Renders preferred name + ontology cross-refs (MeSH/UMLS/ICD-10/HPO).
+    Falls back to legacy `disease_name` when called with a pre-Phase-3 row
+    shape (defensive — old call sites still work during the migration).
+    """
+    name = row.get("preferred_name") or row.get("disease_name") or "Unknown disease"
+    parts = [name]
+    refs: list[str] = []
+    if row.get("mesh_id"):
+        refs.append(f"MeSH {row['mesh_id']}")
+    if row.get("umls_id"):
+        refs.append(f"UMLS {row['umls_id']}")
+    if row.get("icd10cm_id"):
+        refs.append(f"ICD-10-CM {row['icd10cm_id']}")
+    if row.get("hpo_id"):
+        refs.append(f"HPO {row['hpo_id']}")
+    if refs:
+        parts.append("(" + ", ".join(refs) + ")")
+    return ". ".join(parts)
 
 
 def describe_symptom(row: dict[str, Any]) -> str:
@@ -566,6 +639,38 @@ def describe_relationship(rel_type: str, row: dict[str, Any]) -> tuple[str, str]
             details.append(f"score {score}")
         desc += " (" + ", ".join(details) + ")"
         return desc, "symptom disease ontology mesh umls icd"
+
+    # -- Phase 3 evidence-typed compound→disease relationships --
+
+    if rel_type == "COMPOUND_TREATS_DISEASE":
+        pubmed = row.get("pubmed_ids") or ""
+        n_cites = (
+            len([x for x in pubmed.split("|") if x]) if pubmed else 0
+        )
+        desc = f"{src} therapeutically treats {tgt}"
+        if n_cites:
+            desc += f" ({n_cites} PubMed citation{'s' if n_cites != 1 else ''})"
+        return desc, "compound disease therapeutic treatment evidence pubmed"
+
+    if rel_type == "COMPOUND_MARKER_FOR_DISEASE":
+        pubmed = row.get("pubmed_ids") or ""
+        n_cites = (
+            len([x for x in pubmed.split("|") if x]) if pubmed else 0
+        )
+        desc = f"{src} is a marker / mechanism for {tgt}"
+        if n_cites:
+            desc += f" ({n_cites} PubMed citation{'s' if n_cites != 1 else ''})"
+        return desc, "compound disease marker mechanism diagnostic pubmed"
+
+    if rel_type == "COMPOUND_INFERRED_DISEASE":
+        gene = row.get("gene") or ""
+        score = row.get("score")
+        desc = f"{src} inferred to associate with {tgt}"
+        if gene:
+            desc += f" via {gene}"
+        if score is not None:
+            desc += f" (score {score})"
+        return desc, "compound disease inference gene mediated evidence"
 
     # -- Tenant relationship types (clinical practice layer) --
 

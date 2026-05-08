@@ -44,21 +44,119 @@ def db_conn() -> sqlite3.Connection:
 
 
 # ---------------------------------------------------------------------------
-# Gap 1 — CTD chemical_diseases empty (audit §3 Gap 1)
+# Gap 1 — CTD chemical_diseases empty (audit §3 Gap 1; Phase 3 supersedes)
 # ---------------------------------------------------------------------------
 
 
 def test_chemical_diseases_has_meaningful_coverage(db_conn: sqlite3.Connection) -> None:
-    """CTD chem→disease map populated by load-ctd (audit §4.1).
+    """Legacy gate kept for the migration cycle (spec §4.5).
 
-    Audit floor is 10K rows. Live DB ingest produces ~900K unique
-    (compound_id, disease_name) pairs after the PRIMARY KEY dedup.
+    chemical_diseases stays populated alongside compound_disease_evidence
+    until the legacy table is dropped (planned: ≥1 stable production cycle
+    after Phase 3 lands). After drop, this test gets removed; the new
+    gate test_compound_disease_evidence_has_meaningful_coverage takes over.
     """
     assert _table_exists(db_conn, "chemical_diseases")
     n = db_conn.execute("SELECT COUNT(*) FROM chemical_diseases").fetchone()[0]
     assert n >= 10_000, (
         f"chemical_diseases has {n} rows. Run `make load-ctd` to populate."
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — disease canonicalization gates (spec §8 DoD)
+# ---------------------------------------------------------------------------
+
+
+def test_diseases_canonical_table_populated(db_conn: sqlite3.Connection) -> None:
+    """Canonical disease registry should have thousands of entries unifying
+    SymMap + CTD + target_diseases + HERB 2.0."""
+    assert _table_exists(db_conn, "diseases_canonical")
+    n = db_conn.execute("SELECT COUNT(*) FROM diseases_canonical").fetchone()[0]
+    assert n >= 5_000, (
+        f"diseases_canonical has {n} rows. Run `make build-disease-canonical`."
+    )
+
+
+def test_compound_disease_evidence_has_meaningful_coverage(
+    db_conn: sqlite3.Connection,
+) -> None:
+    """Phase 3 supersedes Gap 1 — CTD evidence in canonicalized form.
+
+    Live-DB ingest produces ~2.9M rows (vs the legacy chemical_diseases'
+    934K) because the new schema also captures inferred-via-gene rows
+    that the legacy filter dropped. Floor of 800K is conservative.
+    """
+    assert _table_exists(db_conn, "compound_disease_evidence")
+    n = db_conn.execute(
+        "SELECT COUNT(*) FROM compound_disease_evidence"
+    ).fetchone()[0]
+    assert n >= 800_000, (
+        f"compound_disease_evidence has {n} rows; expected ≥800K. "
+        "Run build-disease-canonical && load-ctd."
+    )
+
+
+def test_compound_disease_evidence_evidence_types_balanced(
+    db_conn: sqlite3.Connection,
+) -> None:
+    """All three evidence types must appear, and the schema CHECK must hold."""
+    rows = dict(
+        db_conn.execute(
+            "SELECT evidence_type, COUNT(*) FROM compound_disease_evidence "
+            "GROUP BY evidence_type"
+        ).fetchall()
+    )
+    assert "direct_therapeutic" in rows and rows["direct_therapeutic"] > 1_000
+    assert "direct_marker" in rows and rows["direct_marker"] > 1_000
+    assert "inferred_via_gene" in rows and rows["inferred_via_gene"] > 1_000
+
+
+def test_compound_disease_evidence_preserves_pubmed_citations(
+    db_conn: sqlite3.Connection,
+) -> None:
+    """≥40% of CDE rows should carry at least one PubMed ID — that's the
+    primary use-case-A 'citation-graded recommendation' signal."""
+    total = db_conn.execute(
+        "SELECT COUNT(*) FROM compound_disease_evidence"
+    ).fetchone()[0]
+    with_cites = db_conn.execute(
+        "SELECT COUNT(*) FROM compound_disease_evidence "
+        "WHERE pubmed_ids IS NOT NULL AND pubmed_ids != ''"
+    ).fetchone()[0]
+    assert total > 0
+    fraction = with_cites / total
+    assert fraction >= 0.40, (
+        f"Only {fraction:.1%} of CDE rows carry pubmed_ids; expected ≥40%."
+    )
+
+
+def test_disease_canonicalization_unifies_sources(
+    db_conn: sqlite3.Connection,
+) -> None:
+    """Every disease string from the four sources should have ≥1 alias row."""
+    sources = ["target_diseases", "ctd", "symmap", "herb2"]
+    counts = {
+        s: db_conn.execute(
+            "SELECT COUNT(*) FROM disease_name_aliases WHERE source=?", (s,)
+        ).fetchone()[0]
+        for s in sources
+    }
+    assert counts["target_diseases"] > 0, "CMAUP target_diseases not aliased"
+    assert counts["ctd"] > 0, "CTD not aliased"
+    assert counts["symmap"] > 0, "SymMap not aliased"
+    assert counts["herb2"] > 0, "HERB 2.0 not aliased"
+
+
+def test_disease_canonical_mesh_uniqueness(
+    db_conn: sqlite3.Connection,
+) -> None:
+    """No two canonical rows share the same mesh_id (UNIQUE index enforces)."""
+    dups = db_conn.execute(
+        "SELECT mesh_id, COUNT(*) FROM diseases_canonical "
+        "WHERE mesh_id IS NOT NULL GROUP BY mesh_id HAVING COUNT(*) > 1"
+    ).fetchall()
+    assert dups == [], f"Duplicate mesh_ids found: {dups}"
 
 
 # ---------------------------------------------------------------------------
