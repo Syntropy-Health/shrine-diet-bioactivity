@@ -4,15 +4,21 @@
 
 MedAgents [@medagents2024] frames zero-shot medical reasoning as a
 multi-role panel; MDAgents [@mdagents2024] adds adaptive routing
-between solo and multi-disciplinary configurations. Yang et al.
+between solo and multi-disciplinary configurations. CAMP [@camp2026]
+adds case-adaptive panel composition with three-valued voting on
+MIMIC-IV, the closest methodological peer to our verdict-κ + abstain
+framing, but operates without KG-grounded retrieval. Yang et al.
 [@yang2025], the JMIR baseline of behavioral-science-informed agentic
 workflows, propose a two-agent design (barrier-identification +
 strategy-execution) for personalized-nutrition adherence coaching,
-which we re-implement as our third behavioral baseline. We extend all
-three with Layer-B/C role-priored KG retrieval. Wu et al. [@wu2025]
-report single-GP performance comparable to a multi-disciplinary debate
-panel on medication-conflict resolution; §7.2 places that finding on
-an axis orthogonal to ours.
+which we re-implement as our third behavioral baseline. NutriOrion
+[@nutriorion2026] forward-extends the JMIR Yang design with a
+four-specialist panel, validating that the behavioral-nutrition
+multi-agent design space remains active. We extend all three with
+Layer-B/C role-priored KG retrieval. Wu et al. [@wu2025] report
+single-GP performance comparable to a multi-disciplinary debate panel
+on medication-conflict resolution; §7.2 places that finding on an axis
+orthogonal to ours.
 
 ### KG-grounded LLM clinical reasoning
 
@@ -22,6 +28,10 @@ hierarchical diagnostic KG with EHR retrieval; KG-SMILE [@kgsmile2025] adds
 explainability to KG-RAG. Our pre-fetched typed-Cypher retrieval is
 offline-constructed and queried deterministically through the MCP gateway
 (§3.1), so live KG construction is orthogonal rather than competing.
+KG4Diagnosis [@kg4diagnosis2025] (ML4H 2025) couples hierarchical
+multi-agent diagnosis with KG augmentation; we share the KG-grounded
+multi-agent thesis but target diet/herb evidence rather than diagnostic
+reasoning.
 
 ### TCM multi-agent and KG systems
 
