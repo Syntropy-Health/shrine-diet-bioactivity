@@ -1,0 +1,25 @@
+{
+  "run_id": "20260508-disease-canonicalization",
+  "probed_at": "2026-05-08T19:00:00Z",
+  "summary": {
+    "verified": 11,
+    "patched": 2,
+    "stubbed": 0
+  },
+  "deps": [
+    {"type": "cli", "name": "python3", "result": "present"},
+    {"type": "cli", "name": "sqlite3", "result": "present"},
+    {"type": "cli", "name": "npm", "result": "present"},
+    {"type": "cli", "name": "npx", "result": "present"},
+    {"type": "cli", "name": "pytest", "result": "present"},
+    {"type": "cli", "name": "ruff", "result": "present"},
+    {"type": "cli", "name": "git", "result": "present"},
+    {"type": "skill", "name": "superpowers:executing-plans", "result": "present"},
+    {"type": "skill", "name": "superpowers:test-driven-development", "result": "present"},
+    {"type": "data", "name": "data_local/herbal_botanicals.db", "result": "present (5.5 GB)"},
+    {"type": "data", "name": "diseases_canonical schema seed counts", "result": "present (cd: 6678 distinct, td: 2976 distinct, symmap: 1148 rows)"},
+
+    {"type": "schema", "name": "herb2_herb_disease.disease column", "result": "missing — actual cols are disease_id + disease_label + source_pmid", "patch": "Task 3 SQL updated to query disease_label; bonus source_pmid noted for future provenance"},
+    {"type": "data-format", "name": "CTD direct_evidence empty-string vs NULL", "result": "discovered — 906,247 rows use ''", "patch": "Task 4 evidence_type classifier handles empty string explicitly"}
+  ]
+}
