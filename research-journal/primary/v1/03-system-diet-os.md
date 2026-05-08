@@ -23,13 +23,12 @@ triggers `kg_compound_to_targets`; any (drug, herb) co-occurrence triggers
 `ProvenanceChain[]` with edge-level `source_id` attribution
 (`cmaup:plant_disease`, `duke:found_in_food`, `hdi-safe-50:mechanism`, etc.).
 
-This **pre-fetched** design is a deliberate departure from LLM-driven tool
-calls. Our pilot found Nemotron-30B emits `RoleVerdict` JSON whose `notes`
-field claims tool use ("Used `kg_diet_to_compounds`…") while transcript-level
-tool-invocation counts remain zero across all roles — the model hallucinates
-tool use from training-data priors (`e2-panel-mcp-wiring-results.md`).
-Pre-fetching guarantees every panel deliberation receives a non-empty bundle,
-so HDI-Recall and provenance metrics (§4) become measurable rather than null.
+This **pre-fetched** design is a deliberate departure from LLM-driven
+tool calls; pilot evidence (App. A.1) shows that under free-tier 30B
+inference, models hallucinate tool use in `notes` fields while
+transcript-level tool-invocation counts remain zero. Pre-fetching
+guarantees every panel deliberation receives a non-empty bundle, so
+HDI-Recall and provenance metrics (§4) become measurable.
 
 ### 3.2 Role-priored panel
 

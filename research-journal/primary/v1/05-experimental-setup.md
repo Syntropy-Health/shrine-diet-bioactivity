@@ -23,9 +23,5 @@ ablation share LLM, KG, and gateway: `single_llm` (no tools),
 `single_llm_rag` (naïve RAG), `yang2025` (two-agent barrier-identification + strategy-execution; JMIR Yang behavioral baseline) [@yang2025], `medagents` [@medagents2024], `mdagents` [@mdagents2024], **`diet_os`** (this work; deterministic gold-triage substitute, see §5.4), and **`diet_os_llm_triage`** (the §6.5 ablation replacing deterministic triage with a free-tier LLM call). We report the full N = 40 matrix across all seven systems.
 
 **Cost and latency.** Per-role token usage and latency are captured by
-the `cost_tracker` decorator wrapping `ConversableAgent.generate_reply`.
-Free-tier rate limits dominate end-to-end matrix wall-clock (full-40
-× 6 baselines completed in ~3 hours; the `diet_os_llm_triage` ablation
-adds ~2 hours due to free-tier RPM throttling on the additional triage
-LLM call). Detailed per-role traces are available in the companion code
-release; we omit the table here for space.
+a `cost_tracker` decorator and reported in the companion code release
+and App. A.2; free-tier RPM throttling dominates wall-clock.

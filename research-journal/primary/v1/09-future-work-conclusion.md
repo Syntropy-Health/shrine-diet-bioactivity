@@ -12,33 +12,9 @@
 ## 9.2 Reproducibility
 
 All numbers in this paper are reproducible from the public repository at
-`https://github.com/Syntropy-Health/shrine-diet-bioactivity`.
-
-- **Commit pin.** Headline matrix, §6.5 ablation paired tests, and the
-  reproducibility instructions in this section are all consistent at the
-  tip of branch `feature/mcp-herbal-botanicals` (R-plan tasks R1-R9
-  complete; commits `05743b5..0a3a481`). Camera-ready submission will
-  pin a specific SHA via `git tag`.
-- **Eval matrix.** Combined 7-system results dir at
-  `research-journal/shared/results/20260504T230617Z-final-7sys/`
-  (symlinks 6 systems from `20260504T042540Z` plus the
-  `diet_os_llm_triage` ablation from
-  `20260504T204413Z-llm-triage-ablation`).
-- **Re-render.** `python3 -m eval.report --results-dir <dir>
-  --cypher-runner source-attribution` regenerates `summary.md`,
-  `paired_tests.md`, `category_breakdown_verdict_kappa.md`, and
-  `reliability_diagram.png`. `python3 -m scripts.render_ablation_test
-  --results-dir <dir>` regenerates `ablation_test.md`.
-- **Stats.** Paired bootstrap with B = 10 000, Davison-Hinkley
-  `(k+1)/(B+1)` p-value, fixed seed = 42, Bonferroni over 5 baselines ×
-  4 metrics_tested = 20 cells (provenance + bilingual excluded as
-  vacuous under v1; see §6.2).
-- **LLM.** Free-tier OpenRouter Nemotron-3-nano-30B (`nvidia/nemotron-3-nano-30b-a3b:free`),
-  ≤20 RPM. The free-tier rate limit is what drives the LLM-triage parse
-  failures observed in §6.5; results are model-version-sensitive.
-- **KG.** Neo4j AuraDB Professional 8 GB hosting `unified_diet_kg` (166K
-  nodes, ~5M relationships). Read-only Bearer-auth gateway at
-  `kg-mcp-test.up.railway.app/mcp`.
+`https://github.com/Syntropy-Health/shrine-diet-bioactivity`. See App.
+A.6 for full re-render commands, stats configuration, and LLM/KG
+details, plus pinned commit SHAs.
 
 ## 9.3 Conclusion
 

@@ -86,22 +86,14 @@ heuristic degrades on bare herbal mononyms).
 
 ### 6.4 Failure-mode taxonomy
 
-Across the 40 `diet_os` runs (`tables/failure-taxonomy.md`) we observe zero
-strict successes (gold-match verdict with confidence ≥ 0.1) and a clean
+Across the 40 `diet_os` runs (`tables/failure-taxonomy.md`) we observe a
 three-bucket failure distribution: 27/40 (67.5%) `retrieval_empty`, 7/40
-`panel_mis_vote`, 6/40 `calibrator_under_confidence`. The dominant failure
-mode is upstream of the panel: the eval-time
-`_intervention_from_scenario_id` heuristic misses canonical KG names for
-non-Duke compounds and TCM herbs, producing empty candidate chains.
-`case-hdi-001-sjw-sertraline` illustrates the pattern: gold `reject`,
-predicted `caution`, candidate_chains = 0, confidence = 0.016. Of the 13
-runs that *do* surface chains, 7 are panel mis-votes and 6 are correct
-verdicts under-scored by the calibrator. The 0.713 HDI Recall is therefore
-concentrated in those 13 non-empty runs; the lower 95% bound (0.300 on the
-paired-test mean_diff, 0.333 on the absolute Recall CI) reflects this
-small effective sample. The structural separation over baselines (all
-0.000) is preserved because no baseline has a mechanism to surface HDI
-claims at all — independent of how many of its 40 runs produce chains.
+`panel_mis_vote`, 6/40 `calibrator_under_confidence`. The 0.713 HDI
+Recall is concentrated in the 13 non-empty runs; lower 95% bound 0.300
+on the paired-test mean_diff. The structural separation over baselines
+(all 0.000) is preserved because no baseline has a mechanism to surface
+HDI claims at all. Full case-level breakdown including the
+`case-hdi-001-sjw-sertraline` walkthrough is in App. A.3.
 
 ### 6.5 Triage ablation: deterministic substitute is load-bearing
 
