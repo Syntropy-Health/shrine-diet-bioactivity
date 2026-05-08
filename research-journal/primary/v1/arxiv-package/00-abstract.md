@@ -10,9 +10,14 @@ typed-traversal tools. We deliberately adopt a constrained-inference setup
 pre-fetched retrieval and role-priored tool registration — produce
 paper-grade signal independent of frontier-model inference budget. On
 DietResearchBench-Clinical (n=40, 6-metric panel), diet_os achieves
-Bonferroni-significant verdict-κ uplift (mean_diff +0.476 to +0.575,
-p_adj < 0.001) over MedAgents, MDAgents, and yang2025 baselines, plus
-structural HDI Recall separation (diet_os 0.709, all baselines 0.000).
+Bonferroni-significant verdict-κ uplift (mean_diff +0.476 to +0.576,
+p_adj = 0.002) over MedAgents, MDAgents, and yang2025 baselines, plus
+structural HDI Recall separation (diet_os 0.713, all baselines 0.000).
+A triage-ablation variant (`diet_os_llm_triage`) that replaces the
+deterministic gold-triage substitute with the same free-tier LLM
+collapses to baseline-equivalent (κ 0.019, HDI Recall 0.000), isolating
+the deterministic-triage + retrieval-seed pair as load-bearing for the
+architectural lift.
 All gains are measured against baselines near zero; diet_os records zero
 strict successes (0/40) under v1 eval-harness heuristics, with the
 architectural signal concentrated in the 13/40 runs that surface

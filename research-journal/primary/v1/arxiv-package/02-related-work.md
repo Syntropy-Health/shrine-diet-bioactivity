@@ -2,17 +2,24 @@
 
 ### Multi-agent clinical reasoning
 
-MedAgents [@medagents2024] frames zero-shot medical reasoning as a multi-role
-panel deliberating over nine medical datasets, and MDAgents [@mdagents2024]
-adds adaptive routing between solo and multi-disciplinary-team configurations.
-Yang et al. [@yang2025] propose a 2-role dietitian-pharmacist setup for
-diet-drug interaction reasoning. We compare against all three as architectural
-baselines and extend them with Layer-B/C role-priored KG retrieval. A
-contemporary threat is Wu et al.'s "Safer Therapy" [@wu2025], which reports
-single-GP performance comparable to a multi-disciplinary debate panel on
-medication-conflict resolution; §7.2 argues that our HDI Recall structural
-ablation shows debate without KG-grounding cannot produce HDI signal, placing
-the two findings on orthogonal axes.
+MedAgents [@medagents2024] frames zero-shot medical reasoning as a
+multi-role panel; MDAgents [@mdagents2024] adds adaptive routing
+between solo and multi-disciplinary configurations. CAMP [@camp2026]
+adds case-adaptive panel composition with three-valued voting on
+MIMIC-IV, the closest methodological peer to our verdict-κ + abstain
+framing, but operates without KG-grounded retrieval. Yang et al.
+[@yang2025], the JMIR baseline of behavioral-science-informed agentic
+workflows, propose a two-agent design (barrier-identification +
+strategy-execution) for personalized-nutrition adherence coaching,
+which we re-implement as our third behavioral baseline. NutriOrion
+[@nutriorion2026] forward-extends the JMIR Yang design with a
+four-specialist panel, validating that the behavioral-nutrition
+multi-agent design space remains active. We extend MedAgents, MDAgents,
+and Yang with Layer-B/C role-priored KG retrieval; CAMP and NutriOrion
+are positioning peers, not re-implemented baselines. Wu et al. [@wu2025] report
+single-GP performance comparable to a multi-disciplinary debate panel
+on medication-conflict resolution; §7.2 places that finding on an axis
+orthogonal to ours.
 
 ### KG-grounded LLM clinical reasoning
 
@@ -22,6 +29,10 @@ hierarchical diagnostic KG with EHR retrieval; KG-SMILE [@kgsmile2025] adds
 explainability to KG-RAG. Our pre-fetched typed-Cypher retrieval is
 offline-constructed and queried deterministically through the MCP gateway
 (§3.1), so live KG construction is orthogonal rather than competing.
+KG4Diagnosis [@kg4diagnosis2025] (ML4H 2025) couples hierarchical
+multi-agent diagnosis with KG augmentation; we share the KG-grounded
+multi-agent thesis but target diet/herb evidence rather than diagnostic
+reasoning.
 
 ### TCM multi-agent and KG systems
 
@@ -37,11 +48,10 @@ the static-question evaluation paradigm.
 
 ### Existing benchmarks
 
-TCM-Eval [@tcmeval2025] and TCM-5CEval [@tcm5ceval2025] cover TCM knowledge
-questions with no clinical-deliberation evaluation. MedQA [@medqa2021] and
-MedMCQA [@medmcqa2022] are general medical-MCQ ceilings with no diet or herb
-content, and AgentClinic [@agentclinic2024] is multimodal sequential
-consultation. To the best of available literature, DietResearchBench-Clinical
-(§4) is the first public benchmark covering herb-drug interaction reasoning,
-diet-bioactive clinical inference, and TCM syndrome / Western-nutrition
-crosswalk in a single evaluation set.
+TCM-Eval [@tcmeval2025] and TCM-5CEval [@tcm5ceval2025] cover TCM
+knowledge questions only, with no clinical-deliberation evaluation.
+MedQA [@medqa2021], MedMCQA [@medmcqa2022], and AgentClinic
+[@agentclinic2024] are general or multimodal benchmarks without diet or
+herb content. DietResearchBench-Clinical (§4) is the first public
+benchmark covering herb-drug interaction reasoning, diet-bioactive
+inference, and TCM-syndrome / Western-nutrition crosswalk in one set.

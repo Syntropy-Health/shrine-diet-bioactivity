@@ -18,15 +18,10 @@ typed traversals), Layer C (3 lookup primitives — `kg_hdi_check`,
 `kg_bilingual_term`, `kg_node_neighborhood`). The session is
 singleton-per-process across the eval matrix.
 
-**Baselines.** Six systems share LLM, KG, and gateway: `single_llm` (no
-tools), `single_llm_rag` (naïve RAG), `yang2025` (2-role
-dietitian-pharmacist) [@yang2025], `medagents` (n-role debate, no KG)
-[@medagents2024], `mdagents` (adaptive routing, no KG) [@mdagents2024], and
-**`diet_os`** (this work). We report the full N = 40 matrix.
+**Baselines.** Five external baselines plus `diet_os` and a within-system
+ablation share LLM, KG, and gateway: `single_llm` (no tools),
+`single_llm_rag` (naïve RAG), `yang2025` (two-agent barrier-identification + strategy-execution; JMIR Yang behavioral baseline) [@yang2025], `medagents` [@medagents2024], `mdagents` [@mdagents2024], **`diet_os`** (this work; deterministic gold-triage substitute, see §5.4), and **`diet_os_llm_triage`** (the §6.5 ablation replacing deterministic triage with a free-tier LLM call). We report the full N = 40 matrix across all seven systems.
 
 **Cost and latency.** Per-role token usage and latency are captured by
-the `cost_tracker` decorator wrapping `ConversableAgent.generate_reply`.
-Free-tier rate limits dominate end-to-end matrix wall-clock (full-40
-× 6 baselines completed in ~3 hours). Detailed per-role traces are
-available in the companion code release; we omit the table here for
-space.
+a `cost_tracker` decorator and reported in the companion code release
+and Appendix A.2; free-tier RPM throttling dominates wall-clock.

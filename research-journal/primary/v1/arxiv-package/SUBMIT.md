@@ -15,6 +15,11 @@ pandoc paper.md \
   -o paper.pdf
 ```
 
+Note: `paper.md` includes a `# References` heading with a `<div id="refs"></div>`
+placement marker that pandoc citeproc populates in place. The appendix sections
+(A.1-A.6 in `A0-appendix.md`) are merged into `paper.md` after the bibliography
+div and are excluded from the 4-page body budget per ML4H Findings convention.
+
 For an arXiv source bundle (preferred):
 
 ```bash

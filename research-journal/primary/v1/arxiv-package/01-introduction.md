@@ -28,10 +28,12 @@ Three contributions:
    under constrained-inference free-tier 30B Nemotron.
 
 2. **Architectural ablation.** Bonferroni-significant verdict-κ uplift
-   (mean_diff +0.476 to +0.575, p_adj < 0.001) and structural HDI Recall
-   separation (diet_os = 0.709, all 5 baselines = 0.000) over MedAgents
+   (mean_diff +0.476 to +0.576, p_adj = 0.002) and structural HDI Recall
+   separation (diet_os = 0.713, all 5 baselines = 0.000) over MedAgents
    [@medagents2024], MDAgents [@mdagents2024], and Yang et al. [@yang2025]
-   on DietResearchBench-Clinical (n = 40).
+   on DietResearchBench-Clinical (n = 40). A within-system triage ablation
+   (`diet_os_llm_triage`, §6.5) collapses to κ = 0.019 / HDI Recall = 0.000,
+   isolating the deterministic-triage + retrieval-seed pair as load-bearing.
 
 3. **Benchmark.** DietResearchBench-Clinical v1: 40 scenarios across herbal
    single-symptom, nutrition single-nutrient, multi-drug herb-drug

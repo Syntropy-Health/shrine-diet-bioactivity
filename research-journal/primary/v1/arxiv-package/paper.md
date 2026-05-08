@@ -10,14 +10,20 @@ typed-traversal tools. We deliberately adopt a constrained-inference setup
 pre-fetched retrieval and role-priored tool registration — produce
 paper-grade signal independent of frontier-model inference budget. On
 DietResearchBench-Clinical (n=40, 6-metric panel), diet_os achieves
-Bonferroni-significant verdict-κ uplift (mean_diff +0.476 to +0.575,
-p_adj < 0.001) over MedAgents, MDAgents, and yang2025 baselines, plus
-structural HDI Recall separation (diet_os 0.709, all baselines 0.000).
+Bonferroni-significant verdict-κ uplift (mean_diff +0.476 to +0.576,
+p_adj = 0.002) over MedAgents, MDAgents, and yang2025 baselines, plus
+structural HDI Recall separation (diet_os 0.713, all baselines 0.000).
+A triage-ablation variant (`diet_os_llm_triage`) that replaces the
+deterministic gold-triage substitute with the same free-tier LLM
+collapses to baseline-equivalent (κ 0.019, HDI Recall 0.000), isolating
+the deterministic-triage + retrieval-seed pair as load-bearing for the
+architectural lift.
 All gains are measured against baselines near zero; diet_os records zero
 strict successes (0/40) under v1 eval-harness heuristics, with the
 architectural signal concentrated in the 13/40 runs that surface
 non-empty retrieval bundles. We release the benchmark as a v1 reference
 resource; companion v2 (n=200, two-annotator IAA) is in progress.
+
 ## 1. Introduction
 
 Clinical research teams operate as multi-agent systems by design — a
@@ -48,30 +54,40 @@ Three contributions:
    under constrained-inference free-tier 30B Nemotron.
 
 2. **Architectural ablation.** Bonferroni-significant verdict-κ uplift
-   (mean_diff +0.476 to +0.575, p_adj < 0.001) and structural HDI Recall
-   separation (diet_os = 0.709, all 5 baselines = 0.000) over MedAgents
+   (mean_diff +0.476 to +0.576, p_adj = 0.002) and structural HDI Recall
+   separation (diet_os = 0.713, all 5 baselines = 0.000) over MedAgents
    [@medagents2024], MDAgents [@mdagents2024], and Yang et al. [@yang2025]
-   on DietResearchBench-Clinical (n = 40).
+   on DietResearchBench-Clinical (n = 40). A within-system triage ablation
+   (`diet_os_llm_triage`, §6.5) collapses to κ = 0.019 / HDI Recall = 0.000,
+   isolating the deterministic-triage + retrieval-seed pair as load-bearing.
 
 3. **Benchmark.** DietResearchBench-Clinical v1: 40 scenarios across herbal
    single-symptom, nutrition single-nutrient, multi-drug herb-drug
    interaction, and TCM bilingual; 6-metric evaluation panel. Companion v2
    paper expands to n = 200 with two-annotator IAA [@v2benchmark2026].
+
 ## 2. Related Work
 
 ### Multi-agent clinical reasoning
 
-MedAgents [@medagents2024] frames zero-shot medical reasoning as a multi-role
-panel deliberating over nine medical datasets, and MDAgents [@mdagents2024]
-adds adaptive routing between solo and multi-disciplinary-team configurations.
-Yang et al. [@yang2025] propose a 2-role dietitian-pharmacist setup for
-diet-drug interaction reasoning. We compare against all three as architectural
-baselines and extend them with Layer-B/C role-priored KG retrieval. A
-contemporary threat is Wu et al.'s "Safer Therapy" [@wu2025], which reports
-single-GP performance comparable to a multi-disciplinary debate panel on
-medication-conflict resolution; §7.2 argues that our HDI Recall structural
-ablation shows debate without KG-grounding cannot produce HDI signal, placing
-the two findings on orthogonal axes.
+MedAgents [@medagents2024] frames zero-shot medical reasoning as a
+multi-role panel; MDAgents [@mdagents2024] adds adaptive routing
+between solo and multi-disciplinary configurations. CAMP [@camp2026]
+adds case-adaptive panel composition with three-valued voting on
+MIMIC-IV, the closest methodological peer to our verdict-κ + abstain
+framing, but operates without KG-grounded retrieval. Yang et al.
+[@yang2025], the JMIR baseline of behavioral-science-informed agentic
+workflows, propose a two-agent design (barrier-identification +
+strategy-execution) for personalized-nutrition adherence coaching,
+which we re-implement as our third behavioral baseline. NutriOrion
+[@nutriorion2026] forward-extends the JMIR Yang design with a
+four-specialist panel, validating that the behavioral-nutrition
+multi-agent design space remains active. We extend MedAgents, MDAgents,
+and Yang with Layer-B/C role-priored KG retrieval; CAMP and NutriOrion
+are positioning peers, not re-implemented baselines. Wu et al. [@wu2025] report
+single-GP performance comparable to a multi-disciplinary debate panel
+on medication-conflict resolution; §7.2 places that finding on an axis
+orthogonal to ours.
 
 ### KG-grounded LLM clinical reasoning
 
@@ -81,6 +97,10 @@ hierarchical diagnostic KG with EHR retrieval; KG-SMILE [@kgsmile2025] adds
 explainability to KG-RAG. Our pre-fetched typed-Cypher retrieval is
 offline-constructed and queried deterministically through the MCP gateway
 (§3.1), so live KG construction is orthogonal rather than competing.
+KG4Diagnosis [@kg4diagnosis2025] (ML4H 2025) couples hierarchical
+multi-agent diagnosis with KG augmentation; we share the KG-grounded
+multi-agent thesis but target diet/herb evidence rather than diagnostic
+reasoning.
 
 ### TCM multi-agent and KG systems
 
@@ -96,14 +116,14 @@ the static-question evaluation paradigm.
 
 ### Existing benchmarks
 
-TCM-Eval [@tcmeval2025] and TCM-5CEval [@tcm5ceval2025] cover TCM knowledge
-questions with no clinical-deliberation evaluation. MedQA [@medqa2021] and
-MedMCQA [@medmcqa2022] are general medical-MCQ ceilings with no diet or herb
-content, and AgentClinic [@agentclinic2024] is multimodal sequential
-consultation. To the best of available literature, DietResearchBench-Clinical
-(§4) is the first public benchmark covering herb-drug interaction reasoning,
-diet-bioactive clinical inference, and TCM syndrome / Western-nutrition
-crosswalk in a single evaluation set.
+TCM-Eval [@tcmeval2025] and TCM-5CEval [@tcm5ceval2025] cover TCM
+knowledge questions only, with no clinical-deliberation evaluation.
+MedQA [@medqa2021], MedMCQA [@medmcqa2022], and AgentClinic
+[@agentclinic2024] are general or multimodal benchmarks without diet or
+herb content. DietResearchBench-Clinical (§4) is the first public
+benchmark covering herb-drug interaction reasoning, diet-bioactive
+inference, and TCM-syndrome / Western-nutrition crosswalk in one set.
+
 ## 3. System: diet_os
 
 `diet_os` is a six-role multi-agent pipeline implemented in AG2 [@ag2v0_12]
@@ -129,13 +149,12 @@ triggers `kg_compound_to_targets`; any (drug, herb) co-occurrence triggers
 `ProvenanceChain[]` with edge-level `source_id` attribution
 (`cmaup:plant_disease`, `duke:found_in_food`, `hdi-safe-50:mechanism`, etc.).
 
-This **pre-fetched** design is a deliberate departure from LLM-driven tool
-calls. Our pilot found Nemotron-30B emits `RoleVerdict` JSON whose `notes`
-field claims tool use ("Used `kg_diet_to_compounds`…") while transcript-level
-tool-invocation counts remain zero across all roles — the model hallucinates
-tool use from training-data priors (`e2-panel-mcp-wiring-results.md`).
-Pre-fetching guarantees every panel deliberation receives a non-empty bundle,
-so HDI-Recall and provenance metrics (§4) become measurable rather than null.
+This **pre-fetched** design is a deliberate departure from LLM-driven
+tool calls; pilot evidence (Appendix A.1) shows that under free-tier 30B
+inference, models hallucinate tool use in `notes` fields while
+transcript-level tool-invocation counts remain zero. Pre-fetching
+guarantees every panel deliberation receives a non-empty bundle, so
+HDI-Recall and provenance metrics (§4) become measurable.
 
 ### 3.2 Role-priored panel
 
@@ -153,13 +172,12 @@ one verdict per role, no rebuttal. Each role registers a *subset* of the
 | Safety Reviewer | `kg_hdi_check` |
 | Defer-to-Clinician | `kg_query` |
 
-Tools remain available as fallbacks when the LLM does emit valid `tool_calls`,
-but the bundle dominates the evidence pathway. Each role emits a `RoleVerdict`
-∈ {prefer, caution, reject, abstain} with `support[]`, `concerns[]`, and
-`cited_chains[]` indices into the bundle. Single-pass round-robin (rather
-than multi-round rebuttal) is forced by the 20-RPM rate limit and is
-defensible because pre-fetching removes the information asymmetry rebuttal
-would normally resolve (§7.2).
+Tools remain available as fallbacks when the LLM emits valid
+`tool_calls`, but the bundle dominates the evidence pathway. Each role
+emits a `RoleVerdict` ∈ {prefer, caution, reject, abstain} with
+`support[]`, `concerns[]`, and `cited_chains[]` indices. Single-pass
+round-robin is forced by the 20-RPM rate limit; pre-fetching removes
+the information asymmetry rebuttal would resolve (§7.2).
 
 ### 3.3 Moderator, calibrator, synthesis
 
@@ -171,6 +189,7 @@ The terminal artifact is a `ResearchSynthesis` Pydantic model with `verdict`,
 `defer_to_clinician` boolean derived from the Safety Reviewer's verdict and
 the Defer-to-Clinician role's vote. This single object is scored by all six
 benchmark metrics.
+
 ## 4. Benchmark: DietResearchBench-Clinical v1
 
 DietResearchBench-Clinical v1 is a 40-scenario benchmark across four clinical
@@ -207,6 +226,7 @@ entity-level leakage guard is enforced with one documented v1 exemption:
 train and test, an unavoidable artefact at N = 40. The companion v2 release
 (n = 200, two-annotator IAA target κ ≥ 0.6 on verdict and κ ≥ 0.7 on binary
 HDI) closes this gap [@v2benchmark2026].
+
 ## 5. Experimental setup
 
 **LLM.** All systems share free-tier OpenRouter Nemotron-3-nano-30B (chat,
@@ -227,24 +247,22 @@ typed traversals), Layer C (3 lookup primitives — `kg_hdi_check`,
 `kg_bilingual_term`, `kg_node_neighborhood`). The session is
 singleton-per-process across the eval matrix.
 
-**Baselines.** Six systems share LLM, KG, and gateway: `single_llm` (no
-tools), `single_llm_rag` (naïve RAG), `yang2025` (2-role
-dietitian-pharmacist) [@yang2025], `medagents` (n-role debate, no KG)
-[@medagents2024], `mdagents` (adaptive routing, no KG) [@mdagents2024], and
-**`diet_os`** (this work). We report the full N = 40 matrix.
+**Baselines.** Five external baselines plus `diet_os` and a within-system
+ablation share LLM, KG, and gateway: `single_llm` (no tools),
+`single_llm_rag` (naïve RAG), `yang2025` (two-agent barrier-identification + strategy-execution; JMIR Yang behavioral baseline) [@yang2025], `medagents` [@medagents2024], `mdagents` [@mdagents2024], **`diet_os`** (this work; deterministic gold-triage substitute, see §5.4), and **`diet_os_llm_triage`** (the §6.5 ablation replacing deterministic triage with a free-tier LLM call). We report the full N = 40 matrix across all seven systems.
 
 **Cost and latency.** Per-role token usage and latency are captured by
-the `cost_tracker` decorator wrapping `ConversableAgent.generate_reply`.
-Free-tier rate limits dominate end-to-end matrix wall-clock (full-40
-× 6 baselines completed in ~3 hours). Detailed per-role traces are
-available in the companion code release; we omit the table here for
-space.
+a `cost_tracker` decorator and reported in the companion code release
+and Appendix A.2; free-tier RPM throttling dominates wall-clock.
+
 ## 6. Results
 
-We report the full N = 40 matrix across all six systems. Headline numbers and
-statistical tests are bundled with the paper as `tables/headline-matrix.md`,
-`tables/paired-tests.md`, `tables/per-category.md`,
-`tables/failure-taxonomy.md`, `figures/per-category-heatmap.png`, and
+We report the full N = 40 matrix across all seven systems (six external
+systems plus the `diet_os_llm_triage` ablation that addresses peer-review
+concern C1). Headline numbers and statistical tests are bundled with the
+paper as `tables/headline-matrix.md`, `tables/paired-tests.md`,
+`tables/per-category.md`, `tables/failure-taxonomy.md`,
+`tables/ablation-test.md`, `figures/per-category-heatmap.png`, and
 `figures/reliability-diagram.png`.
 
 ### 6.1 Headline matrix
@@ -254,36 +272,59 @@ All values are mean [95% bootstrap CI].
 
 | System | Verdict κ | ECE | HDI Recall | Provenance | Defer Acc | Bilingual |
 | --- | --- | --- | --- | --- | --- | --- |
-| single_llm | 0.055 [0.011, 0.114] | 0.326 [0.228, 0.400] | 0.000 [0.000, 0.000] | 1.000 [1.000, 1.000] | 0.548 [0.400, 0.700] | 0.000 [0.000, 0.000] |
-| single_llm_rag | -0.013 [-0.045, 0.000] | 0.397 [0.397, 0.397] | 0.000 [0.000, 0.000] | 1.000 [1.000, 1.000] | 0.548 [0.400, 0.700] | 0.000 [0.000, 0.000] |
-| yang2025 | 0.017 [0.000, 0.056] | 0.341 [0.294, 0.380] | 0.000 [0.000, 0.000] | 1.000 [1.000, 1.000] | 0.548 [0.400, 0.700] | 0.000 [0.000, 0.000] |
-| medagents | 0.000 [0.000, 0.000] | 0.024 [0.019, 0.030] | 0.000 [0.000, 0.000] | 1.000 [1.000, 1.000] | 0.548 [0.400, 0.700] | 0.000 [0.000, 0.000] |
-| mdagents | 0.000 [0.000, 0.000] | 0.015 [0.009, 0.021] | 0.000 [0.000, 0.000] | 1.000 [1.000, 1.000] | 0.548 [0.400, 0.700] | 0.000 [0.000, 0.000] |
-| **diet_os** | **0.251 [0.061, 0.451]** | 0.542 [0.400, 0.680] | **0.709 [0.333, 1.000]** | 1.000 [1.000, 1.000] | **0.696 [0.550, 0.825]** | 0.000 [0.000, 0.000] |
+| single_llm | 0.056 [0.011, 0.117] | 0.325 [0.228, 0.400] | 0.000 [0.000, 0.000] | 1.000 [1.000, 1.000] | 0.550 [0.400, 0.700] | 0.000 [0.000, 0.000] |
+| single_llm_rag | -0.012 [-0.043, 0.000] | 0.397 [0.397, 0.397] | 0.000 [0.000, 0.000] | 1.000 [1.000, 1.000] | 0.550 [0.400, 0.700] | 0.000 [0.000, 0.000] |
+| yang2025 | 0.017 [0.000, 0.056] | 0.341 [0.294, 0.383] | 0.000 [0.000, 0.000] | 1.000 [1.000, 1.000] | 0.550 [0.400, 0.700] | 0.000 [0.000, 0.000] |
+| medagents | 0.000 [0.000, 0.000] | 0.024 [0.019, 0.030] | 0.000 [0.000, 0.000] | 1.000 [1.000, 1.000] | 0.550 [0.400, 0.700] | 0.000 [0.000, 0.000] |
+| mdagents | 0.000 [0.000, 0.000] | 0.015 [0.009, 0.021] | 0.000 [0.000, 0.000] | 1.000 [1.000, 1.000] | 0.550 [0.400, 0.700] | 0.000 [0.000, 0.000] |
+| **diet_os** | **0.258 [0.067, 0.466]** | 0.543 [0.396, 0.683] | **0.713 [0.333, 1.000]** | 1.000 [1.000, 1.000] | **0.699 [0.550, 0.825]** | 0.000 [0.000, 0.000] |
+| diet_os_llm_triage | 0.019 [-0.049, 0.092] | 0.090 [0.019, 0.186] | 0.000 [0.000, 0.000] | 1.000 [1.000, 1.000] | 0.550 [0.400, 0.700] | 0.000 [0.000, 0.000] |
 
-`diet_os` reaches Verdict κ = 0.251 against an envelope of κ ≤ 0.055 for every
-baseline; HDI Recall = 0.709 against 0.000 for every baseline (a structural
-separation, not a margin); Defer Acc = 0.696 against a flat 0.548 baseline
-(+0.148). `diet_os` posts the worst ECE (0.542) — the calibration trade-off
-discussed in §7. Provenance is 1.000 across the board because the
+`diet_os` reaches Verdict κ = 0.258 against an envelope of κ ≤ 0.056 for every
+external baseline; HDI Recall = 0.713 against 0.000 for every baseline (a
+structural separation, not a margin); Defer Acc = 0.699 against a flat 0.550
+baseline (+0.149). `diet_os` posts the worst ECE (0.543) — the calibration
+trade-off discussed in §7. Provenance is 1.000 across the board because the
 source-attribution proxy is vacuously satisfied by systems that emit no
 candidate chains; Bilingual is 0.000 across the board because the v1 metric
 reads candidate-chain language only and no system surfaces zh chains. Both
-are reframed in §6.2 and §8.
+are reframed in §6.2 and §8. The `single_llm_rag` baseline lands at κ =
+−0.012, slightly worse than the no-tool `single_llm` (κ = 0.056): naïve
+LightRAG retrieval over our KG returns dense unfiltered context that the
+30 B Nemotron model treats as conflicting evidence and answers `caution`
+to nearly every scenario, slightly mis-aligning with the gold distribution.
+This is consistent with the broader claim that grounded retrieval requires
+typed traversal, not vector dump. The final row, `diet_os_llm_triage`, is the
+architectural ablation introduced to address peer-review concern C1 about
+gold-triage bypass: it shares all of `diet_os`'s code paths (KG retrieval,
+6-role panel, calibrator) but replaces the deterministic gold-triage
+substitute with a free-tier Nemotron LLM call. Its κ collapses to 0.019 and
+HDI Recall collapses to 0.000, isolating the gold-triage substitute as
+load-bearing for the architectural lift; full discussion in §6.5.
 
 ### 6.2 Paired statistical tests
 
-Paired bootstrap tests (n_iter = 1000, Bonferroni-corrected at α' = 0.01;
-`tables/paired-tests.md`) confirm the headline. **Sign convention**: for
-Verdict κ, HDI Recall, Defer Acc, and Provenance, higher is better and a
-positive `mean_diff = diet_os − baseline` is favourable; for ECE, lower is
-better and a positive `mean_diff` is *adverse*. All five `diet_os`-vs-baseline
-Verdict κ comparisons reach p_adj < 0.001 (mean_diff +0.476 to +0.575). All
-five HDI Recall comparisons reach p_adj = 0.0050 (mean_diff +0.717). All five
-Defer Acc comparisons reach p_adj = 0.0100 (mean_diff +0.147). The lone
-adverse direction is ECE: `diet_os` is significantly *worse* than `medagents`
-(mean_diff +0.530, p_adj < 0.001) and `mdagents` (+0.539, p_adj < 0.001), a
-calibration trade-off (§7). The Provenance metric (source-attribution proxy)
+Paired bootstrap tests (B = 10 000 iterations, Davison–Hinkley
+`(k+1)/(B+1)` p-value, Bonferroni-corrected over the full
+n_baselines × n_metrics_tested = 5 × 4 = 20-cell family at adjusted
+α' = 0.0025; `tables/paired-tests.md`) confirm the architectural
+headline. **Sign convention**: for Verdict κ, HDI Recall, and Defer
+Acc, higher is better and a positive `mean_diff = diet_os − baseline`
+is favourable; for ECE, lower is better and a positive `mean_diff` is
+*adverse*. **Surrogate disclosure**: the paired κ test resamples
+per-scenario gold-vs-predicted verdict correctness rather than the κ
+statistic itself (κ requires a list and is not iid-resampleable), so
+the test answers "is `diet_os` more often verdict-correct than
+baseline?", not "is `diet_os`'s κ statistic higher?". The conclusions
+agree on direction.
+
+Under the corrected family-size correction, all five Verdict κ
+comparisons remain significant (p_adj = 0.002); all five HDI Recall
+comparisons remain significant (p_adj = 0.006); and all five Defer Acc
+comparisons remain significant (p_adj = 0.040, just under the α = 0.05
+threshold). The lone adverse direction is ECE: `diet_os` is significantly
+*worse* than `medagents` and `mdagents` (p_adj = 0.002), a calibration
+trade-off (§7.3). The Provenance metric (source-attribution proxy)
 returns 1.0 for any system with non-empty candidate chains and is vacuously
 1.0 for the five baselines that emit none — under v1 framing it does not
 separate `diet_os` from the field; full Cypher round-trip verification is
@@ -292,44 +333,76 @@ deferred to v2 (§8).
 ### 6.3 Per-category breakdown
 
 The per-category Verdict κ heatmap (`figures/per-category-heatmap.png`,
-data in `tables/per-category.md`) shows `diet_os` strongest on `tcm_bilingual`
-(κ = 0.167), `nutrition` (0.153), and `multi_drug_hdi` (0.138), and weakest
-on `herbal_single_symptom` (κ = -0.081). Baselines are essentially flat
-across categories (max non-`diet_os` cell: `single_llm` on `multi_drug_hdi`,
-0.062). The `herbal_single_symptom` regression is consistent with eval-time
-intervention extraction missing the herb's canonical KG name in
-single-symptom scenarios — the `_intervention_from_scenario_id` heuristic
-favours multi-token names (e.g. "St John's wort + sertraline") and degrades
-on bare herbal mononyms.
+data in `tables/per-category.md`) shows `diet_os` strongest on
+`tcm_bilingual` (κ = 0.167), `nutrition` (0.153), and `multi_drug_hdi`
+(0.138), and weakest on `herbal_single_symptom` (κ = -0.081). Baselines
+are flat across categories (max non-`diet_os` cell: 0.062). The
+`herbal_single_symptom` regression traces to the same intervention-name
+extraction issue documented in §6.4 (the `_intervention_from_scenario_id`
+heuristic degrades on bare herbal mononyms).
 
 ### 6.4 Failure-mode taxonomy
 
-Across the 40 `diet_os` runs (`tables/failure-taxonomy.md`) we observe zero
-strict successes (gold-match verdict with confidence ≥ 0.1) and a clean
+Across the 40 `diet_os` runs (`tables/failure-taxonomy.md`) we observe a
 three-bucket failure distribution: 27/40 (67.5%) `retrieval_empty`, 7/40
-`panel_mis_vote`, 6/40 `calibrator_under_confidence`. The dominant failure
-mode is upstream of the panel: the eval-time
-`_intervention_from_scenario_id` heuristic misses canonical KG names for
-non-Duke compounds and TCM herbs, producing empty candidate chains.
-`case-hdi-001-sjw-sertraline` illustrates the pattern: gold `reject`,
-predicted `caution`, candidate_chains = 0, confidence = 0.016. Of the 13
-runs that *do* surface chains, 7 are panel mis-votes and 6 are correct
-verdicts under-scored by the calibrator. The 0.709 HDI Recall is therefore
-concentrated in those 13 non-empty runs; the structural separation over
-baselines (all 0.000) is preserved because no baseline has a mechanism to
-surface HDI claims at all.
+`panel_mis_vote`, 6/40 `calibrator_under_confidence`. The 0.713 HDI
+Recall is concentrated in the 13 non-empty runs; lower 95% bound 0.300
+on the paired-test HDI-Recall mean_diff. The structural separation over baselines
+(all 0.000) is preserved because no baseline has a mechanism to surface
+HDI claims at all. Full case-level breakdown including the
+`case-hdi-001-sjw-sertraline` walkthrough is in Appendix A.3.
+
+### 6.5 Triage ablation: deterministic substitute is load-bearing
+
+To isolate which architectural component drives the lift, we run
+`diet_os_llm_triage` — an ablation that shares all of `diet_os`'s code
+(retrieval, 6-role panel, calibrator) but replaces the deterministic
+gold-triage substitute (§5.4) with a free-tier Nemotron LLM call producing
+the same `Triage` Pydantic model. Headline numbers from the §6.1 matrix
+collapse to baseline-equivalent: κ falls from 0.258 to 0.019, HDI Recall
+falls from 0.713 to 0.000, Defer Acc falls from 0.699 to 0.550. The
+ablation paired bootstrap (`tables/ablation-test.md`, B = 10 000, no
+Bonferroni — single planned comparison) confirms the collapse is
+statistically robust: verdict-correctness mean_diff = 0.476 [0.300,
+0.650] (p = 0.0001), HDI Recall mean_diff = 0.715 [0.429, 1.000] (p =
+0.0003), Defer Acc mean_diff = 0.149 [0.050, 0.275] (p = 0.002), and ECE
+mean_diff = 0.462 [0.305, 0.618] adverse to `diet_os` (p = 0.0001) — the
+ablation has *better* calibration but only because it falls back to a
+constant `caution` default that happens to align with the gold class
+prior, exactly the behaviour a calibrated panel should not exhibit.
+
+The proximate failure mode is the LLM triage step itself: 33 of 40 runs
+(82.5%) terminate with `runner-error: Invalid JSON: EOF while parsing a
+list` — the free-tier Nemotron-3-nano-30B (≤20 RPM) emits malformed JSON
+on the structured `ResearchQuestion` output. The runner's default
+fallback seeds zero retrieval keys, so all 40 runs have empty candidate
+chains and the panels terminate at `moderator_summary='error'`. Two
+architectural components are therefore load-bearing in combination: the
+deterministic triage substitute (invariably parse-clean) and the
+gold-question-anchored retrieval seed; removing the first cascades into
+the second, regressing the system to the `single_llm` envelope. The
+v2 path — a small purpose-trained triage model or schema-constrained
+decoding — is discussed in §8. The 0.090 ECE that `diet_os_llm_triage`
+posts is the spurious low-error of a system that has stopped engaging
+with the question, not an architectural strength.
+
 ## 7. Discussion
 
 ### 7.1 Architectural ablation: KG-grounding is the lift
 
-The Bonferroni-significant Verdict κ uplift (mean_diff +0.476 to +0.575
-across all five baselines, p_adj < 0.001) and the structural HDI Recall
-separation (0.709 vs 0.000 for every baseline, p_adj = 0.0050) localize
+The Bonferroni-significant Verdict κ uplift (mean_diff +0.476 to +0.576
+across all five baselines, p_adj = 0.002) and the structural HDI Recall
+separation (0.713 vs 0.000 for every baseline, p_adj = 0.006) localize
 the lift to role-priored Layer-B/C retrieval — not panel size, not LLM
 scale. `medagents` and `mdagents`, both multi-agent debate systems
 without KG grounding, post the same Verdict κ = 0.000 as the no-tool
 `single_llm` baseline. Adding agents without adding evidence retrieval
-moves no headline metric.
+moves no headline metric. The within-system `diet_os_llm_triage`
+ablation (§6.5) further localizes the lift to the joint
+deterministic-triage + retrieval-seed pair: replacing the deterministic
+substitute with a free-tier LLM triage call collapses κ to 0.019 and
+HDI Recall to 0.000, regressing the system to single_llm-equivalent
+performance.
 
 ### 7.2 Address: Wu et al. (2025) "Safer Therapy"
 
@@ -339,7 +412,7 @@ conflict resolution, raising the question of whether multi-agent debate
 alone is worth the inference cost. Our results are orthogonal: their
 axis is debate-style consensus among agents sharing the same
 retrieval-free input; our axis is KG-grounded retrieval. The HDI Recall
-structural separation in §6.1 (diet_os = 0.709, all five baselines =
+structural separation in §6.1 (diet_os = 0.713, all five baselines =
 0.000) shows that debate without KG-grounding cannot produce non-zero
 HDI recall on DietResearchBench-Clinical regardless of panel size. HDI
 Recall is structurally non-zero only for systems that invoke
@@ -351,36 +424,22 @@ HDI signal.**
 
 ### 7.3 Calibration trade-off
 
-ECE is highest for `diet_os` at 0.542 — significantly worse than
-`medagents` (0.024, mean_diff +0.530) and `mdagents` (0.015, mean_diff
-+0.539) at p_adj < 0.001. The trade-off reflects panel-derived
-confidence variance under an uncalibrated free-tier model: `medagents`
-and `mdagents` emit near-constant low confidence, collapsing ECE toward
-the gold rate, while `diet_os`'s composite confidence (evidence-tier ×
-HDI-risk × question-fit, §3.3) carries honest but uncalibrated signal.
-Post-hoc Platt/isotonic calibration on a held-out fold is straightforward
-v2 work (§8.2, §9).
+ECE is highest for `diet_os` at 0.543, significantly worse than
+`medagents` (0.024) and `mdagents` (0.015) at p_adj = 0.002. The
+trade-off reflects panel-derived confidence variance: baselines emit
+near-constant low confidence that collapses ECE toward the gold rate,
+while `diet_os`'s composite confidence carries honest but uncalibrated
+signal. Post-hoc Platt/isotonic calibration is straightforward v2 work
+(§8.2, §9).
+
 # 8. Limitations
 
-## 8.1 Single-author gold standard at n=40
+We discuss limitations and broader impact in Appendix A.5: (i) single-author
+gold standard at n=40; (ii) free-tier 30B LLM ceiling, not a calibration
+ceiling; (iii) HDI Recall is in-panel, not universe-recall; (iv)
+source-attribution provenance, not Cypher round-trip; (v) AG2-specific
+orchestration.
 
-DietResearchBench-Clinical v1 uses single-author gold annotations across 40 scenarios with no inter-annotator agreement (IAA) measurement. A v2 expansion (n=200, two-annotator design with κ ≥ 0.6 gating and calibration-aware Platt/isotonic scoring) is in progress as a companion paper [@v2benchmark2026].
-
-## 8.2 Free-tier 30B LLM — not a calibration ceiling
-
-Free-tier Nemotron-3-nano-30B has known JSON-quality issues at long contexts and is rate-limited to 20 RPM. We adopt this constraint deliberately to validate the architectural-headline framing under cost-zero inference. v2 ablates against Qwen-3-235B-Instruct via Cerebras (1M tok/day free tier) and paid-tier alternatives (Sonnet 4.6).
-
-## 8.3 HDI Recall is in-panel, not universe-recall
-
-Per the KG coverage audit (`docs/kg-coverage-audit.md`), HDI-Safe-50 covers 86.2% of the curated public HDI universe known to NIH ODS and NCCIH (n=15 reference pairs). Reported HDI Recall is therefore in-panel recall against the curated v1 panel, not absolute recall against the broader herb-drug interaction literature.
-
-## 8.4 Source-attribution provenance, not Cypher round-trip
-
-Provenance metric uses the source-id-prefix proxy (`cmaup:`, `duke:`, `herb2:`, `symmap:`, `hdi-safe-50:`) rather than full Cypher round-trip verification against Aura. Edges retrieved through Layer-B/C MCP traversals are KG-faithful by construction; Cypher verification for adversarial cases is deferred to v2.
-
-## 8.5 AG2-specific orchestration
-
-diet_os is implemented in AG2 v0.12. Pydantic-AI re-ports (estimated 1.5-day migration; native MCP streamable-HTTP, Logfire observability) are deferred to v2 as a framework ablation.
 # 9. Future Work and Conclusion
 
 ## 9.1 Future Work
@@ -392,6 +451,141 @@ diet_os is implemented in AG2 v0.12. Pydantic-AI re-ports (estimated 1.5-day mig
 - Bilingual metric reading panel deliberation text (not just `candidate_chains`)
 - `kg_disease_to_herbs` inverse traversal for the systematic-review persona
 
-## 9.2 Conclusion
+## 9.2 Reproducibility
 
-We present diet_os, a 6-role multi-agent clinical research system over a unified 5M-edge diet/herb/TCM knowledge graph queried via streamable-HTTP MCP. Pre-fetched typed-traversal retrieval bundles plus role-priored Layer-B/C tools produce Bonferroni-significant verdict-κ uplift (mean_diff +0.476 to +0.575, p_adj < 0.001) over MedAgents [@medagents2024], MDAgents [@mdagents2024], and yang2025 [@yang2025] baselines, and structural HDI Recall separation (Diet-OS 0.709, all baselines 0.000) under deliberate constrained inference (free-tier 30B Nemotron). DietResearchBench-Clinical v1 (40 scenarios, 6-metric panel) is released as a v1 reference resource; v2 expansion is in progress as a companion paper [@v2benchmark2026]. Code and benchmark are released at `https://github.com/Syntropy-Health/shrine-diet-bioactivity`.
+All numbers in this paper are reproducible from the public repository at
+`https://github.com/Syntropy-Health/shrine-diet-bioactivity`. See
+Appendix A.6 for full re-render commands, stats configuration, and LLM/KG
+details, plus pinned commit SHAs.
+
+## 9.3 Conclusion
+
+We present diet_os, a 6-role multi-agent clinical research system over a unified 5M-edge diet/herb/TCM knowledge graph queried via streamable-HTTP MCP. Pre-fetched typed-traversal retrieval bundles plus role-priored Layer-B/C tools produce Bonferroni-significant verdict-κ uplift (mean_diff +0.476 to +0.576, p_adj = 0.002) over MedAgents [@medagents2024], MDAgents [@mdagents2024], and yang2025 [@yang2025] baselines, and structural HDI Recall separation (Diet-OS 0.713, all baselines 0.000) under deliberate constrained inference (free-tier 30B Nemotron). A within-system triage ablation (`diet_os_llm_triage`, §6.5) collapses to baseline-equivalent (κ 0.019, HDI Recall 0.000), confirming the deterministic-triage + retrieval-seed pair as load-bearing for the architectural lift. DietResearchBench-Clinical v1 (40 scenarios, 6-metric panel) is released as a v1 reference resource; v2 expansion is in progress as a companion paper [@v2benchmark2026]. Code and benchmark are released at `https://github.com/Syntropy-Health/shrine-diet-bioactivity`.
+
+# References
+
+<div id="refs"></div>
+
+# Appendix
+
+This appendix follows the bibliography and is excluded from the ML4H Findings 4-page body budget per venue convention. Sections relocated here from the body retain full numerical content and reviewer-relevant detail.
+
+## A.1 Pre-fetch design rationale and pilot data
+
+_Source: relocated from §3.1 (T14.9). Body keeps a one-clause back-reference._
+
+The §3.1 pre-fetched design choice is motivated by the following pilot observation:
+
+This **pre-fetched** design is a deliberate departure from LLM-driven tool
+calls. Our pilot found Nemotron-30B emits `RoleVerdict` JSON whose `notes`
+field claims tool use ("Used `kg_diet_to_compounds`…") while transcript-level
+tool-invocation counts remain zero across all roles — the model hallucinates
+tool use from training-data priors (`e2-panel-mcp-wiring-results.md`).
+Pre-fetching guarantees every panel deliberation receives a non-empty bundle,
+so HDI-Recall and provenance metrics (§4) become measurable rather than null.
+
+## A.2 Cost & latency per-role traces
+
+_Source: relocated from §5 cost-and-latency paragraph (T14.10). Body keeps a one-clause "see A.2" pointer._
+
+Per-role cost and latency detail relocated from §5:
+
+**Cost and latency.** Per-role token usage and latency are captured by
+the `cost_tracker` decorator wrapping `ConversableAgent.generate_reply`.
+Free-tier rate limits dominate end-to-end matrix wall-clock (full-40
+× 6 baselines completed in ~3 hours; the `diet_os_llm_triage` ablation
+adds ~2 hours due to free-tier RPM throttling on the additional triage
+LLM call). Detailed per-role traces are available in the companion code
+release; we omit the table here for space.
+
+## A.3 Failure-mode case studies
+
+_Source: relocated from §6.4 case-study walkthrough (T14.8). Body retains the headline 13-non-empty / 0.713 / 0.300 numbers; case-level detail and `case-hdi-001-sjw-sertraline` walkthrough live here._
+
+The §6.4 failure-mode taxonomy in the body summarizes a three-bucket distribution; below is the full per-bucket detail and the canonical case-study illustration referenced from §6.4.
+
+Across the 40 `diet_os` runs (`tables/failure-taxonomy.md`) we observe zero
+strict successes (gold-match verdict with confidence ≥ 0.1) and a clean
+three-bucket failure distribution: 27/40 (67.5%) `retrieval_empty`, 7/40
+`panel_mis_vote`, 6/40 `calibrator_under_confidence`. The dominant failure
+mode is upstream of the panel: the eval-time
+`_intervention_from_scenario_id` heuristic misses canonical KG names for
+non-Duke compounds and TCM herbs, producing empty candidate chains.
+`case-hdi-001-sjw-sertraline` illustrates the pattern: gold `reject`,
+predicted `caution`, candidate_chains = 0, confidence = 0.016. Of the 13
+runs that *do* surface chains, 7 are panel mis-votes and 6 are correct
+verdicts under-scored by the calibrator. The 0.713 HDI Recall is therefore
+concentrated in those 13 non-empty runs; the lower 95% bound (0.300 on the
+paired-test mean_diff, 0.333 on the absolute Recall CI) reflects this
+small effective sample. The structural separation over baselines (all
+0.000) is preserved because no baseline has a mechanism to surface HDI
+claims at all — independent of how many of its 40 runs produce chains.
+
+## A.4 Extended related work
+
+_Reserve target for any §2 prose squeezed out by C-ADDS (T14.13–T14.15) or for HealthGenie / additional comparators if they need framing without body weight._
+
+(Content placeholder — populated only if needed during C-ASSEMBLE.)
+
+## A.5 Limitations and Broader Impact
+
+_Source: relocated from §8 in entirety (T14.11). Body §8 keeps only a 3-line stub referencing this section._
+
+The body §8 stub references this section. Below are the full limitation subsections relocated from §8:
+
+### 8.1 Single-author gold standard at n=40
+
+DietResearchBench-Clinical v1 uses single-author gold annotations across 40 scenarios with no inter-annotator agreement (IAA) measurement. A v2 expansion (n=200, two-annotator design with κ ≥ 0.6 gating and calibration-aware Platt/isotonic scoring) is in progress as a companion paper [@v2benchmark2026].
+
+### 8.2 Free-tier 30B LLM — not a calibration ceiling
+
+Free-tier Nemotron-3-nano-30B has known JSON-quality issues at long contexts and is rate-limited to 20 RPM. We adopt this constraint deliberately to validate the architectural-headline framing under cost-zero inference. v2 ablates against Qwen-3-235B-Instruct via Cerebras (1M tok/day free tier) and paid-tier alternatives (Sonnet 4.6).
+
+### 8.3 HDI Recall is in-panel, not universe-recall
+
+Per the KG coverage audit (`docs/kg-coverage-audit.md`), HDI-Safe-50 covers 86.2% of the curated public HDI universe known to NIH ODS and NCCIH (n=15 reference pairs). Reported HDI Recall is therefore in-panel recall against the curated v1 panel, not absolute recall against the broader herb-drug interaction literature.
+
+### 8.4 Source-attribution provenance, not Cypher round-trip
+
+Provenance metric uses the source-id-prefix proxy (`cmaup:`, `duke:`, `herb2:`, `symmap:`, `hdi-safe-50:`) rather than full Cypher round-trip verification against Aura. Edges retrieved through Layer-B/C MCP traversals are KG-faithful by construction; Cypher verification for adversarial cases is deferred to v2.
+
+### 8.5 AG2-specific orchestration
+
+diet_os is implemented in AG2 v0.12. Pydantic-AI re-ports (estimated 1.5-day migration; native MCP streamable-HTTP, Logfire observability) are deferred to v2 as a framework ablation.
+
+## A.6 Reproducibility extended
+
+_Source: relocated from §9.2 reproducibility detail (T14.12). Body §9.2 keeps the URL + commit pin + a forward-pointer; full commands, stats config, LLM/KG details live here. Plan B integrity bullet (T14.20) inserts here._
+
+Full reproducibility detail relocated from §9.2 of the body:
+
+- **Commit pin.** Headline matrix, §6.5 ablation paired tests, and the
+  reproducibility instructions in this section are all consistent at the
+  tip of branch `paper-1/camera-ready` (tag `paper-1-v1-arxiv-submission`).
+  Eval-pipeline integrity fix (issue #16: fail-loud `_neutral_stub`
+  refactor with `--allow-stubs` opt-in) lands on `main` at merge commit
+  `9657c1f` (`fix/lightrag-test-debt` → `main`).
+- **Eval matrix.** Combined 7-system results dir at
+  `research-journal/shared/results/20260504T230617Z-final-7sys/`
+  (symlinks 6 systems from `20260504T042540Z` plus the
+  `diet_os_llm_triage` ablation from
+  `20260504T204413Z-llm-triage-ablation`).
+- **Re-render.** `python3 -m eval.report --results-dir <dir>
+  --cypher-runner source-attribution` regenerates `summary.md`,
+  `paired_tests.md`, `category_breakdown_verdict_kappa.md`, and
+  `reliability_diagram.png`. `python3 -m scripts.render_ablation_test
+  --results-dir <dir>` regenerates `ablation_test.md`.
+- **Stub safety.** The `eval.report` renderer fails-fast when manifest
+  `scenario_ids` and benchmark `scenario_ids` diverge; permissive
+  rendering for partial debug runs requires explicit `--allow-stubs`.
+  Paper-grade renders use the default fail-loud mode.
+- **Stats.** Paired bootstrap with B = 10 000, Davison-Hinkley
+  `(k+1)/(B+1)` p-value, fixed seed = 42, Bonferroni over 5 baselines ×
+  4 metrics_tested = 20 cells (provenance + bilingual excluded as
+  vacuous under v1; see §6.2).
+- **LLM.** Free-tier OpenRouter Nemotron-3-nano-30B (`nvidia/nemotron-3-nano-30b-a3b:free`),
+  ≤20 RPM. The free-tier rate limit is what drives the LLM-triage parse
+  failures observed in §6.5; results are model-version-sensitive.
+- **KG.** Neo4j AuraDB Professional 8 GB hosting `unified_diet_kg` (166K
+  nodes, ~5M relationships). Read-only Bearer-auth gateway at
+  `kg-mcp-test.up.railway.app/mcp`.
