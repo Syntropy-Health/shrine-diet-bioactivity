@@ -250,3 +250,32 @@ Highest-ROI follow-up: implement [§4.2 — symptom→disease map](#42-spec-mate
 - Directly improves use case A query quality, which is the primary user-facing surface.
 
 Suggested branch / PR title: `phase1.5/symptom-disease-map` → `feat(kg): materialized symptom→disease map (use case A)`.
+
+---
+
+## Phase 3 closeout (2026-05-08) — Disease Canonicalization
+
+After PR #23 closed all 7 original audit gates, Phase 3 added a layer of architectural unification on top: disease as a first-class entity unified across all 4 sources, with PubMed citations and gene-symbol inference paths preserved.
+
+**Live-DB outcome:**
+- 24,403 canonical disease entities (5,351 MeSH-anchored)
+- 29,075 disease-name aliases across CTD + SymMap + CMAUP target_diseases + HERB 2.0
+- 2.92M compound_disease_evidence rows (vs 934K legacy chemical_diseases) — captures inferred-via-gene paths the old filter dropped
+- 2.76M rows (94%) preserve PubMed citations
+- 2.89M rows carry the mediating gene symbol for the compound→gene→disease mechanistic chain
+
+**6 new audit-gate tests** (all GREEN against the live DB):
+- `test_diseases_canonical_table_populated`
+- `test_compound_disease_evidence_has_meaningful_coverage` (≥800K rows)
+- `test_compound_disease_evidence_evidence_types_balanced` (all 3 types ≥1K)
+- `test_compound_disease_evidence_preserves_pubmed_citations` (≥40% fill rate)
+- `test_disease_canonicalization_unifies_sources` (4 sources × ≥1 alias)
+- `test_disease_canonical_mesh_uniqueness` (UNIQUE index enforced)
+
+**Migration plan:** legacy `chemical_diseases` retained for one stable production cycle (≥1 week post-Phase-3 ship), then dropped in a follow-up PR. The new `compound_disease_evidence` is the canonical evidence layer going forward.
+
+**Phase 3.5 candidates:**
+- Drop legacy `chemical_diseases` after stable cycle (separate PR)
+- Harvest English translations for the 14,833 HERB 2.0 disease names that fell to local-slug canonical IDs
+- Wire `chemical_phenotypes` (currently empty) into a similar pheno_canonical structure
+- The 8 review-comment items from issue #24 still pending (review polish on PRs #21/#22/#23)

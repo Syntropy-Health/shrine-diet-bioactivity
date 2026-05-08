@@ -155,6 +155,24 @@ def main() -> int:
                 if best.source == "string_match":
                     fallback_only += 1
 
+                # Phase 3 — contribute the matched disease string to the
+                # canonical alias registry so symptom queries can join
+                # diseases_canonical → compound_disease_evidence directly.
+                # Only emit if the canonical row exists (it should, given
+                # the orchestrator runs before this script in the pipeline).
+                if best.mesh_id:
+                    cid_row = cur.execute(
+                        "SELECT id FROM diseases_canonical WHERE mesh_id=?",
+                        (best.mesh_id,),
+                    ).fetchone()
+                    if cid_row:
+                        cur.execute(
+                            "INSERT OR IGNORE INTO disease_name_aliases "
+                            "(disease_id, alias, source) "
+                            "VALUES (?, ?, 'symmap_match')",
+                            (cid_row[0], best.disease_name),
+                        )
+
                 # Tier-4 expansion: if the primary match is a fallback, also
                 # add a few more target_diseases substring matches so the
                 # symptom has more recall in downstream queries. Capped per

@@ -404,3 +404,10 @@ load-ctd:
 build-herb-resolution:
 	python scripts/build_herb_resolution_map.py \
 		--db data_local/herbal_botanicals.db
+
+# ─── Phase 3 disease canonicalization ──────────────────────
+.PHONY: build-disease-canonical
+
+build-disease-canonical:
+	python scripts/build_disease_canonical.py \
+		--db data_local/herbal_botanicals.db
