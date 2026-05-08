@@ -24,4 +24,4 @@ ablation share LLM, KG, and gateway: `single_llm` (no tools),
 
 **Cost and latency.** Per-role token usage and latency are captured by
 a `cost_tracker` decorator and reported in the companion code release
-and App. A.2; free-tier RPM throttling dominates wall-clock.
+and Appendix A.2; free-tier RPM throttling dominates wall-clock.

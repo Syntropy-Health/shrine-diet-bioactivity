@@ -90,10 +90,10 @@ Across the 40 `diet_os` runs (`tables/failure-taxonomy.md`) we observe a
 three-bucket failure distribution: 27/40 (67.5%) `retrieval_empty`, 7/40
 `panel_mis_vote`, 6/40 `calibrator_under_confidence`. The 0.713 HDI
 Recall is concentrated in the 13 non-empty runs; lower 95% bound 0.300
-on the paired-test mean_diff. The structural separation over baselines
+on the paired-test HDI-Recall mean_diff. The structural separation over baselines
 (all 0.000) is preserved because no baseline has a mechanism to surface
 HDI claims at all. Full case-level breakdown including the
-`case-hdi-001-sjw-sertraline` walkthrough is in App. A.3.
+`case-hdi-001-sjw-sertraline` walkthrough is in Appendix A.3.
 
 ### 6.5 Triage ablation: deterministic substitute is load-bearing
 

@@ -12,8 +12,8 @@
 ## 9.2 Reproducibility
 
 All numbers in this paper are reproducible from the public repository at
-`https://github.com/Syntropy-Health/shrine-diet-bioactivity`. See App.
-A.6 for full re-render commands, stats configuration, and LLM/KG
+`https://github.com/Syntropy-Health/shrine-diet-bioactivity`. See
+Appendix A.6 for full re-render commands, stats configuration, and LLM/KG
 details, plus pinned commit SHAs.
 
 ## 9.3 Conclusion

@@ -24,7 +24,7 @@ triggers `kg_compound_to_targets`; any (drug, herb) co-occurrence triggers
 (`cmaup:plant_disease`, `duke:found_in_food`, `hdi-safe-50:mechanism`, etc.).
 
 This **pre-fetched** design is a deliberate departure from LLM-driven
-tool calls; pilot evidence (App. A.1) shows that under free-tier 30B
+tool calls; pilot evidence (Appendix A.1) shows that under free-tier 30B
 inference, models hallucinate tool use in `notes` fields while
 transcript-level tool-invocation counts remain zero. Pre-fetching
 guarantees every panel deliberation receives a non-empty bundle, so
