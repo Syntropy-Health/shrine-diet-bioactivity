@@ -309,3 +309,37 @@ After Phase 3 closed disease canonicalization, the only remaining audit doneness
 - KEGG REACTION ingest (chemical-reaction-level for pharmacokinetics)
 - Pathway-level diet scoring function (aggregate compound exposures over pathways)
 - Run Phase 1 ingest end-to-end (currently `compound_identity` is empty schema; ingest activates `COMPOUND_IN_PATHWAY` + everything else that depends on InChIKey resolution)
+
+---
+
+## Phase 5 closeout (2026-05-08) — Diet Scoring Function
+
+After Phase 4 closed the KEGG pathway layer, the final remaining audit doneness criterion (§5.4: *"Aggregate scoring function published in a spec, with regression test"*) needed the read-side capstone. Phase 5 ships diet scoring.
+
+**Live-DB outcome (sample diet: Turmeric 5g + Ginger 10g + Broccoli 100g):**
+- Multiple compound exposures aggregated across foods
+- Top-ranked diseases: Liver Cirrhosis (mesh:D008106), Mammary Neoplasms (mesh:D001943), Hepatocellular Carcinoma (mesh:D006528), Prostatic Neoplasms (mesh:D011471), Hypertension (mesh:D006973) — all with thousands of PubMed citations and full evidence breakdowns
+- Targets and pathways ranked with full provenance chain
+
+**1 new audit-gate test** (GREEN): `test_diet_scoring_end_to_end`
+
+**Architecture:**
+- Pure-logic Python (`lightrag/diet_scorer.py` + `lightrag/unit_normalizer.py`)
+- CLI: `scripts/score_diet.py`
+- No MCP tool surface — invoked via the agent layer per the thin-adapter constraint
+
+**This closes the original audit.** All 5 doneness criteria from `KG_COMPLETENESS_AUDIT.md §5` are now addressed:
+
+| Criterion | Status |
+|---|---|
+| §5.1 Symptom → food evidence-graded | ✅ Phases 2 + 3 (symptom_disease_map, compound_disease_evidence with PubMed) |
+| §5.2 Diet → predicted physiological effects | ✅ **Phase 5 (this PR)** |
+| §5.3 Compound mechanism dossier | ✅ Phase 3 (canonical Disease entity with full ontology cross-refs) |
+| §5.4 Aggregate scoring function with regression test | ✅ **Phase 5 (this PR)** |
+| §5.5 Pathway-level rollup | ✅ Phase 4 (KEGG `Pathway` entity + 455 pathway-target joins) |
+
+**Phase 5.5+ candidates:**
+- Fuzzy food-name matching (Phase 5.5 spec'd in 0010)
+- Bioavailability correction
+- Time-series weighting
+- ML-learned scoring weights from labeled outcome data

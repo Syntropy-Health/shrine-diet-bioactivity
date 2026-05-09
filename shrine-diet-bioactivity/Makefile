@@ -420,3 +420,10 @@ build-kegg-pathways:
 	python scripts/build_kegg_pathways.py \
 		--db data_local/herbal_botanicals.db \
 		--cache-dir data_local/kegg_cache
+
+# ─── Phase 5 diet scoring ─────────────────────────────────
+.PHONY: score-diet-sample
+
+score-diet-sample:
+	python scripts/score_diet.py --db data_local/herbal_botanicals.db \
+		--diet '{"Turmeric":5,"Ginger":10,"Broccoli":100}' --pretty

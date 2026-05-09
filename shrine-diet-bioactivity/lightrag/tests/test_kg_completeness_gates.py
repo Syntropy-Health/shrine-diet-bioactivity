@@ -325,3 +325,39 @@ def test_kegg_compound_pathway_covers_meaningful_set(
     assert n >= 5_000, (
         f"only {n} compound-pathway links; expected ≥5,000."
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — diet scoring (spec 2026-05-08-diet-scoring-design)
+# ---------------------------------------------------------------------------
+
+
+def test_diet_scoring_end_to_end(db_conn: sqlite3.Connection) -> None:
+    """Closes use-case-D doneness §5.4 — aggregate scoring function works
+    end-to-end against the live KG, returning ranked targets + diseases
+    + pathways with evidence-typed breakdowns and PubMed citation totals.
+    """
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from diet_scorer import score_diet
+
+    diet = [("Turmeric", 5), ("Ginger", 10), ("Broccoli", 100)]
+    result = score_diet(diet, conn=db_conn)
+
+    assert len(result["exposures"]) > 0, "expected ≥1 compound exposure"
+    assert len(result["targets"]) > 0, "expected ≥1 ranked target"
+    assert len(result["diseases"]) > 0, "expected ≥1 ranked disease"
+
+    # Top-ranked disease should carry an evidence breakdown with all four keys.
+    top = result["diseases"][0]
+    breakdown = top["evidence_breakdown"]
+    assert {"direct_therapeutic", "direct_marker",
+            "inferred_via_gene", "pubmed_total"}.issubset(breakdown.keys())
+    # PubMed citation count is non-negative and an int.
+    assert isinstance(breakdown["pubmed_total"], int)
+    assert breakdown["pubmed_total"] >= 0
+
+    # Disclaimer field must be present (research-only flag).
+    assert "research-aid" in result["disclaimer"].lower()

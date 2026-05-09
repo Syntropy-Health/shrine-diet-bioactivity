@@ -151,3 +151,14 @@ Run via `make build-disease-canonical && make load-ctd`. See ADR 0008 for live-D
 | [`superpowers/specs/2026-05-08-kegg-pathway-overlay-design.md`](superpowers/specs/2026-05-08-kegg-pathway-overlay-design.md) | Phase 4 design spec |
 
 Run via `make build-kegg-pathways`. **License:** KEGG is academic-use-only — see ADR 0009 for commercial-deployment opt-out path.
+
+---
+
+## Phase 5 — diet scoring (added 2026-05-08)
+
+| File | One-line description |
+|---|---|
+| [`adr/0010-diet-scoring.md`](adr/0010-diet-scoring.md) | Architectural decision record — diet scoring algorithm + weight rationale |
+| [`superpowers/specs/2026-05-08-diet-scoring-design.md`](superpowers/specs/2026-05-08-diet-scoring-design.md) | Phase 5 design spec |
+
+Run via `make score-diet-sample` or `python scripts/score_diet.py --diet '{...}'`. **Closes the audit.**
