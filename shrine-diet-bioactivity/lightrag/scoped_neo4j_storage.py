@@ -351,3 +351,34 @@ class ScopedNeo4JStorage(Neo4JStorage):
                     labels.append(record["entity_id"])
             await result.consume()
             return labels
+
+
+# ---------------------------------------------------------------------------
+# Register with upstream LightRAG's storage-compatibility whitelist and the
+# STORAGES import-path map.
+#
+# LightRAG uses two separate dicts:
+#   1. ``STORAGE_IMPLEMENTATIONS`` — verify_storage_implementation() check
+#   2. ``STORAGES`` — _get_storage_class() dynamic-import resolution
+#
+# Both must know about our class for LightRAG(graph_storage=
+# "ScopedNeo4JStorage") to succeed without touching the submodule.
+# ---------------------------------------------------------------------------
+try:
+    from lightrag.kg import (  # type: ignore[import]
+        STORAGE_IMPLEMENTATIONS as _STORAGE_IMPLEMENTATIONS,
+        STORAGES as _STORAGES,
+    )
+
+    # 1. Compatibility whitelist
+    _graph = _STORAGE_IMPLEMENTATIONS.get("GRAPH_STORAGE", {})
+    _impls = _graph.get("implementations")
+    if isinstance(_impls, list) and "ScopedNeo4JStorage" not in _impls:
+        _impls.append("ScopedNeo4JStorage")
+
+    # 2. Import-path map
+    if "ScopedNeo4JStorage" not in _STORAGES:
+        _STORAGES["ScopedNeo4JStorage"] = "scoped_neo4j_storage"
+except (ImportError, KeyError, AttributeError):
+    # Upstream LightRAG not importable or dict shape changed — tolerate silently.
+    pass

@@ -15,8 +15,14 @@ from neo4j import GraphDatabase
 # Load .env from shrine-diet-bioactivity/ (one level above this file's directory)
 load_dotenv(Path(__file__).parent.parent / ".env")
 
+_HAS_NEO4J_URI = bool(os.environ.get("NEO4J_URI"))
+
 
 @pytest.mark.integration
+@pytest.mark.skipif(
+    not _HAS_NEO4J_URI,
+    reason="requires NEO4J_URI env var (set in .env or shell) pointing at live Aura",
+)
 def test_hdi_edges_land_in_aura() -> None:
     """Run the ingest, then assert ≥50 INTERACTS_WITH edges live in Aura."""
     from ingest_hdi import main as ingest_main

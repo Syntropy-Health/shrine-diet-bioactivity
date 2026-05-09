@@ -359,3 +359,39 @@ class ScopedNeo4JVectorStorage(BaseVectorStorage):
         if self._driver is not None:
             await self._driver.close()
             self._driver = None
+
+
+# ---------------------------------------------------------------------------
+# Register with upstream LightRAG's storage-compatibility whitelist and the
+# STORAGES import-path map.
+#
+# LightRAG uses two separate dicts:
+#   1. ``STORAGE_IMPLEMENTATIONS`` — verify_storage_implementation() check
+#   2. ``STORAGES`` — _get_storage_class() dynamic-import resolution
+#
+# Both must know about our class for LightRAG(vector_storage=
+# "ScopedNeo4JVectorStorage") to succeed without touching the submodule.
+# The ``scoped_neo4j_vector_storage`` module must be importable from the
+# working directory (i.e. sys.path includes lightrag/).
+#
+# The try/except guards against upstream renaming or shape changes.
+# ---------------------------------------------------------------------------
+try:
+    from lightrag.kg import (  # type: ignore[import]
+        STORAGE_IMPLEMENTATIONS as _STORAGE_IMPLEMENTATIONS,
+        STORAGES as _STORAGES,
+    )
+
+    # 1. Compatibility whitelist
+    _vec = _STORAGE_IMPLEMENTATIONS.get("VECTOR_STORAGE", {})
+    _impls = _vec.get("implementations")
+    if isinstance(_impls, list) and "ScopedNeo4JVectorStorage" not in _impls:
+        _impls.append("ScopedNeo4JVectorStorage")
+
+    # 2. Import-path map — absolute module name so lazy_external_import can
+    #    resolve it regardless of which package calls _get_storage_class.
+    if "ScopedNeo4JVectorStorage" not in _STORAGES:
+        _STORAGES["ScopedNeo4JVectorStorage"] = "scoped_neo4j_vector_storage"
+except (ImportError, KeyError, AttributeError):
+    # Upstream LightRAG not importable or dict shape changed — tolerate silently.
+    pass
