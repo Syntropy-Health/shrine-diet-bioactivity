@@ -27,11 +27,16 @@ The "real-world simple task" smoke tests verify that, end-to-end:
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
+# NOTE: ``server._mcp_server`` is a private attribute of FastMCP. There is no
+# public API for in-memory wiring in the current SDK (mcp~=1.0). If FastMCP
+# renames this attribute in a future release, the fixture below will break
+# loudly — pin ``mcp`` upper bound in pyproject.toml when that happens.
 from kg_mcp.server import server
 
 
@@ -41,7 +46,7 @@ from kg_mcp.server import server
 
 
 @asynccontextmanager
-async def _connected_session_with_mock_backend(backend_responses: dict):
+async def _connected_session_with_mock_backend(backend_responses: dict[str, Any]):
     """Spin up an in-memory MCP client/server pair with mocked ScopedServer.
 
     Args:
@@ -128,11 +133,10 @@ async def test_each_tool_has_input_schema_and_description():
 
 @pytest.mark.asyncio
 async def test_real_world_kg_query_natural_language_question():
-    """Simulate a researcher asking 'does ginger help with nausea?'
+    """Layer A — researcher asks 'does ginger help with nausea?'
 
-    Tests Layer A (kg_query) end-to-end: client serializes args → MCP
-    transport → FastMCP routes to handler → tool calls mocked KG → result
-    flows back through transport → client deserializes.
+    Verifies: client args → MCP transport → FastMCP handler → mocked KG →
+    transport → client deserialization. Both seeded strings must round-trip.
     """
     async with _connected_session_with_mock_backend(
         {
@@ -149,124 +153,135 @@ async def test_real_world_kg_query_natural_language_question():
         )
         assert not result.isError, _content_payload(result)
         payload = _content_payload(result)
-        # Pydantic model is serialized as JSON-shaped text.
-        assert "gingerols" in payload or "Ginger" in payload
-        # Verify the tool actually called through to the (mocked) backend.
+        assert "gingerols" in payload
+        assert "Zingiber officinale" in payload
         fake_client.query.assert_awaited_once()
 
 
-@pytest.mark.asyncio
-async def test_real_world_diet_to_compounds_for_garlic():
-    """A Dietitian asks 'what bioactives are in garlic?'
+# Layer-B traversals share a fixed mock shape and a uniform call contract:
+# every tool fixes start_label + edge_types + direction + depth at registration,
+# and exposes only `seed` + `top_k` to the caller. One parametrized body covers
+# all six tools — adding a new Layer-B tool is a one-line addition here.
+LAYER_B_TRAVERSALS = [
+    pytest.param(
+        "kg_diet_to_compounds", "Garlic", "Food",
+        ("Garlic", "Allicin", "FOUND_IN_FOOD"), "Allicin",
+        id="diet_to_compounds-garlic",
+    ),
+    pytest.param(
+        "kg_compound_to_targets", "Curcumin", "Compound",
+        ("Curcumin", "NF-kappa-B p65", "TARGETS_PROTEIN"), "NF-kappa-B",
+        id="compound_to_targets-curcumin",
+    ),
+    pytest.param(
+        "kg_compound_to_diseases", "Curcumin", "Compound",
+        ("Curcumin", "Hepatocellular Carcinoma", "ASSOCIATED_WITH_DISEASE"),
+        "Hepatocellular",
+        id="compound_to_diseases-curcumin",
+    ),
+    pytest.param(
+        "kg_herb_to_diseases", "Ginger", "Herb",
+        ("Ginger", "Nausea", "ASSOCIATED_WITH_DISEASE"), "Nausea",
+        id="herb_to_diseases-ginger",
+    ),
+    pytest.param(
+        "kg_herb_to_symptoms", "Ginger", "Herb",
+        ("Ginger", "Vomiting", "TREATS_SYMPTOM"), "Vomiting",
+        id="herb_to_symptoms-ginger",
+    ),
+    pytest.param(
+        "kg_compound_to_symptoms", "Allicin", "Compound",
+        ("Allicin", "Hypertension", "TREATS_SYMPTOM"), "Hypertension",
+        id="compound_to_symptoms-allicin",
+    ),
+]
 
-    Exercises Layer B's deterministic Food→Compound traversal.
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "seed", "expected_start_label", "edge_triple", "expected_in_payload"),
+    LAYER_B_TRAVERSALS,
+)
+async def test_layer_b_traversal_round_trip(
+    tool_name: str,
+    seed: str,
+    expected_start_label: str,
+    edge_triple: tuple[str, str, str],
+    expected_in_payload: str,
+):
+    """Each Layer-B tool: real-world seed → mocked traverse → response payload.
+
+    Asserts uniformly: result deserializes, payload contains the expected
+    target name, and the role-prior (start_label) was applied correctly.
     """
+    src_id, tgt_id, rel_type = edge_triple
     async with _connected_session_with_mock_backend(
         {
             "traverse": {
                 "chains": [
                     {
                         "edges": [
-                            {
-                                "src_id": "Garlic",
-                                "tgt_id": "Allicin",
-                                "rel_type": "FOUND_IN_FOOD",
-                            }
+                            {"src_id": src_id, "tgt_id": tgt_id, "rel_type": rel_type}
                         ],
                     }
                 ],
-                "seeds_resolved": ["Garlic"],
+                "seeds_resolved": [seed],
             }
         }
     ) as (session, fake_client):
         result = await session.call_tool(
-            "kg_diet_to_compounds",
-            {"seed": "Garlic", "top_k": 5},
+            tool_name, {"seed": seed, "top_k": 5}
         )
         assert not result.isError, _content_payload(result)
-        payload = _content_payload(result)
-        assert "Allicin" in payload
-        # Layer B fixes start_label/edge_types/direction/depth; only seed +
-        # top_k vary per call. Verify the role-prior was applied correctly.
-        call = fake_client.traverse.call_args
-        assert call is not None
-        kwargs = call.kwargs
-        assert kwargs.get("start_label") == "Food"
-        assert kwargs.get("seed") == "Garlic"
-        assert kwargs.get("top_k") == 5
+        assert expected_in_payload in _content_payload(result)
+
+        kwargs = fake_client.traverse.call_args.kwargs
+        assert kwargs["start_label"] == expected_start_label
+        assert kwargs["seed"] == seed
+        assert kwargs["top_k"] == 5
 
 
 @pytest.mark.asyncio
-async def test_real_world_compound_to_targets_for_curcumin():
-    """A Pharmacologist asks 'what proteins does curcumin bind?'
-
-    Layer B Compound→Target traversal — the gene-symbol-anchored chain.
-    """
-    async with _connected_session_with_mock_backend(
-        {
-            "traverse": {
-                "chains": [
-                    {
-                        "edges": [
-                            {
-                                "src_id": "Curcumin",
-                                "tgt_id": "NF-kappa-B p65",
-                                "rel_type": "TARGETS_PROTEIN",
-                            }
-                        ],
-                    }
-                ],
-                "seeds_resolved": ["Curcumin"],
-            }
-        }
-    ) as (session, _):
-        result = await session.call_tool(
-            "kg_compound_to_targets",
-            {"seed": "Curcumin"},
-        )
-        assert not result.isError, _content_payload(result)
-        assert "NF-kappa-B" in _content_payload(result)
-
-
-@pytest.mark.asyncio
-async def test_real_world_hdi_check_warfarin_garlic():
-    """A safety review asks 'does warfarin interact with garlic?'
-
-    Layer C lookup primitive — direct query against the HDI-Safe-50 panel.
-    """
+@pytest.mark.parametrize(
+    ("found", "severity", "mechanism", "tier", "must_contain"),
+    [
+        pytest.param(
+            True, "moderate", "coagulation", "case-report",
+            ["moderate", "coagulation"],
+            id="found-warfarin-garlic",
+        ),
+        pytest.param(
+            False, None, None, None, ["false"],
+            id="not-found-obscure-pair",
+        ),
+    ],
+)
+async def test_real_world_hdi_check(
+    found: bool,
+    severity: str | None,
+    mechanism: str | None,
+    tier: str | None,
+    must_contain: list[str],
+):
+    """Layer C — HDI-Safe-50 lookup, both panel-hit and panel-miss cases."""
     async with _connected_session_with_mock_backend(
         {
             "hdi_check": {
-                "found": True,
-                "severity": "moderate",
-                "mechanism_class": "coagulation",
-                "evidence_tier": "case-report",
+                "found": found,
+                "severity": severity,
+                "mechanism_class": mechanism,
+                "evidence_tier": tier,
             }
         }
     ) as (session, fake_client):
         result = await session.call_tool(
-            "kg_hdi_check",
-            {"drug": "warfarin", "herb": "garlic"},
+            "kg_hdi_check", {"drug": "warfarin", "herb": "garlic"}
         )
         assert not result.isError, _content_payload(result)
-        payload = _content_payload(result)
-        assert "moderate" in payload
-        assert "coagulation" in payload
+        payload = _content_payload(result).lower()
+        for needle in must_contain:
+            assert needle.lower() in payload
         fake_client.hdi_check.assert_awaited_with("warfarin", "garlic")
-
-
-@pytest.mark.asyncio
-async def test_real_world_hdi_check_no_match_returns_found_false():
-    """Lookup with no panel hit should return found=False, not error."""
-    async with _connected_session_with_mock_backend(
-        {"hdi_check": {"found": False, "drug": "obscuredrug", "herb": "obscureherb"}}
-    ) as (session, _):
-        result = await session.call_tool(
-            "kg_hdi_check",
-            {"drug": "obscuredrug", "herb": "obscureherb"},
-        )
-        assert not result.isError, _content_payload(result)
-        assert "false" in _content_payload(result).lower()
 
 
 @pytest.mark.asyncio
@@ -288,9 +303,30 @@ async def test_real_world_bilingual_term_canonicalization():
             {"term": "失眠"},
         )
         assert not result.isError, _content_payload(result)
-        assert "Insomnia" in _content_payload(result)
-        assert "Shi Mian" in _content_payload(result)
+        payload = _content_payload(result)
+        assert "Insomnia" in payload
+        assert "Shi Mian" in payload
         fake_client.bilingual_term.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_real_world_node_neighborhood_fallback():
+    """Layer C — generic bounded-depth subgraph dump (last-resort fallback)."""
+    async with _connected_session_with_mock_backend(
+        {
+            "graphs": {
+                "nodes": [{"id": "Curcumin", "label": "Compound"}],
+                "edges": [],
+            }
+        }
+    ) as (session, fake_client):
+        result = await session.call_tool(
+            "kg_node_neighborhood",
+            {"seed": "Curcumin", "max_depth": 1, "max_nodes": 10},
+        )
+        assert not result.isError, _content_payload(result)
+        assert "Curcumin" in _content_payload(result)
+        fake_client.graphs.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -300,17 +336,15 @@ async def test_real_world_bilingual_term_canonicalization():
 
 @pytest.mark.asyncio
 async def test_call_unknown_tool_returns_error():
-    """An unknown tool name should surface a graceful error, not crash.
+    """An unknown tool name must surface as an error, not silent success.
 
-    FastMCP's low-level handler logs a warning and returns isError=True with
-    the failure message in content; it does not raise. Either contract is
-    acceptable — the invariant we care about is "the call doesn't silently
-    succeed."
+    FastMCP's low-level handler returns isError=True with a message in
+    content rather than raising. We assert only the contract — not the
+    specific wording, which would couple to SDK internals.
     """
     async with _connected_session_with_mock_backend({}) as (session, _):
         result = await session.call_tool("nonexistent_tool_xyz", {})
         assert result.isError, "unknown tool must produce isError=True"
-        assert "nonexistent_tool_xyz" in _content_payload(result)
 
 
 @pytest.mark.asyncio

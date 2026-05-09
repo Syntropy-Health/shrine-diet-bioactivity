@@ -35,7 +35,9 @@
 # ─── Tunables (override on the command line) ─────────────────
 MCP_HOST          ?= 127.0.0.1
 MCP_PORT          ?= 8080
-MCP_API_KEY       ?= dev-key-do-not-use-in-prod
+# MCP_API_KEY has NO default — dev-http-auth requires the caller to set it
+# explicitly. A hardcoded default would silently activate auth with a known
+# key in any shell that picked it up.
 KG_MCP_E2E_URL    ?= http://127.0.0.1:$(MCP_PORT)
 STAGING_URL       ?= https://kg-mcp.up.railway.app
 PYTHON            ?= python3
@@ -48,26 +50,29 @@ help: ## Show all targets with descriptions
 
 # ─── Install ─────────────────────────────────────────────────
 
-install: ## Install package + test deps from pyproject
-	$(PYTHON) -m pip install -e '.[test]' || $(PYTHON) -m pip install -e .
+install: ## Install package in editable mode from pyproject
+	$(PYTHON) -m pip install -e .
 
 # ─── Dev servers ─────────────────────────────────────────────
 
 dev: ## Run server in STDIO mode (default; how local agents spawn it)
 	MCP_TRANSPORT=stdio $(PYTHON) -m kg_mcp.server
 
-dev-http: ## Run server in streamable-HTTP mode WITHOUT auth (dev-only, insecure)
+dev-http: ## Run streamable-HTTP locally, NO auth, NO rebinding protection (loopback-only)
 	MCP_TRANSPORT=streamable-http \
 	MCP_HOST=$(MCP_HOST) \
 	MCP_PORT=$(MCP_PORT) \
 	MCP_DISABLE_DNS_REBINDING_PROTECTION=1 \
 	$(PYTHON) -m kg_mcp.server
 
-dev-http-auth: ## Run streamable-HTTP with MCP_API_KEY bearer enforcement (matches prod auth path 1)
+dev-http-auth: ## Run streamable-HTTP locally with bearer auth (rebinding protection still off — loopback only)
+	@test -n "$$MCP_API_KEY" || { \
+	  echo "ERROR: set MCP_API_KEY=<token> before running dev-http-auth" >&2; \
+	  exit 1; \
+	}
 	MCP_TRANSPORT=streamable-http \
 	MCP_HOST=$(MCP_HOST) \
 	MCP_PORT=$(MCP_PORT) \
-	MCP_API_KEY=$(MCP_API_KEY) \
 	MCP_DISABLE_DNS_REBINDING_PROTECTION=1 \
 	$(PYTHON) -m kg_mcp.server
 
@@ -110,10 +115,13 @@ lint-fix: ## Ruff fix + format (writes)
 
 format: lint-fix ## Alias for lint-fix
 
-typecheck: ## Pyright type check (best-effort; non-blocking)
+typecheck: ## Pyright type check — informational only, NOT gated by `make ci`
 	$(PYTHON) -m pyright src || true
 
-ci: lint test ## What CI runs: lint + all tests
+# `ci` deliberately omits typecheck. Pyright is run for visibility but its
+# exit code is suppressed (see `typecheck` above). Wire it into CI separately
+# if you want it to gate merges.
+ci: lint test ## What CI runs: lint + all tests (typecheck excluded by design)
 
 clean: ## Remove caches and coverage artifacts
 	rm -rf .pytest_cache .ruff_cache htmlcov .coverage

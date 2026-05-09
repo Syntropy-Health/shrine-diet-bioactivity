@@ -26,7 +26,7 @@
         test test-mcp test-kg test-smoke \
         lint typecheck ci \
         mcp-dev mcp-dev-http kg-server kg-ingest kg-bench \
-        score-diet docs-update clean
+        score-diet clean
 
 help: ## Show every target across the entire repo, grouped
 	@echo ""
@@ -68,8 +68,13 @@ test-kg: ## KG side: lightrag ingest tests (when present)
 
 test-smoke: ## Smallest cross-server set: gateway boots + KG matchers work
 	$(MAKE) -C mcp test-smoke
-	@if [ -f shrine-diet-bioactivity/lightrag/tests/test_kg_completeness_gates.py ]; then \
+	@# Audit-gate tests need data_local/herbal_botanicals.db. Skip cleanly on a
+	@# fresh clone where the build pipeline hasn't run.
+	@if [ -f shrine-diet-bioactivity/lightrag/tests/test_kg_completeness_gates.py ] && \
+	    [ -f shrine-diet-bioactivity/data_local/herbal_botanicals.db ]; then \
 		cd shrine-diet-bioactivity/lightrag && python -m pytest tests/test_kg_completeness_gates.py -v; \
+	else \
+		echo "(skipping audit-gate tests — db or test file not built yet)"; \
 	fi
 
 # ─── Quality gates ───────────────────────────────────────────
@@ -105,9 +110,6 @@ score-diet: ## Diet scorer CLI sample run (Phase 5)
 	$(MAKE) -C shrine-diet-bioactivity score-diet-sample
 
 # ─── Housekeeping ────────────────────────────────────────────
-
-docs-update: ## Regenerate codemaps + ADRs (when /update-docs hook is wired)
-	@echo "Run \`/update-docs\` from inside Claude Code, or wire to your CI."
 
 clean: ## Clean caches across both servers
 	$(MAKE) -C mcp clean
