@@ -32,12 +32,14 @@ from typing import Tuple
 # registration of ScopedNeo4JStorage / ScopedNeo4JVectorStorage into upstream
 # LightRAG's STORAGE_IMPLEMENTATIONS whitelist.  This must happen before any
 # LightRAG() call that passes either class name as graph_storage /
-# vector_storage.
+# vector_storage.  The tuple binding marks the imports as accessed for static
+# analysis while preserving the side-effect-only intent.
 try:
-    import scoped_neo4j_storage  # noqa: F401  # pyright: ignore[reportMissingImports, reportUnusedImport]
-    import scoped_neo4j_vector_storage  # noqa: F401  # pyright: ignore[reportMissingImports, reportUnusedImport]
+    import scoped_neo4j_storage as _sns  # pyright: ignore[reportMissingImports]
+    import scoped_neo4j_vector_storage as _snvs  # pyright: ignore[reportMissingImports]
+    _REGISTERED_SCOPED_STORAGES: tuple = (_sns, _snvs)
 except ImportError:
-    pass
+    _REGISTERED_SCOPED_STORAGES = ()
 
 
 def init_lightrag(working_dir: str | None = None):
