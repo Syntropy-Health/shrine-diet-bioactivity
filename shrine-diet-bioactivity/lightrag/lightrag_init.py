@@ -27,14 +27,15 @@ from pathlib import Path
 from typing import Tuple
 
 
+# Module-load-time registration in upstream LightRAG STORAGE_IMPLEMENTATIONS — see Issue #13.
 # Importing scoped_neo4j_*_storage modules triggers their module-level
 # registration of ScopedNeo4JStorage / ScopedNeo4JVectorStorage into upstream
 # LightRAG's STORAGE_IMPLEMENTATIONS whitelist.  This must happen before any
 # LightRAG() call that passes either class name as graph_storage /
 # vector_storage.
 try:
-    import scoped_neo4j_storage as _sns  # noqa: F401
-    import scoped_neo4j_vector_storage as _snvs  # noqa: F401
+    import scoped_neo4j_storage  # noqa: F401  # pyright: ignore[reportMissingImports, reportUnusedImport]
+    import scoped_neo4j_vector_storage  # noqa: F401  # pyright: ignore[reportMissingImports, reportUnusedImport]
 except ImportError:
     pass
 

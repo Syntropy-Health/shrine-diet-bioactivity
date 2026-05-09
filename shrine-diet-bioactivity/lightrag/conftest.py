@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Generator
 
 import pytest
 
@@ -21,7 +22,7 @@ def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
 
 
 @pytest.fixture(autouse=True)
-def _reset_event_loop() -> None:
+def _reset_event_loop() -> Generator[None, None, None]:  # pyright: ignore[reportUnusedFunction]
     """Ensure each test function starts with a fresh asyncio event loop.
 
     ``asyncio.run()`` (called by e.g. ``test_ingest_hdi``) closes the loop it
