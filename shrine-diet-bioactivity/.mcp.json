@@ -1,11 +1,11 @@
 {
   "mcpServers": {
-    "herbal-botanicals": {
+    "shrine-diet-bioactivity": {
       "type": "stdio",
       "command": "npx",
       "args": [
         "tsx",
-        "/home/mo/projects/SyntropyHealth/research/open-diet-data/mcp-herbal-botanicals/src/index.ts"
+        "./src/index.ts"
       ],
       "env": {}
     }

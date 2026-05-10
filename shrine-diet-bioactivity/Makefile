@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────
-# mcp-herbal-botanicals — Phytochemical Knowledge Graph
+# shrine-diet-bioactivity — Phytochemical Knowledge Graph (Python + TypeScript thin adapter)
 # ─────────────────────────────────────────────────────────────
 #
 # Usage:
@@ -31,7 +31,6 @@
         lightrag-bootstrap-scope lightrag-bootstrap-scope-dry-run \
         lightrag-bootstrap-scope-prod lightrag-test-scope \
         lightrag-canary-test lightrag-test-integration audit-recent \
-        graphiti-setup graphiti-dry-run graphiti-ingest graphiti-ingest-direct \
         neo4j-check neo4j-shell neo4j-stats neo4j-status neo4j-watch neo4j-clear \
         embedding-check lms-models clean \
         eval-smoke eval-run eval-report eval-embed-ingest
@@ -291,48 +290,6 @@ audit-recent: ## Tail last 20 rows of the per-tenant audit log
 	sqlite3 lightrag/audit/mcp_audit.db \
 		"SELECT ts, tenant_id, tool, status, latency_ms, result_count \
 		 FROM mcp_audit ORDER BY id DESC LIMIT 20"
-
-# ─── Graphiti (Legacy) ─────────────────────────────────────
-
-graphiti-setup: ## Set up Python venv and install Graphiti dependencies
-	cd graphiti && \
-	python3 -m venv .venv && \
-	. .venv/bin/activate && \
-	pip install -r requirements.txt && \
-	echo "✅ Graphiti venv ready. Activate with: source graphiti/.venv/bin/activate"
-
-graphiti-dry-run: ## Show what would be ingested (no Neo4j connection needed)
-	cd graphiti && \
-	OPENAI_API_KEY=not-needed \
-	NEO4J_URI=$(NEO4J_URI) NEO4J_USER=$(NEO4J_USER) NEO4J_PASSWORD=$(NEO4J_PASS) \
-	MAX_HERBS=$(MAX_HERBS) MAX_COMPOUNDS=$(MAX_COMPOUNDS) BATCH_SIZE=$(BATCH_SIZE) \
-	MAX_LINKS=2000 \
-	python3 ingest.py --dry-run
-
-graphiti-ingest: ## Ingest subsampled data into Graphiti/Neo4j (requires LM Studio)
-	@echo "Checking LM Studio at $(LMS_URL) ..."
-	@curl -sf --connect-timeout 5 $(LMS_URL)/models >/dev/null 2>&1 || \
-		(echo "❌ LM Studio not reachable at $(LMS_URL). Ensure it listens on 0.0.0.0:1234." && exit 1)
-	cd graphiti && \
-	OPENAI_API_KEY=not-needed \
-	NEO4J_URI=$(NEO4J_URI) NEO4J_USER=$(NEO4J_USER) NEO4J_PASSWORD=$(NEO4J_PASS) \
-	MAX_HERBS=$(MAX_HERBS) MAX_COMPOUNDS=$(MAX_COMPOUNDS) BATCH_SIZE=$(BATCH_SIZE) \
-	MAX_LINKS=2000 \
-	EMBEDDING_BASE_URL=$(LMS_URL) \
-	LLM_BASE_URL=$(LMS_URL) \
-	python3 ingest.py
-
-graphiti-ingest-direct: ## Ingest structured data directly into Neo4j (no LLM needed, embeddings only)
-	@echo "Checking embedding server at $(LMS_URL) ..."
-	@curl -sf --connect-timeout 5 $(LMS_URL)/models >/dev/null 2>&1 || \
-		(echo "❌ Embedding server not reachable at $(LMS_URL)." && exit 1)
-	cd graphiti && \
-	PYTHONUNBUFFERED=1 \
-	NEO4J_URI=$(NEO4J_URI) NEO4J_USER=$(NEO4J_USER) NEO4J_PASSWORD=$(NEO4J_PASS) \
-	MAX_HERBS=$(MAX_HERBS) MAX_COMPOUNDS=$(MAX_COMPOUNDS) \
-	MAX_LINKS=2000 BATCH_SIZE=$(BATCH_SIZE) \
-	EMBEDDING_BASE_URL=$(LMS_URL) \
-	python3 -u ingest_direct.py
 
 # ─── Cleanup ────────────────────────────────────────────────
 

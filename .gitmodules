@@ -1,12 +1,3 @@
-# Reference-only: kept as upstream source of OpenNutrition's TSV→KG
-# mapping methodology. NOT wired into runtime — the shrine-diet-bioactivity
-# MCP thin-adapter no longer composes over the OpenNutrition MCP server.
-# See shrine-diet-bioactivity/docs/opennutrition-to-kg.md for the archived
-# ingestion workflow.
-[submodule "mcp-opennutrition"]
-	path = mcp-opennutrition
-	url = https://github.com/deadletterq/mcp-opennutrition.git
-
 # Active dependency: LightRAG framework. The scoped FastAPI wrapper
 # (shrine-diet-bioactivity/lightrag/scoped_server.py) subclasses its
 # Neo4j storage and mounts its graph routes.
