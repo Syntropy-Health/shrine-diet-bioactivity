@@ -74,6 +74,7 @@ class _NoOpSpan:
     """
 
     def log(self, **kwargs: Any) -> None:  # noqa: D401 — trivial no-op
+        _ = kwargs  # explicit reference; satisfies Pyright "not accessed" hint
         return None
 
     def end(self) -> None:  # noqa: D401 — trivial no-op
