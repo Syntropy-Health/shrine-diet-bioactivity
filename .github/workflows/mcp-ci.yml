@@ -34,7 +34,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          # Submodules NOT needed: mcp/ tests have no submodule deps,
+          # and the Aura test only needs the `neo4j` driver. Skipping
+          # avoids a known broken `mcp-opennutrition` submodule pointer
+          # that fails `submodules: recursive` checkout repo-wide.
+          submodules: false
           fetch-depth: 1
 
       - uses: actions/setup-python@v5
@@ -77,7 +81,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          # Submodules NOT needed: mcp/ tests have no submodule deps,
+          # and the Aura test only needs the `neo4j` driver. Skipping
+          # avoids a known broken `mcp-opennutrition` submodule pointer
+          # that fails `submodules: recursive` checkout repo-wide.
+          submodules: false
           fetch-depth: 1
 
       - uses: actions/setup-python@v5
