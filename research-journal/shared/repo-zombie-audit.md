@@ -1,3 +1,17 @@
+## 2026-05-10 update: zombies removed
+
+Cleanup PR landed. Removed:
+- `mcp-opennutrition/` submodule (was deprecated per .gitmodules; CI submodule fetch was failing on unreachable upstream commit `e6e77c67`)
+- `shrine-diet-bioactivity/graphiti/` directory (was superseded by LightRAG; zero Python imports)
+- 2 dead TypeScript scripts (`shrine-diet-bioactivity/scripts/build-food-bridge.ts`, `enrich-nutrition.ts`) and their package.json entries
+- 4 graphiti-* Makefile targets in `shrine-diet-bioactivity/Makefile`
+
+Stale references to `mcp-herbal-botanicals/` in root `CLAUDE.md`, both `.mcp.json` files, and the Makefile header replaced with current names (`mcp/` + `shrine-diet-bioactivity/`). Historical artifacts under `.claude/PRPs/` retain the old name for context — these are immutable plan/report archives.
+
+Audit below preserved for context.
+
+---
+
 # Repo Zombie-Module Audit & Reorganization Proposal
 
 _Authored 2026-04-26. Scope: `apps/shrine-diet-bioactivity/` worktree. Companion to the v1 post-mortem._
