@@ -31,6 +31,8 @@ from agents.run_case_study import (  # type: ignore[import-not-found]
     run_case_study,
 )
 
+pytestmark = [pytest.mark.unit]
+
 
 # ---------------------------------------------------------------------------
 # Helpers

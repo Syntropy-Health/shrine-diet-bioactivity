@@ -6,6 +6,8 @@ from agents.panel import (  # type: ignore[import-not-found]
     build_clinical_research_scientist, build_safety_reviewer, build_defer_to_clinician,
 )
 
+pytestmark = [pytest.mark.unit]
+
 
 @pytest.mark.parametrize("builder, expected_role", [
     (build_dietitian, "Dietitian"),

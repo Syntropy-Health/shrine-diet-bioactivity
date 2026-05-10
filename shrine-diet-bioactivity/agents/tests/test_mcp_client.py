@@ -16,6 +16,8 @@ from agents.tools.mcp_client import (
     DEFAULT_MCP_URL, MCPClient, MCPError, default_client, reset_default_client,
 )
 
+pytestmark = [pytest.mark.unit]
+
 
 # ---------------------------------------------------------------------------
 # Helpers

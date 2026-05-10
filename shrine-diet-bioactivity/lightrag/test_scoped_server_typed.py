@@ -13,6 +13,12 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+# Unit-classified despite using FastAPI TestClient: the driver, scope preflight,
+# audit log, and RAG builder are all monkey-patched, so no real network/IO occurs
+# (TestClient drives the ASGI app in-process). See sibling test_scoped_server_query.py
+# / test_scoped_server_graph.py for the integration-marked variants that hit live Aura.
+pytestmark = [pytest.mark.unit]
+
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, tmp_path):

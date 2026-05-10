@@ -1,0 +1,15 @@
+# Optional integration-test dependencies.
+#
+# This file declares (but does not auto-install) extras used by the
+# integration-test suites under ``mcp/tests/`` and
+# ``shrine-diet-bioactivity/eval/tests/``. Each dependency is soft-imported;
+# when absent, the corresponding test feature is a silent no-op.
+#
+# To install:
+#   pip install -r requirements-test.txt
+#
+# Braintrust span logging for integration tests. Soft-imported by
+# ``mcp/tests/e2e/_braintrust_logger.py`` and
+# ``shrine-diet-bioactivity/eval/tests/_braintrust_logger.py``. Logs to
+# project ``diet-os-eval`` when ``BRAINTRUST_API_KEY`` is set.
+braintrust>=0.0.180

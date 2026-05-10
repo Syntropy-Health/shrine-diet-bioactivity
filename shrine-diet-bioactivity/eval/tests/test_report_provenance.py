@@ -3,6 +3,8 @@ import pytest
 
 from eval.report import build_source_attribution_runner  # type: ignore[import-not-found]
 
+pytestmark = [pytest.mark.unit]
+
 
 KNOWN_PREFIXES = ("cmaup:", "duke:", "herb2:", "symmap:", "hdi-safe-50:")
 

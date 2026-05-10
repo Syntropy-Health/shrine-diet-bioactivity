@@ -10,6 +10,14 @@ dependencies = [
     "pyjwt[crypto]>=2.8",  # Clerk JWT verification
 ]
 
+[project.optional-dependencies]
+# Optional integration-test extras. ``braintrust`` is soft-imported by
+# ``tests/e2e/_braintrust_logger.py``; tests run as a no-op when the SDK
+# is not installed and/or ``BRAINTRUST_API_KEY`` is unset.
+test = [
+    "braintrust>=0.0.180",
+]
+
 [project.scripts]
 kg-mcp-server = "kg_mcp.server:main"
 
@@ -25,6 +33,12 @@ pythonpath = ["src"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
-    "e2e: live HTTP tests against the deployed MCP gateway (requires KG_MCP_E2E_URL)",
+    "unit: Pure unit test, no I/O, no network",
+    "integration: Real components",
+    "e2e: Real network call to staged services",
+    "live_llm: Calls real LLM",
+    "live_llm_replay: Cassette replay",
+    "aura: Hits live Neo4j Aura",
+    "slow: Runtime > 30s",
 ]
 addopts = ["-m", "not e2e"]

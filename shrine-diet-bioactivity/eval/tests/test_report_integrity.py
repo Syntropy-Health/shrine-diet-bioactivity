@@ -42,6 +42,10 @@ from eval.scenario import (  # type: ignore[import-not-found]
     Scenario,
 )
 
+from ._braintrust_logger import bt_span
+
+pytestmark = [pytest.mark.integration]
+
 
 # ---------------------------------------------------------------------------
 # Module constants
@@ -164,31 +168,37 @@ def test_missing_scenario_id_fails_render(tmp_path: Path) -> None:
     RED: the current code silently fabricates a neutral stub via the
     inline ``_neutral_stub`` helper, so no exception is raised.
     """
-    benchmark = [_mk_scenario("real-scen-001")]
-    results_dir = _make_results_layout(
-        tmp_path,
-        benchmark_scenarios=benchmark,
-        manifest_scenario_ids=["not-in-benchmark-xyz"],
-    )
+    with bt_span(
+        "test_missing_scenario_id_fails_render",
+        scenario_id="not-in-benchmark-xyz",
+        benchmark_size=1,
+    ) as span:
+        benchmark = [_mk_scenario("real-scen-001")]
+        results_dir = _make_results_layout(
+            tmp_path,
+            benchmark_scenarios=benchmark,
+            manifest_scenario_ids=["not-in-benchmark-xyz"],
+        )
 
-    load_fn = getattr(_report, "load_run_scenarios", None)
-    assert load_fn is not None, (
-        "eval.report.load_run_scenarios does not exist yet — B-GREEN "
-        "must extract the manifest→scenario resolution logic into a "
-        "public function before this test can pass."
-    )
+        load_fn = getattr(_report, "load_run_scenarios", None)
+        assert load_fn is not None, (
+            "eval.report.load_run_scenarios does not exist yet — B-GREEN "
+            "must extract the manifest→scenario resolution logic into a "
+            "public function before this test can pass."
+        )
 
-    with pytest.raises(RuntimeError) as excinfo:
-        load_fn(results_dir)
+        with pytest.raises(RuntimeError) as excinfo:
+            load_fn(results_dir)
 
-    msg = str(excinfo.value)
-    assert "not in benchmark" in msg, (
-        f"RuntimeError message should mention 'not in benchmark'; got: {msg!r}"
-    )
-    assert "not-in-benchmark-xyz" in msg, (
-        f"RuntimeError message should name the offending scenario_id "
-        f"'not-in-benchmark-xyz'; got: {msg!r}"
-    )
+        msg = str(excinfo.value)
+        span.log(output={"raised": "RuntimeError", "message_excerpt": msg[:300]})
+        assert "not in benchmark" in msg, (
+            f"RuntimeError message should mention 'not in benchmark'; got: {msg!r}"
+        )
+        assert "not-in-benchmark-xyz" in msg, (
+            f"RuntimeError message should name the offending scenario_id "
+            f"'not-in-benchmark-xyz'; got: {msg!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -203,35 +213,50 @@ def test_missing_scenario_id_allowed_with_flag(tmp_path: Path) -> None:
 
     RED: the function does not yet accept an ``allow_stubs`` kwarg.
     """
-    benchmark = [_mk_scenario("real-scen-001")]
-    results_dir = _make_results_layout(
-        tmp_path,
-        benchmark_scenarios=benchmark,
-        manifest_scenario_ids=["not-in-benchmark-xyz"],
-    )
+    with bt_span(
+        "test_missing_scenario_id_allowed_with_flag",
+        scenario_id="not-in-benchmark-xyz",
+        allow_stubs=True,
+    ) as span:
+        benchmark = [_mk_scenario("real-scen-001")]
+        results_dir = _make_results_layout(
+            tmp_path,
+            benchmark_scenarios=benchmark,
+            manifest_scenario_ids=["not-in-benchmark-xyz"],
+        )
 
-    load_fn = getattr(_report, "load_run_scenarios", None)
-    assert load_fn is not None, (
-        "eval.report.load_run_scenarios does not exist yet — B-GREEN "
-        "must extract the manifest→scenario resolution logic into a "
-        "public function before this test can pass."
-    )
+        load_fn = getattr(_report, "load_run_scenarios", None)
+        assert load_fn is not None, (
+            "eval.report.load_run_scenarios does not exist yet — B-GREEN "
+            "must extract the manifest→scenario resolution logic into a "
+            "public function before this test can pass."
+        )
 
-    # Must not raise when allow_stubs=True
-    scenarios = load_fn(results_dir, allow_stubs=True)
+        # Must not raise when allow_stubs=True
+        scenarios = load_fn(results_dir, allow_stubs=True)
 
-    assert isinstance(scenarios, list)
-    assert len(scenarios) == 1, (
-        f"Expected 1 scenario (the manifest has 1 id); got {len(scenarios)}"
-    )
-    stub = scenarios[0]
-    assert stub.id == "not-in-benchmark-xyz", (
-        f"Stub id should preserve the manifest scenario_id; got {stub.id!r}"
-    )
-    assert stub.gold.expected_panel_verdict == "abstain", (
-        "Synthetic neutral gold must default to expected_panel_verdict="
-        f"'abstain'; got {stub.gold.expected_panel_verdict!r}"
-    )
+        span.log(
+            output={
+                "scenario_count": len(scenarios) if isinstance(scenarios, list) else None,
+                "stub_id": scenarios[0].id if scenarios else None,
+                "stub_verdict": (
+                    scenarios[0].gold.expected_panel_verdict if scenarios else None
+                ),
+            }
+        )
+
+        assert isinstance(scenarios, list)
+        assert len(scenarios) == 1, (
+            f"Expected 1 scenario (the manifest has 1 id); got {len(scenarios)}"
+        )
+        stub = scenarios[0]
+        assert stub.id == "not-in-benchmark-xyz", (
+            f"Stub id should preserve the manifest scenario_id; got {stub.id!r}"
+        )
+        assert stub.gold.expected_panel_verdict == "abstain", (
+            "Synthetic neutral gold must default to expected_panel_verdict="
+            f"'abstain'; got {stub.gold.expected_panel_verdict!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -248,72 +273,87 @@ def test_full_benchmark_render_unaffected(tmp_path: Path) -> None:
     (40 scenarios) when available so this test doubles as an
     end-to-end fixture for the production data shape.
     """
-    # Locate the real benchmark file. Worktree layout:
-    #   <worktree>/shrine-diet-bioactivity/eval/tests/test_report_integrity.py
-    #   <worktree>/research-journal/shared/datasets/dietresearchbench_v1.json
-    here = Path(__file__).resolve()
-    repo_root = here.parents[2]  # shrine-diet-bioactivity/
-    worktree_root = repo_root.parent  # worktree containing research-journal/
-    real_bench = (
-        worktree_root
-        / "research-journal"
-        / "shared"
-        / "datasets"
-        / "dietresearchbench_v1.json"
-    )
-
-    if not real_bench.exists():
-        pytest.skip(
-            f"Real benchmark not found at {real_bench}; "
-            "this test only validates the production-data path. "
-            "Run from the lightrag-test-debt worktree where "
-            "research-journal/shared/datasets/ is present."
+    with bt_span(
+        "test_full_benchmark_render_unaffected",
+        expected_scenario_count=_PAPER_1_V1_SCENARIO_COUNT,
+    ) as span:
+        # Locate the real benchmark file. Worktree layout:
+        #   <worktree>/shrine-diet-bioactivity/eval/tests/test_report_integrity.py
+        #   <worktree>/research-journal/shared/datasets/dietresearchbench_v1.json
+        here = Path(__file__).resolve()
+        repo_root = here.parents[2]  # shrine-diet-bioactivity/
+        worktree_root = repo_root.parent  # worktree containing research-journal/
+        real_bench = (
+            worktree_root
+            / "research-journal"
+            / "shared"
+            / "datasets"
+            / "dietresearchbench_v1.json"
         )
-    # Only reached when the real benchmark file exists — no synthetic fallback.
-    bench_data = json.loads(real_bench.read_text())
-    bench_set = BenchmarkSet.model_validate(bench_data)
-    benchmark_scenarios = list(bench_set.scenarios)
 
-    manifest_scenario_ids = [s.id for s in benchmark_scenarios]
-    assert len(manifest_scenario_ids) == _PAPER_1_V1_SCENARIO_COUNT, (
-        f"Test 3 expects a {_PAPER_1_V1_SCENARIO_COUNT}-scenario benchmark "
-        f"to mirror the paper-1 v1 condition; got "
-        f"{len(manifest_scenario_ids)} scenarios"
-    )
+        if not real_bench.exists():
+            span.log(output={"skipped": True, "reason": "benchmark_file_missing"})
+            pytest.skip(
+                f"Real benchmark not found at {real_bench}; "
+                "this test only validates the production-data path. "
+                "Run from the lightrag-test-debt worktree where "
+                "research-journal/shared/datasets/ is present."
+            )
+        # Only reached when the real benchmark file exists — no synthetic fallback.
+        bench_data = json.loads(real_bench.read_text())
+        bench_set = BenchmarkSet.model_validate(bench_data)
+        benchmark_scenarios = list(bench_set.scenarios)
 
-    results_dir = _make_results_layout(
-        tmp_path,
-        benchmark_scenarios=benchmark_scenarios,
-        manifest_scenario_ids=manifest_scenario_ids,
-    )
-
-    load_fn = getattr(_report, "load_run_scenarios", None)
-    assert load_fn is not None, (
-        "eval.report.load_run_scenarios does not exist yet — B-GREEN "
-        "must extract the manifest→scenario resolution logic into a "
-        "public function before this test can pass."
-    )
-
-    # Default args, no allow_stubs — should succeed because every id matches.
-    run_scenarios = load_fn(results_dir)
-
-    assert len(run_scenarios) == _PAPER_1_V1_SCENARIO_COUNT, (
-        f"Expected {_PAPER_1_V1_SCENARIO_COUNT} run scenarios; "
-        f"got {len(run_scenarios)}"
-    )
-    bench_id_set = {s.id for s in benchmark_scenarios}
-    for s in run_scenarios:
-        assert isinstance(s, Scenario)
-        assert s.id in bench_id_set, (
-            f"Scenario {s.id!r} not in benchmark — render path returned a "
-            "stub even though every manifest id should have matched a real "
-            "benchmark scenario."
+        manifest_scenario_ids = [s.id for s in benchmark_scenarios]
+        assert len(manifest_scenario_ids) == _PAPER_1_V1_SCENARIO_COUNT, (
+            f"Test 3 expects a {_PAPER_1_V1_SCENARIO_COUNT}-scenario benchmark "
+            f"to mirror the paper-1 v1 condition; got "
+            f"{len(manifest_scenario_ids)} scenarios"
         )
-        # Real benchmark scenarios carry a non-default rationale; the
-        # synthetic stub uses 'reconstructed stub'. This is a coarse but
-        # robust 'not a stub' check.
-        assert s.rationale != "reconstructed stub", (
-            f"Scenario {s.id!r} appears to be a synthetic stub "
-            "(rationale=='reconstructed stub') — the all-found path must "
-            "return real Scenario objects."
+
+        results_dir = _make_results_layout(
+            tmp_path,
+            benchmark_scenarios=benchmark_scenarios,
+            manifest_scenario_ids=manifest_scenario_ids,
         )
+
+        load_fn = getattr(_report, "load_run_scenarios", None)
+        assert load_fn is not None, (
+            "eval.report.load_run_scenarios does not exist yet — B-GREEN "
+            "must extract the manifest→scenario resolution logic into a "
+            "public function before this test can pass."
+        )
+
+        # Default args, no allow_stubs — should succeed because every id matches.
+        run_scenarios = load_fn(results_dir)
+
+        stub_count = sum(
+            1 for s in run_scenarios if getattr(s, "rationale", "") == "reconstructed stub"
+        )
+        span.log(
+            output={
+                "scenario_count": len(run_scenarios),
+                "stub_count": stub_count,
+            }
+        )
+
+        assert len(run_scenarios) == _PAPER_1_V1_SCENARIO_COUNT, (
+            f"Expected {_PAPER_1_V1_SCENARIO_COUNT} run scenarios; "
+            f"got {len(run_scenarios)}"
+        )
+        bench_id_set = {s.id for s in benchmark_scenarios}
+        for s in run_scenarios:
+            assert isinstance(s, Scenario)
+            assert s.id in bench_id_set, (
+                f"Scenario {s.id!r} not in benchmark — render path returned a "
+                "stub even though every manifest id should have matched a real "
+                "benchmark scenario."
+            )
+            # Real benchmark scenarios carry a non-default rationale; the
+            # synthetic stub uses 'reconstructed stub'. This is a coarse but
+            # robust 'not a stub' check.
+            assert s.rationale != "reconstructed stub", (
+                f"Scenario {s.id!r} appears to be a synthetic stub "
+                "(rationale=='reconstructed stub') — the all-found path must "
+                "return real Scenario objects."
+            )

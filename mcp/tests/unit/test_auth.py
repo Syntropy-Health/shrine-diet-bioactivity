@@ -19,6 +19,8 @@ from kg_mcp.auth import (  # type: ignore[import-not-found]
     verify_static_key,
 )
 
+pytestmark = [pytest.mark.unit]
+
 
 # ─── Public path detection ────────────────────────────────────────────────
 

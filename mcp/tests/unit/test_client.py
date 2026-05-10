@@ -13,6 +13,8 @@ import pytest
 
 from kg_mcp.client import ScopedServerClient
 
+pytestmark = [pytest.mark.unit]
+
 
 def _ok_response(payload: dict) -> MagicMock:
     r = MagicMock()

@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = [pytest.mark.integration, pytest.mark.aura]
+
 
 @pytest.mark.integration
 def test_snapshot_has_required_sections(tmp_path: Path) -> None:

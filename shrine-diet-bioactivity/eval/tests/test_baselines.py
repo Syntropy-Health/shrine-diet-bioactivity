@@ -15,6 +15,8 @@ import pytest
 
 from eval.scenario import GoldStandard, Scenario  # type: ignore[import-not-found]
 
+pytestmark = [pytest.mark.unit]
+
 # ---------------------------------------------------------------------------
 # Shared fixture
 # ---------------------------------------------------------------------------

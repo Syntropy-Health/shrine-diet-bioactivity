@@ -19,6 +19,8 @@ from scoped_neo4j_vector_storage import (  # type: ignore[import-not-found]
     _vector_label_for,
 )
 
+pytestmark = [pytest.mark.unit]
+
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────
 

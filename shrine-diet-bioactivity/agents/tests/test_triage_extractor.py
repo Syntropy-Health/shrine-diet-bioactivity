@@ -1,6 +1,10 @@
 """Unit tests for triage._extract_json_obj — sole defense against
 free-tier Nemotron padded/wrapped JSON output. Per code review T1."""
+import pytest
+
 from agents.triage import _extract_json_obj  # type: ignore[import-not-found]
+
+pytestmark = [pytest.mark.unit]
 
 
 def test_strips_surrounding_text():

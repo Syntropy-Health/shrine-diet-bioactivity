@@ -6,6 +6,8 @@ import pytest
 
 from eval.report import render_category_breakdown  # type: ignore[import-not-found]
 
+pytestmark = [pytest.mark.unit]
+
 
 @pytest.fixture
 def fake_predictions_and_scenarios():

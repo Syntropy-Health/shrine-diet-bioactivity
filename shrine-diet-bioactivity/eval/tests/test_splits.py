@@ -10,6 +10,8 @@ from eval.splits import (  # type: ignore[import-not-found]
     stratified_split,
 )
 
+pytestmark = [pytest.mark.unit]
+
 
 def _mini_bench() -> BenchmarkSet:
     scenarios: list[Scenario] = []

@@ -16,8 +16,9 @@ from neo4j import GraphDatabase
 # Load .env from shrine-diet-bioactivity/ (one level above this file's directory)
 load_dotenv(Path(__file__).parent.parent / ".env")
 
+pytestmark = [pytest.mark.integration, pytest.mark.aura, pytest.mark.slow]
 
-@pytest.mark.integration
+
 def test_aura_reachable_and_returns_constant():
     uri = os.environ["NEO4J_URI"]
     user = os.environ["NEO4J_USERNAME"]
@@ -28,7 +29,6 @@ def test_aura_reachable_and_returns_constant():
             assert s.run("RETURN 1 AS ok").single()["ok"] == 1
 
 
-@pytest.mark.integration
 def test_aura_version_string():
     """Capture Aura version via dbms.components() for sanity-check reporting."""
     uri = os.environ["NEO4J_URI"]

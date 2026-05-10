@@ -9,6 +9,8 @@ from pydantic import ValidationError
 
 from eval.scenario import BenchmarkSet, GoldStandard, Scenario  # type: ignore[import-not-found]
 
+pytestmark = [pytest.mark.unit]
+
 BENCH_PATH = (
     Path(__file__).resolve().parents[3]
     / "research-journal"

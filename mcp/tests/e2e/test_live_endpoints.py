@@ -27,6 +27,7 @@ E2E_KEY = os.environ.get("KG_MCP_API_KEY")
 
 pytestmark = [
     pytest.mark.e2e,
+    pytest.mark.aura,
     pytest.mark.skipif(not E2E_URL, reason="KG_MCP_E2E_URL not set"),
 ]
 

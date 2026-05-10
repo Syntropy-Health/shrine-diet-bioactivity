@@ -30,6 +30,8 @@ from eval.baselines import BASELINES  # type: ignore[import-not-found]
 from eval.runner import run_eval  # type: ignore[import-not-found]
 from eval.scenario import BenchmarkSet, GoldStandard, Scenario  # type: ignore[import-not-found]
 
+pytestmark = [pytest.mark.unit]
+
 
 # ---------------------------------------------------------------------------
 # Helpers

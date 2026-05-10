@@ -17,6 +17,8 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 _HAS_NEO4J_URI = bool(os.environ.get("NEO4J_URI"))
 
+pytestmark = [pytest.mark.integration, pytest.mark.aura]
+
 
 @pytest.mark.integration
 @pytest.mark.skipif(

@@ -11,6 +11,8 @@ import pytest
 
 from kg_mcp.server import server
 
+pytestmark = [pytest.mark.unit]
+
 
 EXPECTED_TOOLS = {
     # Layer A

@@ -29,6 +29,8 @@ from scope_context import (
     set_scope_filter,
 )
 
+pytestmark = [pytest.mark.unit]
+
 
 # ---------------------------------------------------------------------------
 # Fake async Neo4j driver — records every (cypher, params) tuple executed.

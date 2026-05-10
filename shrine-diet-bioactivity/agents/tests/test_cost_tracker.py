@@ -1,7 +1,11 @@
 """Tests for the cost_tracker — captures per-call token usage + latency."""
 from unittest.mock import MagicMock
 
+import pytest
+
 from agents.cost_tracker import CostTracker, attach_to_agent  # type: ignore[import-not-found]
+
+pytestmark = [pytest.mark.unit]
 
 
 def test_cost_tracker_records_call_with_token_usage():

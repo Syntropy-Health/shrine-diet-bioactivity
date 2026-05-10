@@ -31,6 +31,8 @@ from neo4j import GraphDatabase
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
+pytestmark = [pytest.mark.integration, pytest.mark.aura]
+
 
 @pytest.mark.integration
 def test_fullscale_ingest_counts() -> None:
