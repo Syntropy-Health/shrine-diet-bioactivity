@@ -119,9 +119,11 @@ reproduces the current KG from the SQLite intermediate.
 
 - `lightrag/` — **active dependency**. The scoped wrapper subclasses
   its Neo4j storage and mounts its graph routes.
-- `mcp-opennutrition/` — **reference only**. Source of the
-  OpenNutrition TSV→KG mapping methodology. Not wired to runtime;
-  the OpenNutrition MCP server it ships is no longer composed here.
+
+The previously-vendored `mcp-opennutrition/` submodule was removed in
+2026-05 (its TSV→KG mapping methodology is preserved in
+`docs/opennutrition-to-kg.md`; the OpenNutrition MCP server it shipped
+was never composed at runtime).
 
 ## Part of Syntropy Health
 

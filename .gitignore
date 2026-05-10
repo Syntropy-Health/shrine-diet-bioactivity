@@ -34,8 +34,8 @@ Thumbs.db
 **/.cache/
 
 # Locally-cloned upstream dependencies
-# (graphiti-core is cloned here as a read-only reference; the active
-#  install path is the shrine-diet-bioactivity/graphiti/ PoC directory)
+# (graphiti/ was removed in 2026-05; line kept defensively in case anyone
+#  re-clones graphiti-core for archaeology)
 /graphiti/
 
 # Local environment files — never commit real credentials. `.env.example`

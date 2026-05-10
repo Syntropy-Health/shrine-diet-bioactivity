@@ -1,5 +1,5 @@
 # Unified Phytochemical Knowledge Graph — Data Source Manifest
-# All datasets used by mcp-herbal-botanicals, with schemas, download info, and join keys.
+# All datasets used by shrine-diet-bioactivity, with schemas, download info, and join keys.
 # Version: 2.0.0 | Updated: 2026-04-12
 
 datasets:
@@ -69,8 +69,13 @@ datasets:
     name: OpenNutrition
     version: "2025.1"
     license: ODbL
-    download_method: submodule
-    path: ../mcp-opennutrition/data_local/opennutrition_foods.db
+    download_method: archive
+    path: data_local/opennutrition_foods.db
+    archive_note: >
+      The mcp-opennutrition submodule was removed in 2026-05. The
+      opennutrition_foods.db SQLite file should be copied from the
+      legacy archive (or regenerated via the methodology documented at
+      docs/opennutrition-to-kg.md) and placed at the path above.
     format: SQLite (single table, JSON columns)
     description: >
       Comprehensive macro/micronutrient profiles for 326K foods from USDA FDC,
@@ -105,7 +110,9 @@ datasets:
       total_fat: 69.5%
       dietary_fiber: 53.8%
     notes: >
-      OpenNutrition is a sibling submodule at ../mcp-opennutrition/.
+      OpenNutrition data is now archived locally (the upstream
+      mcp-opennutrition submodule was removed in 2026-05; see
+      docs/opennutrition-to-kg.md for the historical mapping methodology).
       Food name matching uses fuzzy join (FooDB uses generic names like "Chicken",
       OpenNutrition uses specific names like "Chicken Breast, Boneless Skinless").
       Only the ~962 unique foods from FooDB compound_foods are bridged — not all 326K.
