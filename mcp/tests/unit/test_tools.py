@@ -31,6 +31,8 @@ from kg_mcp.tools import (
     kg_query,
 )
 
+pytestmark = [pytest.mark.unit]
+
 
 @pytest.fixture
 def fake_client():
