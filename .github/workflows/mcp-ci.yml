@@ -102,7 +102,15 @@ jobs:
           NEO4J_USERNAME: ${{ secrets.NEO4J_USERNAME }}
           NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
         run: |
+          # Sanitized env presence + length check — values themselves stay
+          # opaque so secrets never echo to logs, but we can tell whether
+          # they reached the runner at all.
+          echo "NEO4J_URI: present=$([ -n \"$NEO4J_URI\" ] && echo yes || echo no), len=${#NEO4J_URI}"
+          echo "NEO4J_USERNAME: present=$([ -n \"$NEO4J_USERNAME\" ] && echo yes || echo no), len=${#NEO4J_USERNAME}"
+          echo "NEO4J_PASSWORD: present=$([ -n \"$NEO4J_PASSWORD\" ] && echo yes || echo no), len=${#NEO4J_PASSWORD}"
           if [ -z "$NEO4J_URI" ]; then
             echo "::warning::NEO4J_URI secret not set — running gates in skip mode"
           fi
-          python -m pytest tests/test_aura_data_integrity.py -v
+          # -rs surfaces the full skip reason in the pytest summary so we
+          # can distinguish 'secret missing' from 'connection failed'.
+          python -m pytest tests/test_aura_data_integrity.py -v -rs
