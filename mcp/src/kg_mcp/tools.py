@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
+from . import analytics
 from .client import ScopedServerClient
 from .schemas import (
     BilingualTermInput,
@@ -35,12 +36,28 @@ from .schemas import (
 
 async def kg_query(client: ScopedServerClient, args: KgQueryInput) -> KgQueryOutput:
     """Natural-language Q&A. Default fallback when no role-prior fits."""
-    raw = await client.query(args.question, mode=args.mode, top_k=args.top_k)
-    return KgQueryOutput(
-        answer=raw.get("response", ""),
-        references=list(raw.get("references", [])),
-        scope_filter=list(raw.get("scope_filter", ["shared"])),
-    )
+    try:
+        raw = await client.query(args.question, mode=args.mode, top_k=args.top_k)
+        result = KgQueryOutput(
+            answer=raw.get("response", ""),
+            references=list(raw.get("references", [])),
+            scope_filter=list(raw.get("scope_filter", ["shared"])),
+        )
+        analytics.capture(
+            analytics.SERVER_DISTINCT_ID,
+            "kg_query_executed",
+            {
+                "mode": args.mode,
+                "top_k": args.top_k,
+                "answer_length": len(result.answer),
+                "reference_count": len(result.references),
+            },
+        )
+        return result
+    except Exception as exc:
+        analytics.capture(analytics.SERVER_DISTINCT_ID, "kg_tool_error", {"tool_name": "kg_query", "error_type": type(exc).__name__})
+        analytics.capture_exception(exc)
+        raise
 
 
 # ─── Layer B — Role-priored traversals ────────────────────────────────────
@@ -69,28 +86,47 @@ def _make_traversal(
     """Factory: every Layer-B tool shares this body; (label, edges, depth) vary."""
 
     async def _impl(client: ScopedServerClient, args: TraversalInput) -> TraversalOutput:
-        raw = await client.traverse(
-            start_label=start_label,
-            edge_types=list(edge_types),
-            seed=args.seed,
-            direction=direction,
-            depth=depth,
-            top_k=args.top_k,
-        )
-        # /traverse returns chains; /graphs (fallback) returns nodes+edges.
-        chains = _coerce_chains(raw.get("chains", []))
-        nodes = raw.get("nodes") or []
-        edges = raw.get("edges") or []
-        return TraversalOutput(
-            chains=chains,
-            seeds_resolved=list(raw.get("seeds_resolved", [])),
-            raw_subgraph_node_count=(
-                len(nodes) if nodes else int(raw.get("raw_subgraph_node_count", 0))
-            ),
-            raw_subgraph_edge_count=(
-                len(edges) if edges else int(raw.get("raw_subgraph_edge_count", 0))
-            ),
-        )
+        try:
+            raw = await client.traverse(
+                start_label=start_label,
+                edge_types=list(edge_types),
+                seed=args.seed,
+                direction=direction,
+                depth=depth,
+                top_k=args.top_k,
+            )
+            # /traverse returns chains; /graphs (fallback) returns nodes+edges.
+            chains = _coerce_chains(raw.get("chains", []))
+            nodes = raw.get("nodes") or []
+            edges = raw.get("edges") or []
+            result = TraversalOutput(
+                chains=chains,
+                seeds_resolved=list(raw.get("seeds_resolved", [])),
+                raw_subgraph_node_count=(
+                    len(nodes) if nodes else int(raw.get("raw_subgraph_node_count", 0))
+                ),
+                raw_subgraph_edge_count=(
+                    len(edges) if edges else int(raw.get("raw_subgraph_edge_count", 0))
+                ),
+            )
+            analytics.capture(
+                analytics.SERVER_DISTINCT_ID,
+                "kg_traversal_executed",
+                {
+                    "start_label": start_label,
+                    "direction": direction,
+                    "depth": depth,
+                    "top_k": args.top_k,
+                    "chain_count": len(result.chains),
+                    "node_count": result.raw_subgraph_node_count,
+                    "edge_count": result.raw_subgraph_edge_count,
+                },
+            )
+            return result
+        except Exception as exc:
+            analytics.capture(analytics.SERVER_DISTINCT_ID, "kg_tool_error", {"tool_name": f"kg_traversal_{start_label.lower()}", "error_type": type(exc).__name__})
+            analytics.capture_exception(exc)
+            raise
 
     return _impl
 
@@ -147,41 +183,90 @@ kg_compound_to_symptoms = _make_traversal(
 
 async def kg_hdi_check(client: ScopedServerClient, args: HDICheckInput) -> HDICheckOutput:
     """Direct lookup against HDI-Safe-50 panel."""
-    raw = await client.hdi_check(args.drug, args.herb)
-    return HDICheckOutput(
-        found=bool(raw.get("found", False)),
-        severity=raw.get("severity"),
-        mechanism_class=raw.get("mechanism_class"),
-        evidence_tier=raw.get("evidence_tier"),
-        citations=list(raw.get("citations", [])),
-    )
+    try:
+        raw = await client.hdi_check(args.drug, args.herb)
+        result = HDICheckOutput(
+            found=bool(raw.get("found", False)),
+            severity=raw.get("severity"),
+            mechanism_class=raw.get("mechanism_class"),
+            evidence_tier=raw.get("evidence_tier"),
+            citations=list(raw.get("citations", [])),
+        )
+        analytics.capture(
+            analytics.SERVER_DISTINCT_ID,
+            "kg_hdi_check_executed",
+            {
+                "found": result.found,
+                "has_severity": result.severity is not None,
+                "evidence_tier": result.evidence_tier,
+                "citation_count": len(result.citations),
+            },
+        )
+        return result
+    except Exception as exc:
+        analytics.capture(analytics.SERVER_DISTINCT_ID, "kg_tool_error", {"tool_name": "kg_hdi_check", "error_type": type(exc).__name__})
+        analytics.capture_exception(exc)
+        raise
 
 
 async def kg_bilingual_term(
     client: ScopedServerClient, args: BilingualTermInput
 ) -> BilingualTermOutput:
     """SymMap canonicalization. Term in any language → all three."""
-    raw = await client.bilingual_term(args.term, list(args.languages))
-    return BilingualTermOutput(
-        english=raw.get("english"),
-        chinese=raw.get("chinese"),
-        pinyin=raw.get("pinyin"),
-        source=str(raw.get("source", "symmap")),
-        confidence=float(raw.get("confidence", 0.0)),
-    )
+    try:
+        raw = await client.bilingual_term(args.term, list(args.languages))
+        result = BilingualTermOutput(
+            english=raw.get("english"),
+            chinese=raw.get("chinese"),
+            pinyin=raw.get("pinyin"),
+            source=str(raw.get("source", "symmap")),
+            confidence=float(raw.get("confidence", 0.0)),
+        )
+        analytics.capture(
+            analytics.SERVER_DISTINCT_ID,
+            "kg_bilingual_term_looked_up",
+            {
+                "source": result.source,
+                "confidence_score": result.confidence,
+                "resolved_english": result.english is not None,
+                "resolved_chinese": result.chinese is not None,
+                "resolved_pinyin": result.pinyin is not None,
+            },
+        )
+        return result
+    except Exception as exc:
+        analytics.capture(analytics.SERVER_DISTINCT_ID, "kg_tool_error", {"tool_name": "kg_bilingual_term", "error_type": type(exc).__name__})
+        analytics.capture_exception(exc)
+        raise
 
 
 async def kg_node_neighborhood(
     client: ScopedServerClient, args: NodeNeighborhoodInput
 ) -> NodeNeighborhoodOutput:
     """Generic bounded-depth subgraph dump. Last-resort fallback."""
-    raw = await client.graphs(
-        label=args.seed, max_depth=args.max_depth, max_nodes=args.max_nodes
-    )
-    return NodeNeighborhoodOutput(
-        nodes=list(raw.get("nodes", [])),
-        edges=list(raw.get("edges", [])),
-    )
+    try:
+        raw = await client.graphs(
+            label=args.seed, max_depth=args.max_depth, max_nodes=args.max_nodes
+        )
+        result = NodeNeighborhoodOutput(
+            nodes=list(raw.get("nodes", [])),
+            edges=list(raw.get("edges", [])),
+        )
+        analytics.capture(
+            analytics.SERVER_DISTINCT_ID,
+            "kg_node_neighborhood_explored",
+            {
+                "max_depth": args.max_depth,
+                "max_nodes": args.max_nodes,
+                "result_node_count": len(result.nodes),
+                "result_edge_count": len(result.edges),
+            },
+        )
+        return result
+    except Exception as exc:
+        analytics.capture(analytics.SERVER_DISTINCT_ID, "kg_tool_error", {"tool_name": "kg_node_neighborhood", "error_type": type(exc).__name__})
+        analytics.capture_exception(exc)
+        raise
 
 
 __all__ = [
