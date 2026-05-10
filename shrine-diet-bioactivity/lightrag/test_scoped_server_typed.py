@@ -13,6 +13,8 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+pytestmark = [pytest.mark.unit]
+
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, tmp_path):

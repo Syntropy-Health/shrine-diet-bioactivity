@@ -2,6 +2,8 @@ import pytest
 from pathlib import Path
 from config_loader import load_data_sources, load_ingest_params, ConfigError  # type: ignore[import-not-found]
 
+pytestmark = [pytest.mark.unit]
+
 
 def test_loads_data_sources():
     cfg = load_data_sources()

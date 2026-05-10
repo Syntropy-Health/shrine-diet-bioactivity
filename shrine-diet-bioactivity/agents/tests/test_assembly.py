@@ -5,6 +5,8 @@ from autogen import ConversableAgent, GroupChat, GroupChatManager
 from agents.panel.assembly import assemble_panel  # type: ignore[import-not-found]
 from agents.models import Triage
 
+pytestmark = [pytest.mark.unit]
+
 
 def test_assemble_panel_low_complexity_returns_solo():
     triage = Triage(complexity="low", rationale="single intervention", red_flags=[])

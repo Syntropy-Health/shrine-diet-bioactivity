@@ -3,6 +3,10 @@ import json
 import subprocess
 import sys
 
+import pytest
+
+pytestmark = [pytest.mark.unit]
+
 
 def test_runner_split_all_combines_all_scenario_ids(tmp_path):
     """When --split=all, the runner must use the union of train+val+test

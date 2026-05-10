@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from eval.preflight import (  # type: ignore[import-not-found]
     PreflightReport,
     ProbeResult,
@@ -15,6 +17,8 @@ from eval.preflight import (  # type: ignore[import-not-found]
     probe_openrouter,
     run_preflight,
 )
+
+pytestmark = [pytest.mark.unit]
 
 
 # ─── ProbeResult / PreflightReport ────────────────────────────────────────

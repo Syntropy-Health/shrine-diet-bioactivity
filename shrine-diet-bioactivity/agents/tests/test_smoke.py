@@ -1,6 +1,8 @@
 """Smoke test — confirms AG2 installs cleanly and basic ConversableAgent works."""
 import pytest
 
+pytestmark = [pytest.mark.unit]
+
 
 def test_ag2_imports():
     import autogen  # ag2 publishes under both `ag2` and `autogen` aliases

@@ -2,12 +2,16 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 # Bootstrap so this test can import scripts/build_failure_taxonomy.py
 _REPO = Path(__file__).resolve().parents[2]  # shrine-diet-bioactivity/
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
 from scripts.build_failure_taxonomy import _classify_failure  # type: ignore[import-not-found]
+
+pytestmark = [pytest.mark.unit]
 
 
 def _gold(verdict: str = "prefer") -> dict:

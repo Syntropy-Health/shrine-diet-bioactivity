@@ -1,5 +1,7 @@
 # shrine-diet-bioactivity/agents/tests/test_provenance.py
 """Round-trip validation and defer_to_clinician logic tests for provenance.py."""
+import pytest
+
 from agents.models import (  # type: ignore[import-not-found]
     ConfidenceComponents,
     KGEdge,
@@ -12,6 +14,8 @@ from agents.models import (  # type: ignore[import-not-found]
     Triage,
 )
 from agents.provenance import assemble_synthesis  # type: ignore[import-not-found]
+
+pytestmark = [pytest.mark.unit]
 
 
 def _minimal_kg() -> KGResult:

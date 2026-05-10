@@ -7,6 +7,7 @@ import os
 import pytest
 
 
+@pytest.mark.live_llm
 @pytest.mark.skipif(not os.environ.get("OPENROUTER_API_KEY"), reason="OPENROUTER_API_KEY not set")
 def test_openrouter_nemotron_reachable():
     from openai import OpenAI
@@ -25,6 +26,7 @@ def test_openrouter_nemotron_reachable():
     assert len(reply.choices[0].message.content.strip()) > 0
 
 
+@pytest.mark.unit
 def test_eval_package_imports():
     """Structural check — eval/ must be a package."""
     import eval  # type: ignore[import-not-found]

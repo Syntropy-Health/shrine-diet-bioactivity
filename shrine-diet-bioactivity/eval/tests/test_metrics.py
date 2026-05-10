@@ -36,6 +36,8 @@ from eval.metrics import (  # type: ignore[import-not-found]
 )
 from eval.scenario import GoldStandard, Scenario  # type: ignore[import-not-found]
 
+pytestmark = [pytest.mark.unit]
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

@@ -1,11 +1,15 @@
 """Tests for INTERACTS_WITH + CONTRAINDICATES schema extensions (Task 7)."""
 from __future__ import annotations
 
+import pytest
+
 from entity_schema import (  # type: ignore[import-not-found]
     RELATIONSHIP_TYPES,
     describe_contraindicates,
     describe_interacts_with,
 )
+
+pytestmark = [pytest.mark.unit]
 
 
 def test_interacts_with_registered() -> None:

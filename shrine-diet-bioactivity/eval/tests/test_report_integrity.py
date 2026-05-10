@@ -42,6 +42,8 @@ from eval.scenario import (  # type: ignore[import-not-found]
     Scenario,
 )
 
+pytestmark = [pytest.mark.integration]
+
 
 # ---------------------------------------------------------------------------
 # Module constants

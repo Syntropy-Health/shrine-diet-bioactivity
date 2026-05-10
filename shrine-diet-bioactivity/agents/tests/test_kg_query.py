@@ -6,6 +6,8 @@ from unittest.mock import patch
 from agents.tools.kg_query import kg_query, KGQueryError  # type: ignore[import-not-found]
 from agents.models import KGResult  # type: ignore[import-not-found]
 
+pytestmark = [pytest.mark.unit]
+
 
 def test_kg_query_lightrag_path_on_success():
     fake_chains = [{

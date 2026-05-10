@@ -9,11 +9,15 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from ingest_direct import (  # type: ignore[import-not-found]
     _stamp_scope,
     upsert_entities,
     upsert_relationships,
 )
+
+pytestmark = [pytest.mark.unit]
 
 
 # ─── _stamp_scope ─────────────────────────────────────────────────────────

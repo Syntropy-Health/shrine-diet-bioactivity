@@ -10,6 +10,8 @@ import pytest
 
 from audit_log import AuditLog, AuditRow, hash_query
 
+pytestmark = [pytest.mark.unit]
+
 
 @pytest.fixture()
 def audit_db(tmp_path: Path) -> Path:

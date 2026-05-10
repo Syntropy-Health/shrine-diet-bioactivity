@@ -15,6 +15,7 @@ writes.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from scope_context import get_scope_filter
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.aura,
+    pytest.mark.skipif(
+        not os.environ.get("NEO4J_URI"),
+        reason="NEO4J_URI not set; scoped_server tests require live Aura connection",
+    ),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -113,14 +123,12 @@ def _audit_rows(db_path: Path) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_graphs_requires_scope_filter(client: TestClient) -> None:
     resp = client.get("/graphs", params={"label": "Ashwagandha"})
     assert resp.status_code == 400
     assert "scope" in resp.text.lower()
 
 
-@pytest.mark.unit
 def test_graphs_sets_contextvar_scope(client: TestClient) -> None:
     resp = client.get(
         "/graphs",
@@ -136,7 +144,6 @@ def test_graphs_sets_contextvar_scope(client: TestClient) -> None:
     assert fake._scope_seen[-1] == ["shared", "tenant:clinic-a"]
 
 
-@pytest.mark.unit
 def test_graphs_forwards_label_and_limits(client: TestClient) -> None:
     resp = client.get(
         "/graphs",
@@ -155,7 +162,6 @@ def test_graphs_forwards_label_and_limits(client: TestClient) -> None:
     assert kwargs == {"max_depth": 2, "max_nodes": 100}
 
 
-@pytest.mark.unit
 def test_graphs_rejects_malformed_scope(client: TestClient) -> None:
     resp = client.get(
         "/graphs",
@@ -164,7 +170,6 @@ def test_graphs_rejects_malformed_scope(client: TestClient) -> None:
     assert resp.status_code == 400
 
 
-@pytest.mark.unit
 def test_graphs_emits_audit_row(client: TestClient) -> None:
     resp = client.get(
         "/graphs",
@@ -184,13 +189,11 @@ def test_graphs_emits_audit_row(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_popular_labels_requires_scope_filter(client: TestClient) -> None:
     resp = client.get("/graph/label/popular")
     assert resp.status_code == 400
 
 
-@pytest.mark.unit
 def test_popular_labels_forwards_limit_and_scope(client: TestClient) -> None:
     resp = client.get(
         "/graph/label/popular",
@@ -202,7 +205,6 @@ def test_popular_labels_forwards_limit_and_scope(client: TestClient) -> None:
     assert fake._scope_seen[-1] == ["shared"]
 
 
-@pytest.mark.unit
 def test_popular_labels_emits_audit(client: TestClient) -> None:
     resp = client.get(
         "/graph/label/popular",
@@ -220,7 +222,6 @@ def test_popular_labels_emits_audit(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_custom_kg_requires_tenant_scope(client: TestClient) -> None:
     """A 'shared'-only scope_filter is a shared-write, not allowed via MCP.
 
@@ -246,7 +247,6 @@ def test_custom_kg_requires_tenant_scope(client: TestClient) -> None:
     assert "tenant" in resp.text.lower()
 
 
-@pytest.mark.unit
 def test_custom_kg_forces_scope_on_every_entity(client: TestClient) -> None:
     resp = client.post(
         "/documents/custom_kg",
@@ -281,7 +281,6 @@ def test_custom_kg_forces_scope_on_every_entity(client: TestClient) -> None:
     assert all(r["scope"] == "tenant:clinic-a" for r in payload["relationships"])
 
 
-@pytest.mark.unit
 def test_custom_kg_overrides_client_supplied_shared_scope(client: TestClient) -> None:
     """Even if the client puts scope='shared' on an entity, the server rewrites
     it to ``tenant:<id>`` — a tenant context can never inject into shared.
@@ -309,7 +308,6 @@ def test_custom_kg_overrides_client_supplied_shared_scope(client: TestClient) ->
     assert payload["entities"][0]["scope"] == "tenant:clinic-a"
 
 
-@pytest.mark.unit
 def test_custom_kg_emits_audit_row(client: TestClient) -> None:
     resp = client.post(
         "/documents/custom_kg",
@@ -331,7 +329,6 @@ def test_custom_kg_emits_audit_row(client: TestClient) -> None:
     assert rows[0]["status"] == "ok"
 
 
-@pytest.mark.unit
 def test_custom_kg_validates_payload_shape(client: TestClient) -> None:
     resp = client.post(
         "/documents/custom_kg",

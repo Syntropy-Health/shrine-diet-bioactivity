@@ -1,6 +1,10 @@
 # shrine-diet-bioactivity/agents/tests/test_calibrator.py
+import pytest
+
 from agents.calibrator import compute_confidence  # type: ignore[import-not-found]
 from agents.models import ConfidenceComponents
+
+pytestmark = [pytest.mark.unit]
 
 
 def test_confidence_increases_with_evidence_tier():

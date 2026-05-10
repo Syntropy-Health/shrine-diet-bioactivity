@@ -13,6 +13,8 @@ from agents.models import (  # type: ignore[import-not-found]
     ResearchSynthesis,
 )
 
+pytestmark = [pytest.mark.unit]
+
 
 def test_research_question_minimal():
     q = ResearchQuestion(text="What is the evidence for ginger in CIN?")

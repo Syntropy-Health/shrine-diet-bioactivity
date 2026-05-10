@@ -1,6 +1,8 @@
 """Tests for agents.retrieval — deterministic pre-fetch orchestrator."""
 from unittest.mock import patch
 
+import pytest
+
 from agents.models import ResearchQuestion, Triage  # type: ignore[import-not-found]
 from agents.retrieval import (  # type: ignore[import-not-found]
     KGRetrievalBundle, _looks_like_compound, render_bundle_for_prompt,
@@ -13,6 +15,8 @@ from agents.tools.kg_tools import (  # type: ignore[import-not-found]
 # kg_tools.ProvenanceChain / ProvenanceEdge still resolve to MCPChain / MCPEdge.
 ProvenanceEdge = MCPEdge
 ProvenanceChain = MCPChain
+
+pytestmark = [pytest.mark.unit]
 
 
 # ---------------------------------------------------------------------------

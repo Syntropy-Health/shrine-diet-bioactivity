@@ -34,6 +34,8 @@ from ingest_unified import batch_items, extract_entities, extract_relationships,
 DB_PATH = Path(__file__).parent / ".." / "data_local" / "herbal_botanicals.db"
 DB_EXISTS = DB_PATH.exists()
 
+pytestmark = [pytest.mark.unit]
+
 
 # ---------------------------------------------------------------------------
 # Unit tests (no DB required)

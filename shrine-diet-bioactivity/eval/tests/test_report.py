@@ -28,6 +28,8 @@ from agents.models import (  # type: ignore[import-not-found]
 from eval.report import bootstrap_ci, render_report  # type: ignore[import-not-found]
 from eval.scenario import GoldStandard, Scenario  # type: ignore[import-not-found]
 
+pytestmark = [pytest.mark.unit]
+
 # ---------------------------------------------------------------------------
 # Shared fixture helpers
 # ---------------------------------------------------------------------------

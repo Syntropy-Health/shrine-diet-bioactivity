@@ -16,6 +16,8 @@ from neo4j import GraphDatabase
 # Load .env from shrine-diet-bioactivity/ (one level above this file's directory)
 load_dotenv(Path(__file__).parent.parent / ".env")
 
+pytestmark = [pytest.mark.aura, pytest.mark.slow]
+
 
 @pytest.mark.integration
 def test_aura_reachable_and_returns_constant():

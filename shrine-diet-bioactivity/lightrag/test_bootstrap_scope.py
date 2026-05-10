@@ -22,6 +22,8 @@ from bootstrap_scope import (
     verify_clean,
 )
 
+pytestmark = [pytest.mark.unit]
+
 
 # ---------------------------------------------------------------------------
 # Fake Neo4j driver — records every Cypher statement executed.

@@ -12,6 +12,8 @@ from scope_context import (
     validate_scope,
 )
 
+pytestmark = [pytest.mark.unit]
+
 
 @pytest.mark.unit
 class TestValidateScope:
