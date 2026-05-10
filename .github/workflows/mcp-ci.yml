@@ -66,9 +66,11 @@ jobs:
   aura-data-integrity:
     name: Data Integrity (Aura instance)
     runs-on: ubuntu-latest
-    # Skip on PRs from forks (no secrets available); only run on
-    # internal branches where NEO4J_* secrets are injected.
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    # Skip on PRs from forks (no secrets available); run on same-repo PRs,
+    # post-merge pushes to main/test, and manual dispatch. Without the
+    # `push` clause, a regression that lands on main wouldn't trip the
+    # Aura gate post-merge.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     defaults:
       run:
         working-directory: shrine-diet-bioactivity/lightrag
