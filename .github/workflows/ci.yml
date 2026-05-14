@@ -129,9 +129,12 @@ jobs:
         if: steps.data-cache.outputs.cache-hit != 'true'
         run: npx tsx scripts/load-herb2.ts
 
-      - name: Build Duke<->SymMap symptom crosswalk
-        if: steps.data-cache.outputs.cache-hit != 'true'
-        run: npx tsx scripts/build-symptom-crosswalk.ts
+      # NOTE: scripts/build-symptom-crosswalk.ts is intentionally NOT run in
+      # CI. It produces an auto-baseline that strips the hand-curated TCM
+      # matches in research-journal/shared/symptom_crosswalk.json. The
+      # committed JSON is the canonical source; the script is for local
+      # regeneration / reviewer workflows only. The symptom-crosswalk test
+      # passes against the committed JSON.
 
       # Save the full fixtures cache once everything builds successfully.
       - name: Save full fixtures cache
