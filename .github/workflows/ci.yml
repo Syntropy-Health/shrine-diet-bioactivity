@@ -70,9 +70,22 @@ jobs:
             data-fixtures-v1-downloads-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
             data-fixtures-v1-
 
-      - name: Download data sources (Duke + FooDB)
+      # FooDB (~952 MB, 1h+ to download) is intentionally skipped: no current
+      # test requires it. build-herbal-db.ts handles missing FooDB gracefully
+      # by leaving compound_foods empty. The only consumer of FooDB-derived
+      # data was the food-bridge test, which was deleted (orphaned debris
+      # from 767bc07's mcp-opennutrition cleanup).
+      - name: Download Duke source data
         if: steps.data-cache.outputs.cache-hit != 'true'
-        run: npx tsx scripts/download-sources.ts
+        run: npx tsx scripts/download-sources.ts --duke-only
+
+      - name: Download CMAUP source data
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/download-sources.ts --cmaup-only
+
+      - name: Download TTD source data
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/download-sources.ts --ttd-only
 
       - name: Download SymMap xlsx files
         if: steps.data-cache.outputs.cache-hit != 'true'
