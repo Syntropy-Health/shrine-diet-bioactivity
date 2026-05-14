@@ -208,6 +208,21 @@ RELATIONSHIP_TYPES = {
             "ORDER BY be.id"
         ),
     },
+    # -- Phase 2 symptom→disease materialized map (audit §4.2) --
+    "MAPS_TO_DISEASE": {
+        "source_table": "symptom_disease_map",
+        "src_type": "Symptom",
+        "tgt_type": "Disease",
+        "query": (
+            "SELECT s.name AS src_name, sdm.disease_name AS tgt_name, "
+            "sdm.source AS source, sdm.mesh_id AS mesh_id, "
+            "sdm.umls_id AS umls_id, sdm.icd10cm_id AS icd10cm_id, "
+            "sdm.match_score AS match_score "
+            "FROM symptom_disease_map sdm "
+            "JOIN symptoms s ON s.id = sdm.symptom_id "
+            "ORDER BY s.id, sdm.match_score DESC"
+        ),
+    },
     # -- Tenant relationship types (clinical practice layer) --
     # These have no SQLite source — ingested via tenant API (Phase 4).
     "INCLUDES": {
@@ -649,6 +664,20 @@ def describe_relationship(rel_type: str, row: dict[str, Any]) -> tuple[str, str]
         if extras:
             desc += " (" + ", ".join(extras) + ")"
         return desc, "evidence target measurement assay confidence"
+
+    if rel_type == "MAPS_TO_DISEASE":
+        # Phase 2 — materialized symptom→disease bridge (audit §4.2).
+        source = row.get("source", "string_match")
+        mesh = row.get("mesh_id")
+        score = row.get("match_score")
+        desc = f"{src} maps to disease {tgt}"
+        details: list[str] = [f"via {source}"]
+        if mesh:
+            details.append(f"MeSH {mesh}")
+        if score is not None:
+            details.append(f"score {score}")
+        desc += " (" + ", ".join(details) + ")"
+        return desc, "symptom disease ontology mesh umls icd"
 
     # -- Tenant relationship types (clinical practice layer) --
 
