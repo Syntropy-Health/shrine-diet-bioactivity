@@ -5,9 +5,14 @@
 #   - Vitest failures
 #   - Coverage below thresholds declared in vitest.config.ts
 #
-# The main TS MCP is in the subdirectory `shrine-diet-bioactivity/`.
-# Other dirs (mcp-opennutrition/, lightrag/, graphiti/) are submodules or
-# Python packages and are not gated by this workflow.
+# The main TS adapter is in the subdirectory `shrine-diet-bioactivity/`.
+# Other dirs (mcp/, lightrag/) are Python packages or submodules and are not
+# gated by this workflow.
+#
+# Data fixtures (Duke + FooDB + SymMap + HERB 2.0) are downloaded and the
+# unified SQLite DB is built on first run, then cached across runs via
+# actions/cache. The cache is split into restore + save so the (expensive)
+# downloads survive even if a later step fails.
 
 name: CI
 
@@ -45,6 +50,104 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # --- Data fixtures (downloads + decompress + DB build) ----------------
+      # Split into restore + save so the slow downloads (FooDB ~1h, HERB 2.0
+      # ~35min) cache even if a later step fails. Bump the v<N> prefix in the
+      # key to force a clean rebuild. Bump the downloads/build sub-prefixes
+      # independently if only that layer's scripts change.
+
+      - name: Restore data fixtures cache
+        id: data-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            shrine-diet-bioactivity/data
+            shrine-diet-bioactivity/data_local_temp
+            shrine-diet-bioactivity/data_local
+          key: data-fixtures-v1-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/scripts/decompress-datasets.ts', 'shrine-diet-bioactivity/scripts/build-herbal-db.ts', 'shrine-diet-bioactivity/scripts/load-symmap.ts', 'shrine-diet-bioactivity/scripts/load-herb2.ts', 'shrine-diet-bioactivity/scripts/build-symptom-crosswalk.ts', 'shrine-diet-bioactivity/scripts/migrate-kg-expansion.ts', 'shrine-diet-bioactivity/scripts/migrate-multi-source.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
+          restore-keys: |
+            data-fixtures-v1-downloads-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
+            data-fixtures-v1-
+
+      # FooDB (~952 MB, 1h+ to download) is intentionally skipped: no current
+      # test requires it. build-herbal-db.ts handles missing FooDB gracefully
+      # by leaving compound_foods empty. The only consumer of FooDB-derived
+      # data was the food-bridge test, which was deleted (orphaned debris
+      # from 767bc07's mcp-opennutrition cleanup).
+      - name: Download Duke source data
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/download-sources.ts --duke-only
+
+      - name: Download CMAUP source data
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/download-sources.ts --cmaup-only
+
+      - name: Download TTD source data
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/download-sources.ts --ttd-only
+
+      - name: Download SymMap xlsx files
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/download-symmap.ts
+
+      - name: Download HERB 2.0 via chedi API
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/download-herb2.ts
+
+      # Save the downloads-only cache so subsequent runs survive build/load
+      # failures without re-downloading the ~1GB of source data.
+      - name: Save downloads cache
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            shrine-diet-bioactivity/data
+          key: data-fixtures-v1-downloads-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
+
+      - name: Decompress Duke + FooDB archives
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/decompress-datasets.ts
+
+      - name: Build unified SQLite (Duke + FooDB)
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/build-herbal-db.ts
+
+      - name: KG expansion migration (symptoms, targets)
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/migrate-kg-expansion.ts
+
+      - name: Multi-source migration (CMAUP + CTD + TTD)
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/migrate-multi-source.ts
+
+      - name: Load SymMap (5 bilingual reference tables)
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/load-symmap.ts
+
+      - name: Load HERB 2.0 (herbs + herb_disease evidence)
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/load-herb2.ts
+
+      # NOTE: scripts/build-symptom-crosswalk.ts is intentionally NOT run in
+      # CI. It produces an auto-baseline that strips the hand-curated TCM
+      # matches in research-journal/shared/symptom_crosswalk.json. The
+      # committed JSON is the canonical source; the script is for local
+      # regeneration / reviewer workflows only. The symptom-crosswalk test
+      # passes against the committed JSON.
+
+      # Save the full fixtures cache once everything builds successfully.
+      - name: Save full fixtures cache
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            shrine-diet-bioactivity/data
+            shrine-diet-bioactivity/data_local_temp
+            shrine-diet-bioactivity/data_local
+          key: data-fixtures-v1-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/scripts/decompress-datasets.ts', 'shrine-diet-bioactivity/scripts/build-herbal-db.ts', 'shrine-diet-bioactivity/scripts/load-symmap.ts', 'shrine-diet-bioactivity/scripts/load-herb2.ts', 'shrine-diet-bioactivity/scripts/build-symptom-crosswalk.ts', 'shrine-diet-bioactivity/scripts/migrate-kg-expansion.ts', 'shrine-diet-bioactivity/scripts/migrate-multi-source.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
+
+      # --- Static checks + tests --------------------------------------------
 
       - name: Typecheck
         run: npm run typecheck
