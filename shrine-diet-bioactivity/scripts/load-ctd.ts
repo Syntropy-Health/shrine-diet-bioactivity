@@ -20,7 +20,8 @@ import * as path from 'path';
 import * as readline from 'readline';
 import * as zlib from 'zlib';
 import Database from 'better-sqlite3';
-import { normalizeCompoundName } from './build-herbal-db.js';
+import { normalizeCompoundName } from './_normalize.js';
+import { parseCsvLine } from './_csv-parse.js';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(process.cwd(), 'data_local', 'herbal_botanicals.db');
@@ -66,14 +67,23 @@ async function streamGzipCsv(
   const input = fs.createReadStream(filePath);
   const rl = readline.createInterface({ input: input.pipe(gunzip) });
 
-  for await (const line of rl) {
+  for await (const rawLine of rl) {
+    // Defense-in-depth against CRLF: CTD currently ships LF-only files
+    // (verified May 2026), but readline does NOT strip a trailing \r if
+    // the upstream ever switches to Windows endings. Strip it here so
+    // the last field on every row never carries a stray \r into the DB.
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+
     // Skip comment lines
     if (line.startsWith('#')) {
       continue;
     }
 
     stats.processed++;
-    const fields = line.split(',').map(f => f.trim());
+    // RFC-4180 parser — preserves commas inside quoted disease names like
+    // "Lymphoma, Mantle-Cell". The previous `line.split(',')` corrupted
+    // these rows and silently shifted every subsequent field by one.
+    const fields = parseCsvLine(line).map((f) => f.trim());
     const chemicalName = fields[0] || '';
     if (!chemicalName) continue;
 
@@ -152,11 +162,23 @@ export async function loadCtd(db: Database.Database): Promise<{ diseases: number
     console.error(`  CTD diseases: ${result.diseases} loaded (${stats.matched} matched, ${stats.skipped} skipped)`);
   } else {
     console.error(`  CTD chemical-disease file not found: ${cdFile}`);
-    console.error('  Download from https://ctdbase.org/downloads/ (CAPTCHA required)');
+    console.error(
+      '  Run `npm run download:ctd` to fetch directly from ctdbase.org',
+    );
+    console.error('  (Direct file URLs are NOT CAPTCHA-gated — the website page is.)');
   }
 
   // --- Load chemical-phenotype interactions ---
-  const cpFile = path.join(DATA_DIR, 'CTD_chem_phenotype_interactions.csv.gz');
+  // CTD's actual filename is CTD_pheno_term_ixns.csv.gz (the upstream
+  // renamed it from the older CTD_chem_phenotype_interactions). Accept
+  // either for backward compatibility with locally-cached older files.
+  let cpFile = path.join(DATA_DIR, 'CTD_pheno_term_ixns.csv.gz');
+  if (!fs.existsSync(cpFile)) {
+    const legacy = path.join(DATA_DIR, 'CTD_chem_phenotype_interactions.csv.gz');
+    if (fs.existsSync(legacy)) {
+      cpFile = legacy;
+    }
+  }
   if (fs.existsSync(cpFile)) {
     console.error('  Loading CTD chemical-phenotype interactions...');
     const insertCP = db.prepare(`
@@ -193,7 +215,9 @@ export async function loadCtd(db: Database.Database): Promise<{ diseases: number
     console.error(`  CTD phenotypes: ${result.phenotypes} loaded (${stats.matched} matched, ${stats.skipped} skipped)`);
   } else {
     console.error(`  CTD phenotype file not found: ${cpFile}`);
-    console.error('  Download from https://ctdbase.org/downloads/ (CAPTCHA required)');
+    console.error(
+      '  Run `npm run download:ctd` to fetch directly from ctdbase.org',
+    );
   }
 
   return result;
