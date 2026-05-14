@@ -5,9 +5,14 @@
 #   - Vitest failures
 #   - Coverage below thresholds declared in vitest.config.ts
 #
-# The main TS MCP is in the subdirectory `shrine-diet-bioactivity/`.
-# Other dirs (mcp-opennutrition/, lightrag/, graphiti/) are submodules or
-# Python packages and are not gated by this workflow.
+# The main TS adapter is in the subdirectory `shrine-diet-bioactivity/`.
+# Other dirs (mcp/, lightrag/) are Python packages or submodules and are not
+# gated by this workflow.
+#
+# Data fixtures (Duke + FooDB + SymMap + HERB 2.0 + CMAUP + TTD) are
+# downloaded and the unified SQLite DB is built on first run, then cached
+# across runs via actions/cache. The cache key derives from the download and
+# build scripts so a script change invalidates stale fixtures automatically.
 
 name: CI
 
@@ -45,6 +50,59 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Restore data fixtures cache
+        id: data-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            shrine-diet-bioactivity/data
+            shrine-diet-bioactivity/data_local_temp
+            shrine-diet-bioactivity/data_local
+          # Bump the v<N> prefix to force a fresh download+build.
+          key: data-fixtures-v1-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/scripts/decompress-datasets.ts', 'shrine-diet-bioactivity/scripts/build-herbal-db.ts', 'shrine-diet-bioactivity/scripts/load-symmap.ts', 'shrine-diet-bioactivity/scripts/load-herb2.ts', 'shrine-diet-bioactivity/scripts/build-symptom-crosswalk.ts', 'shrine-diet-bioactivity/scripts/migrate-kg-expansion.ts', 'shrine-diet-bioactivity/scripts/migrate-multi-source.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
+          restore-keys: |
+            data-fixtures-v1-
+
+      - name: Download data sources (Duke + FooDB)
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/download-sources.ts
+
+      - name: Download SymMap xlsx files
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/download-symmap.ts
+
+      - name: Download HERB 2.0 via chedi API
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/download-herb2.ts
+
+      - name: Decompress Duke + FooDB archives
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/decompress-datasets.ts
+
+      - name: Build unified SQLite (Duke + FooDB)
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/build-herbal-db.ts
+
+      - name: KG expansion migration (symptoms, targets)
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/migrate-kg-expansion.ts
+
+      - name: Multi-source migration (CMAUP + CTD + TTD)
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/migrate-multi-source.ts
+
+      - name: Load SymMap (5 bilingual reference tables)
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/load-symmap.ts
+
+      - name: Load HERB 2.0 (herbs + herb_disease evidence)
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/load-herb2.ts
+
+      - name: Build Duke<->SymMap symptom crosswalk
+        if: steps.data-cache.outputs.cache-hit != 'true'
+        run: npx tsx scripts/build-symptom-crosswalk.ts
 
       - name: Typecheck
         run: npm run typecheck
