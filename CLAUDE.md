@@ -127,3 +127,18 @@ OpenNutrition (vendored fixture, 326,759 foods): Calories 95.5% coverage, protei
 - Python scripts handle missing dependencies gracefully with try/except ImportError
 - MCP tools use Zod schemas (TS) or Pydantic (Python) for input validation
 - `output/` directory is gitignored — all generated data lives there
+
+## Secrets
+
+**Source of truth: Infisical.** When blocked by a missing credential, check Infisical FIRST — don't ask the user, don't stub, don't hardcode. See the monorepo-level [`SECRETS.md`](../../SECRETS.md) for the full practice (auth, REST fallback, layout conventions, secret-handling hygiene).
+
+Secrets this repo needs and where they live:
+
+| Secret | Used by | Infisical path | GitHub Actions secret? |
+|---|---|---|---|
+| `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD` | `mcp-ci.yml` (aura-data-integrity job); `lightrag/scripts/*` | project `687cab01-ccc1-4789-99a9-1214bd268f2b`, env `prod`, path `/research/shrine-diet-bioactivity` | ✅ mirrored |
+| `RAILWAY_TOKEN` | `deploy-mcp.yml` (Railway deploy + post-deploy /health poll) | (set in Railway dashboard; mirror to Infisical when convenient) | ✅ |
+| `OPENAI_API_KEY` (optional) | LightRAG production embeddings (only when running `make lightrag-ingest-prod`) | not yet in Infisical — add when needed | ❌ |
+| `JINA_API_KEY` (optional) | LightRAG production reranker (Chinese+English TCM) | not yet in Infisical — add when needed | ❌ |
+
+**Rotating any of these:** update Infisical first, then `printf '%s' "$VAL" | gh secret set NAME --repo Syntropy-Health/shrine-open-diet --body -` to re-mirror, then update Railway dashboard. Never let the three stores drift.

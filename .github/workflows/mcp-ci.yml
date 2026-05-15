@@ -1,0 +1,120 @@
+# Python MCP gateway CI — gates the user's success criteria for issue #34:
+#   - functional usability: pure-logic + mocked-client unit tests
+#   - integration usability: in-memory MCP-client SDK round-trip
+#   - data integrity (Aura): node/edge invariants on the live indexed KG
+#
+# Connectivity to the deployed instance is NOT gated here — `deploy-mcp.yml`
+# already polls /health post-deploy.
+#
+# This workflow is additive; the existing ci.yml continues to gate the TS MCP.
+
+name: MCP CI
+
+on:
+  pull_request:
+    branches: [main, test, "phase*/**"]
+    paths:
+      - 'mcp/**'
+      - 'shrine-diet-bioactivity/lightrag/tests/**'
+      - '.github/workflows/mcp-ci.yml'
+  push:
+    branches: [main, test]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  functional-integration:
+    name: Functional + Integration (KG MCP gateway)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Submodules NOT needed: mcp/ tests have no submodule deps,
+          # and the Aura test only needs the `neo4j` driver. Skipping
+          # avoids a known broken `mcp-opennutrition` submodule pointer
+          # that fails `submodules: recursive` checkout repo-wide.
+          submodules: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install with [test] extras
+        run: pip install -e '.[test]'
+
+      # Note: mcp/Makefile was removed in the chore/repo-cleanup-zombies pass
+      # (commit 767bc07). pyproject.toml's pytest markers + addopts define the
+      # canonical test selection; invoke pytest directly here.
+
+      - name: Functional (unit tests — pure logic, mocked client)
+        run: python -m pytest -m unit -v
+
+      - name: Integration (in-memory MCP-client SDK round-trip)
+        run: python -m pytest -m integration -v
+
+      - name: Coverage report
+        if: always()
+        run: python -m pytest --cov=src/kg_mcp --cov-report=html --cov-report=term-missing || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mcp-coverage
+          path: mcp/htmlcov
+          if-no-files-found: ignore
+          retention-days: 14
+
+  aura-data-integrity:
+    name: Data Integrity (Aura instance)
+    runs-on: ubuntu-latest
+    # Skip on PRs from forks (no secrets available); run on same-repo PRs,
+    # post-merge pushes to main/test, and manual dispatch. Without the
+    # `push` clause, a regression that lands on main wouldn't trip the
+    # Aura gate post-merge.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    defaults:
+      run:
+        working-directory: shrine-diet-bioactivity/lightrag
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Submodules NOT needed: mcp/ tests have no submodule deps,
+          # and the Aura test only needs the `neo4j` driver. Skipping
+          # avoids a known broken `mcp-opennutrition` submodule pointer
+          # that fails `submodules: recursive` checkout repo-wide.
+          submodules: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Neo4j driver + pytest
+        run: pip install neo4j pytest
+
+      - name: Run Aura data-integrity gates
+        env:
+          NEO4J_URI: ${{ secrets.NEO4J_URI }}
+          NEO4J_USERNAME: ${{ secrets.NEO4J_USERNAME }}
+          NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
+        run: |
+          # Sanitized env presence + length check — values themselves stay
+          # opaque so secrets never echo to logs, but we can tell whether
+          # they reached the runner at all.
+          echo "NEO4J_URI: present=$([ -n \"$NEO4J_URI\" ] && echo yes || echo no), len=${#NEO4J_URI}"
+          echo "NEO4J_USERNAME: present=$([ -n \"$NEO4J_USERNAME\" ] && echo yes || echo no), len=${#NEO4J_USERNAME}"
+          echo "NEO4J_PASSWORD: present=$([ -n \"$NEO4J_PASSWORD\" ] && echo yes || echo no), len=${#NEO4J_PASSWORD}"
+          if [ -z "$NEO4J_URI" ]; then
+            echo "::warning::NEO4J_URI secret not set — running gates in skip mode"
+          fi
+          # -rs surfaces the full skip reason in the pytest summary so we
+          # can distinguish 'secret missing' from 'connection failed'.
+          python -m pytest tests/test_aura_data_integrity.py -v -rs

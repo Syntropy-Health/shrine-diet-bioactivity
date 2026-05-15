@@ -3,8 +3,10 @@ name = "kg-mcp"
 version = "0.1.0"
 description = "MCP gateway over the shrine-diet-bioactivity LightRAG KG"
 requires-python = ">=3.10"
+# Note: integration tests use the private `_mcp_server` attr (mcp.shared.memory
+# pattern); pinned <2.0 to hedge against breaking SDK rename.
 dependencies = [
-    "mcp>=1.0",
+    "mcp>=1.0,<2.0",
     "httpx>=0.27",
     "pydantic>=2.0",
     "pyjwt[crypto]>=2.8",  # Clerk JWT verification
@@ -12,10 +14,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Optional integration-test extras. ``braintrust`` is soft-imported by
-# ``tests/e2e/_braintrust_logger.py``; tests run as a no-op when the SDK
-# is not installed and/or ``BRAINTRUST_API_KEY`` is unset.
+# Test extras — pinned to actual usage in tests/ and the `make test-coverage`
+# target. ``braintrust`` is soft-imported by ``tests/e2e/_braintrust_logger.py``
+# (tests run as a no-op when the SDK is not installed and/or
+# ``BRAINTRUST_API_KEY`` is unset). httpx is also in `dependencies` above but
+# is imported directly by tests/, so it's listed here to document the explicit
+# test-time dependency.
 test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.21",
+    "pytest-cov>=4.0",
+    "httpx>=0.27",
     "braintrust>=0.0.180",
 ]
 
