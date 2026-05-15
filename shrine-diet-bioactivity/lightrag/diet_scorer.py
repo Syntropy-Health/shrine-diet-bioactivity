@@ -240,7 +240,10 @@ def score_pathways(
         if ts is None or ts <= 0:
             continue
         slot = bucket.setdefault(pid, {"name": pname, "score": 0.0, "targets": set()})
-        slot["score"] += ts
+        # Apply the documented pathway-membership weight (ADR 0010 §4.2 Stage 2).
+        # Without this multiplier, pathway scores are 1.67× higher than the
+        # published formula — making the implementation diverge from the ADR.
+        slot["score"] += ts * PATHWAY_MEMBERSHIP_WEIGHT
         slot["targets"].add(tid)
 
     out = [

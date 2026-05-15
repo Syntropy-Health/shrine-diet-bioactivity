@@ -227,9 +227,12 @@ def test_score_pathways_rolls_up_target_scores_via_membership():
     out = score_pathways(target_scores, kpg_rows)
     nfkb_path = next(r for r in out if r["kegg_id"] == "hsa04064")
     tnf_path = next(r for r in out if r["kegg_id"] == "hsa04668")
-    assert nfkb_path["score"] == pytest.approx(150.0)
+    # Pathway scores apply PATHWAY_MEMBERSHIP_WEIGHT (0.60) per ADR 0010 §4.2:
+    #   NFκB:  (100 + 50)  × 0.60 =  90.0
+    #   TNF:   100         × 0.60 =  60.0
+    assert nfkb_path["score"] == pytest.approx(90.0)
     assert nfkb_path["n_targets_hit"] == 2
-    assert tnf_path["score"] == pytest.approx(100.0)
+    assert tnf_path["score"] == pytest.approx(60.0)
 
 
 def test_score_pathways_with_no_target_scores_returns_empty():
