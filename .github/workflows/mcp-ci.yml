@@ -49,15 +49,19 @@ jobs:
       - name: Install with [test] extras
         run: pip install -e '.[test]'
 
+      # Note: mcp/Makefile was removed in the chore/repo-cleanup-zombies pass
+      # (commit 767bc07). pyproject.toml's pytest markers + addopts define the
+      # canonical test selection; invoke pytest directly here.
+
       - name: Functional (unit tests — pure logic, mocked client)
-        run: make test-unit
+        run: python -m pytest -m unit -v
 
       - name: Integration (in-memory MCP-client SDK round-trip)
-        run: make test-integration
+        run: python -m pytest -m integration -v
 
       - name: Coverage report
         if: always()
-        run: make test-coverage || true
+        run: python -m pytest --cov=src/kg_mcp --cov-report=html --cov-report=term-missing || true
 
       - uses: actions/upload-artifact@v4
         if: always()
