@@ -264,7 +264,9 @@ function createSchema(db: Database.Database): void {
         (evidence_type IN ('direct_therapeutic', 'direct_marker')
            AND inference_gene_symbol IS NULL AND inference_score IS NULL)
         OR
-        (evidence_type = 'inferred_via_gene' AND inference_score IS NOT NULL)
+        (evidence_type = 'inferred_via_gene'
+           AND inference_score IS NOT NULL
+           AND inference_gene_symbol IS NOT NULL)
       )
     );
     CREATE INDEX IF NOT EXISTS idx_cde_compound ON compound_disease_evidence(compound_id);

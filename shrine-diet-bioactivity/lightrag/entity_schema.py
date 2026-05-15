@@ -627,15 +627,30 @@ def build_food_query(conn: sqlite3.Connection) -> str:
 def build_disease_query(conn: sqlite3.Connection) -> str:
     """Build Disease entity query, handling missing tables.
 
+    Phase 3 promoted Disease to a first-class entity backed by the
+    ``diseases_canonical`` registry. Prefer that source when present; fall
+    back to the legacy ``target_diseases`` + ``chemical_diseases`` UNION
+    only when the canonical table is absent (one-cycle compatibility window
+    while the legacy table is being deprecated — see ADR 0008).
+
     The outer query sorts by ``disease_name`` so ``LIMIT N`` is
     reproducible even though the inner UNION has no intrinsic order.
     """
+    def _has(table: str) -> bool:
+        return conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone() is not None
+
+    if _has("diseases_canonical"):
+        return (
+            "SELECT preferred_name AS disease_name "
+            "FROM diseases_canonical "
+            "ORDER BY preferred_name"
+        )
     parts = []
     for table, col in [("target_diseases", "disease_name"), ("chemical_diseases", "disease_name")]:
-        exists = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
-        ).fetchone()
-        if exists:
+        if _has(table):
             parts.append(f"SELECT DISTINCT {col} AS disease_name FROM {table}")
     if not parts:
         return "SELECT 'none' AS disease_name WHERE 0"

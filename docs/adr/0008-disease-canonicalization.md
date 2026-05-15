@@ -48,7 +48,7 @@ Migration is non-destructive: legacy `chemical_diseases` stays populated alongsi
 - **Wins:**
   - Cross-source disease queries are now indexed equality joins (was: free-text `LIKE`).
   - Use case A doneness criterion ("top-10 ranked food results have ≥1 PubMed citation") is achievable — 94% citation fill rate on the new evidence layer.
-  - Use case D's mechanistic chain (compound → gene → target → disease) becomes navigable: 2.89M `inference_via_gene` rows join through `targets.gene_symbol`.
+  - Use case D's mechanistic chain (compound → gene → target → disease) becomes navigable: 2.89M `inferred_via_gene` rows join through `targets.gene_symbol`.
   - Disease entity in LightRAG renders with full ontology cross-refs (MeSH/UMLS/ICD-10/HPO) instead of bare names.
 - **Trade-offs:**
   - CTD ingest doubles in time (60s → 1m 39s — measured). Acceptable.
