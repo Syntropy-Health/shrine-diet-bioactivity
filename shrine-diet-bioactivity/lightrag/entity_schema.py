@@ -90,6 +90,16 @@ ENTITY_TYPES = {
             "publication_year FROM bioactivity_evidence ORDER BY id"
         ),
     },
+    # -- Phase 4 KEGG pathway overlay --
+    "Pathway": {
+        "source_table": "kegg_pathways",
+        "id_field": "id",
+        "name_field": "name",
+        "query": (
+            "SELECT id, name, organism, category, source FROM kegg_pathways "
+            "ORDER BY id"
+        ),
+    },
     # -- Tenant entity types (clinical practice layer) --
     # These have no SQLite source — ingested via tenant API (Phase 4).
     "Protocol": {
@@ -276,6 +286,41 @@ RELATIONSHIP_TYPES = {
             "JOIN diseases_canonical d ON d.id = cde.disease_id "
             "WHERE cde.evidence_type = 'inferred_via_gene' "
             "ORDER BY cde.id"
+        ),
+    },
+    # -- Phase 4 KEGG pathway overlay --
+    "COMPOUND_IN_PATHWAY": {
+        "source_table": "kegg_compound_pathways",
+        "src_type": "Compound",
+        "tgt_type": "Pathway",
+        # Joins through compound_identity.kegg_compound_id; only fires when
+        # Phase 1 ingest has populated compound_identity. Until then this
+        # query returns 0 rows — that's acceptable per spec §6.
+        "query": (
+            "SELECT c.name AS src_name, kp.name AS tgt_name, "
+            "       kp.id AS pathway_id "
+            "FROM kegg_compound_pathways kcp "
+            "JOIN compound_identity ci "
+            "    ON ci.kegg_compound_id = kcp.kegg_compound_id "
+            "JOIN compounds c ON c.id = ci.compound_id "
+            "JOIN kegg_pathways kp ON kp.id = kcp.kegg_pathway_id "
+            "ORDER BY c.id, kp.id"
+        ),
+    },
+    "PATHWAY_INCLUDES_TARGET": {
+        "source_table": "kegg_pathway_genes",
+        "src_type": "Pathway",
+        "tgt_type": "Target",
+        # Joins kegg_pathway_genes.gene_symbol → targets.gene_symbol.
+        # Works without Phase 1 ingest — 455 joins on the live DB today.
+        "query": (
+            "SELECT kp.name AS src_name, t.name AS tgt_name, "
+            "       kpg.kegg_gene_id AS kegg_gene_id, "
+            "       kpg.gene_symbol AS gene_symbol "
+            "FROM kegg_pathway_genes kpg "
+            "JOIN targets t ON t.gene_symbol = kpg.gene_symbol "
+            "JOIN kegg_pathways kp ON kp.id = kpg.kegg_pathway_id "
+            "ORDER BY kp.id, t.id"
         ),
     },
     # -- Tenant relationship types (clinical practice layer) --
@@ -508,6 +553,24 @@ def describe_bioactivity_evidence(row: dict[str, Any]) -> str:
     return "".join(parts)
 
 
+def describe_pathway(row: dict[str, Any]) -> str:
+    """Generate a description for a KEGG Pathway entity (Phase 4)."""
+    name = row.get("name", "Unknown pathway")
+    parts = [name]
+    extras: list[str] = []
+    if row.get("organism"):
+        extras.append(f"organism: {row['organism']}")
+    if row.get("category"):
+        extras.append(f"category: {row['category']}")
+    if row.get("source"):
+        extras.append(f"source: {row['source']}")
+    if row.get("id"):
+        extras.append(f"KEGG ID: {row['id']}")
+    if extras:
+        parts.append("(" + ", ".join(extras) + ")")
+    return ". ".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Tenant entity description generators (clinical practice layer)
 # ---------------------------------------------------------------------------
@@ -673,6 +736,8 @@ DESCRIPTION_GENERATORS = {
     "Symptom": describe_symptom,
     # Phase 1 drug-bioactive bridge
     "BioactivityEvidence": describe_bioactivity_evidence,
+    # Phase 4 KEGG pathway overlay
+    "Pathway": describe_pathway,
     # Tenant entity types (clinical practice layer)
     "Protocol": describe_protocol,
     "Intervention": describe_intervention,
@@ -752,6 +817,22 @@ def describe_relationship(rel_type: str, row: dict[str, Any]) -> tuple[str, str]
         if extras:
             desc += " (" + ", ".join(extras) + ")"
         return desc, "evidence target measurement assay confidence"
+
+    # -- Phase 4 KEGG pathway overlay --
+
+    if rel_type == "COMPOUND_IN_PATHWAY":
+        pid = row.get("pathway_id")
+        desc = f"{src} participates in pathway {tgt}"
+        if pid:
+            desc += f" (KEGG {pid})"
+        return desc, "compound pathway kegg metabolism mechanism"
+
+    if rel_type == "PATHWAY_INCLUDES_TARGET":
+        gene = row.get("gene_symbol") or row.get("kegg_gene_id") or ""
+        desc = f"{src} includes target {tgt}"
+        if gene:
+            desc += f" (gene {gene})"
+        return desc, "pathway target gene kegg mechanism"
 
     if rel_type == "MAPS_TO_DISEASE":
         # Phase 2 — materialized symptom→disease bridge (audit §4.2).

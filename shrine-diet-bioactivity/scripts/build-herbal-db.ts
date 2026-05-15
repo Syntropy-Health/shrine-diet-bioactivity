@@ -277,6 +277,45 @@ function createSchema(db: Database.Database): void {
   `);
   console.error('  ✓ Phase 3: diseases_canonical + disease_name_aliases + compound_disease_evidence');
 
+  // -------------------------------------------------------------------------
+  // Phase 4 — KEGG pathway overlay (spec 2026-05-08-kegg-pathway-overlay-design)
+  // -------------------------------------------------------------------------
+  // Self-contained KEGG layer. PATHWAY_INCLUDES_TARGET joins through
+  // targets.gene_symbol (works without Phase 1); COMPOUND_IN_PATHWAY joins
+  // through compound_identity.kegg_compound_id (activates lazily once Phase 1
+  // ingest runs). License: KEGG is academic-use-only — see ADR 0009.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS kegg_pathways (
+      id            TEXT PRIMARY KEY,
+      name          TEXT NOT NULL,
+      organism      TEXT NOT NULL DEFAULT 'hsa',
+      category      TEXT,
+      source        TEXT NOT NULL DEFAULT 'kegg',
+      ingested_at   TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_kp_name ON kegg_pathways(name);
+
+    CREATE TABLE IF NOT EXISTS kegg_compound_pathways (
+      kegg_compound_id  TEXT NOT NULL,
+      kegg_pathway_id   TEXT NOT NULL,
+      ingested_at       TEXT NOT NULL,
+      PRIMARY KEY (kegg_compound_id, kegg_pathway_id),
+      FOREIGN KEY (kegg_pathway_id) REFERENCES kegg_pathways(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_kcp_compound ON kegg_compound_pathways(kegg_compound_id);
+
+    CREATE TABLE IF NOT EXISTS kegg_pathway_genes (
+      kegg_pathway_id   TEXT NOT NULL,
+      kegg_gene_id      TEXT NOT NULL,
+      gene_symbol       TEXT,
+      ingested_at       TEXT NOT NULL,
+      PRIMARY KEY (kegg_pathway_id, kegg_gene_id),
+      FOREIGN KEY (kegg_pathway_id) REFERENCES kegg_pathways(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_kpg_gene_symbol ON kegg_pathway_genes(gene_symbol);
+  `);
+  console.error('  ✓ Phase 4: kegg_pathways + kegg_compound_pathways + kegg_pathway_genes');
+
   // Phase 2 — symptom→disease materialized map (audit §4.2 / KG audit Gap 2)
   // -------------------------------------------------------------------------
   // Eliminates the implicit string-LIKE bridge between our 47 hand-curated

@@ -302,10 +302,11 @@ graph LR
 | 2 — Symptom→disease map | ✅ #21 | `symptom_disease_map` (40/47, 33 with MeSH) |
 | 2 — CTD ingest | ✅ #22 | `chemical_diseases` populated (934K rows) |
 | 2 — HERB 2.0 resolution | ✅ #23 | `herb_resolution_map` (76.5%) |
-| 3 — Disease canonicalization | ✅ #25 (this PR) | `diseases_canonical` + `compound_disease_evidence` + LightRAG reroute |
-| **4 — KEGG pathway overlay** | ⏳ next | `pathways` + `compound_pathways` + `pathway_genes` — closes the use-case-D mechanistic chain |
-| 5 — Diet scoring | 📋 spec'd | Aggregate compound exposures → predicted target/disease modulation |
+| 3 — Disease canonicalization | ✅ #25 | `diseases_canonical` + `compound_disease_evidence` + LightRAG reroute |
+| 4 — KEGG pathway overlay | ✅ #26 (this PR) | 370 pathways + 10,556 compound-pathway + 39,340 pathway-gene + 455 pathway-target joins |
+| **5 — Diet scoring** | ⏳ next | Aggregate compound exposures over a recorded diet → predicted target/pathway/disease modulation |
 | 6 — Drop legacy `chemical_diseases` | 📋 stable cycle | Migration cleanup (1 week post Phase 3 stable) |
+| 7 — Phase 1 ingest end-to-end | 📋 unblocks | Activates `COMPOUND_IN_PATHWAY` + all bioactivity evidence edges (PR #19's PubChem→UniChem→ChEMBL ingest hasn't been run against the live DB yet) |
 
 ---
 

@@ -140,3 +140,14 @@ PRD/plan/report/review documents from earlier phases live in `.claude/PRPs/{prds
 | [`superpowers/specs/2026-05-08-disease-canonicalization-design.md`](superpowers/specs/2026-05-08-disease-canonicalization-design.md) | Phase 3 design spec |
 
 Run via `make build-disease-canonical && make load-ctd`. See ADR 0008 for live-DB outcomes (24K canonical diseases, 2.9M evidence rows with 94% PubMed citation preservation).
+
+---
+
+## Phase 4 — KEGG pathway overlay (added 2026-05-08)
+
+| File | One-line description |
+|---|---|
+| [`adr/0009-kegg-pathway-overlay.md`](adr/0009-kegg-pathway-overlay.md) | Architectural decision record — KEGG pathway entity + 2 relationships |
+| [`superpowers/specs/2026-05-08-kegg-pathway-overlay-design.md`](superpowers/specs/2026-05-08-kegg-pathway-overlay-design.md) | Phase 4 design spec |
+
+Run via `make build-kegg-pathways`. **License:** KEGG is academic-use-only — see ADR 0009 for commercial-deployment opt-out path.
