@@ -21,16 +21,18 @@ export default defineConfig({
         // coverage is expected and not meaningful here.
         'src/index.ts',
       ],
-      // Thresholds reflect current main reality + 2-point margin. They are
-      // intentionally below the org-wide 80% target while the phase PR stack
-      // (#19→#35 — KG audit-closure) lands; those PRs add tested code paths
-      // that lift tools.ts coverage substantially. Re-raise after the stack
-      // merges. See research-journal/ for the audit context.
+      // Thresholds reflect current main reality + ~2-point margin. The phase
+      // PR stack (#19→#35, all merged 2026-05-14) lifted coverage substantially.
+      // Re-measured 2026-05-15 against current main (94 tests, 12 test files):
+      //   statements 72.82  branches 71.05  functions 61.90  lines 73.71
+      // tools.ts remains the largest uncovered surface at 27.86% — closing
+      // that gap is the next coverage initiative (publication-aligned MCP
+      // tool tests).
       thresholds: {
-        statements: 63,
-        branches: 60,
-        functions: 50,
-        lines: 63,
+        statements: 70,
+        branches: 68,
+        functions: 58,
+        lines: 70,
       },
     },
   },

@@ -1,0 +1,4 @@
+# Generated artifacts (rebuild via SUBMIT.md command).
+# paper.md + references.bib + figures/ + tables/ are the canonical source.
+paper.pdf
+paper.tex
