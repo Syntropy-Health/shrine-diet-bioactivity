@@ -4,6 +4,9 @@ output/
 *.db
 *.sqlite
 
+# Track research-journal artifacts (audit spreadsheets, KG snapshots, etc.)
+!research-journal/**/*.csv
+
 # Python
 __pycache__/
 *.py[cod]
