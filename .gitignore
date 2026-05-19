@@ -12,6 +12,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+*.egg-info/
 
 # Node
 node_modules/
