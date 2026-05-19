@@ -99,7 +99,7 @@ PRD/plan/report/review documents from earlier phases live in `.claude/PRPs/{prds
 | File | One-line description |
 |---|---|
 | [`shrine-diet-bioactivity/docs/clinical-integration-notes.md`](../shrine-diet-bioactivity/docs/clinical-integration-notes.md) | Why clinical/culinary reasoning lives in the agent layer, not the MCP surface |
-| [`AGENT.md`](../AGENT.md) | Agent system overview (panel roles, triage, kg_query tool) |
+| [`shrine-diet-bioactivity/agents/`](../shrine-diet-bioactivity/agents/) | AG2 multi-agent panel — triage, role verdicts, kg_query tool (formerly described in the deleted top-level AGENT.md) |
 
 ---
 

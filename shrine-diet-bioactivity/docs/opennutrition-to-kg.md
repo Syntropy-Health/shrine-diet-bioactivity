@@ -22,14 +22,16 @@ Keep this file when you need to:
 |---|---|---|---|
 | Dr. Duke's Phytochemical DB | `data/duke-*.csv` | ~40 MB | CSV |
 | FooDB | `data/foodb-*.csv` | ~900 MB | CSV |
-| OpenNutrition | `mcp-opennutrition/data/foods.tsv` | ~200 MB | TSV |
+| OpenNutrition | `data/opennutrition/foods.tsv` (vendored) | ~200 MB | TSV |
 | CMAUP v2.0 | `data/cmaup-*.tsv` | ~10 MB | TSV |
 | CTD chemicals | `data/CTD_chemicals_diseases.csv.gz` | ~50 MB | CSV.gz |
 | TTD targets | `data/ttd-*.txt` | ~5 MB | TSV |
 
-`mcp-opennutrition/` is kept as a git submodule for its TSV loader
-and food-lookup primitives. The MCP server it ships is no longer
-composed by shrine-diet-bioactivity.
+OpenNutrition was previously consumed as the `mcp-opennutrition/`
+git submodule. That submodule was removed in 2026-05; the TSV data
+is now vendored under `shrine-diet-bioactivity/data/opennutrition/`
+and accessed directly by the ingest pipeline. The upstream MCP server
+it shipped is not part of this project's runtime.
 
 ## 2. Pipeline overview
 
