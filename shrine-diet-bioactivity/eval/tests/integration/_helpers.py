@@ -23,7 +23,10 @@ def assert_confidence_consistent_with_verdict(
       - "reject" verdict → high HDI risk dominates the product → confidence
         should be low (<= 0.5); a "reject" with confidence 0.9 means the
         calibrator inverted.
-      - "caution" / "abstain" → middle ground; only assert in (0, 1).
+      - "caution" / "abstain" → middle ground: confidence must be strictly
+        positive. The calibrator is a weighted geometric mean — an exact 0.0
+        means one component collapsed to 0 (a calibrator bug), which is
+        never a correct output for a panel that reached a verdict.
 
     These bounds catch calibrator-direction regressions without false-failing
     correct-but-low-confidence outcomes (e.g., the SJW+sertraline case).
@@ -39,4 +42,8 @@ def assert_confidence_consistent_with_verdict(
             f"reject verdict but confidence={confidence:.3f} (expected <= 0.5); "
             "calibrator may be ignoring hdi_risk signal"
         )
-    # caution / abstain: only bounded-in-[0,1] (the assert above).
+    else:  # caution / abstain
+        assert confidence > 0.0, (
+            f"{verdict} verdict but confidence is exactly 0.0 — the "
+            "weighted-geometric-mean calibrator collapsed (a component hit 0)"
+        )

@@ -14,10 +14,13 @@ panel that loses coverage).
 Skipped without `KG_MCP_E2E_URL` + `KG_MCP_API_KEY` (gated by conftest
 fixtures). Marked `e2e + aura`.
 
-Response-shape note: the gateway's exact payload schema is verified
-against the live deployment; assertions here are intentionally tolerant
-of shape (substring / key presence on the JSON-serialized payload), the
-same convention `test_tool_roundtrips.py` uses.
+Assertion discipline: probes assert on STRUCTURED payload fields (node /
+edge / chain / seeds_resolved COUNTS, the `english` field of a bilingual
+result), never on substring search of the JSON dump. A JSON dump contains
+schema field names (`"nodes"`, `"edges"`, ...) unconditionally — so
+`"edge" in json_text` is true even for a zero-edge response and would
+make a drift-detection probe unable to detect drift. Schemas:
+`mcp/src/kg_mcp/schemas.py`.
 """
 
 from __future__ import annotations
@@ -41,23 +44,23 @@ _HDI_SAFE_50_PATH = (
 )
 
 
-def _payload_text(result: dict) -> str:
-    """Lower-cased JSON dump of the tool result payload, for tolerant
-    substring assertions (mirrors test_tool_roundtrips.py)."""
-    return json.dumps(result.get("result", {})).lower()
-
-
 def _is_error(result: dict) -> bool:
     """True if the JSON-RPC envelope carries an error."""
     return "error" in result and result.get("error") is not None
+
+
+def _payload(result: dict) -> dict:
+    """The tool result payload (the structured tool output)."""
+    payload = result.get("result", {})
+    return payload if isinstance(payload, dict) else {}
 
 
 # ─── Probe 19: Curcumin → Compound node ──────────────────────────────────
 
 
 def test_curcumin_resolves_to_compound_node(mcp_call):
-    """'Curcumin' resolves to a Compound node carrying a chemical identity
-    (CHEBI / InChIKey / compound type marker)."""
+    """'Curcumin' resolves to >= 1 node in its 1-hop neighborhood, and at
+    least one resolved node carries a compound-identity marker."""
     inputs = {"seed": "Curcumin", "max_depth": 1, "max_nodes": 20}
     with bt_span(
         "test_curcumin_resolves_to_compound_node",
@@ -65,21 +68,27 @@ def test_curcumin_resolves_to_compound_node(mcp_call):
         **inputs,
     ) as span:
         result = mcp_call("kg_node_neighborhood", inputs)
-        text = _payload_text(result)
-        span.log(output={"payload_text_excerpt": text[:300]})
         assert not _is_error(result), f"gateway error: {result.get('error')}"
-        # verify against live gateway: a Compound node should surface either
-        # a type marker or a chemical-identity property.
+        nodes = _payload(result).get("nodes", [])
+        span.log(output={"node_count": len(nodes)})
+        # Hard check: a re-ingest that drops Curcumin yields 0 nodes.
+        assert len(nodes) >= 1, (
+            f"Curcumin resolved to 0 nodes — not present in the KG"
+        )
+        # Identity check on the node DICTS (not the full payload, so the
+        # schema's `"edges"`/`"nodes"` keys can't leak into the match).
+        node_blob = json.dumps(nodes).lower()
         assert any(
-            k in text for k in ("compound", "chebi", "inchikey", "curcumin")
-        ), f"Curcumin did not resolve to a compound-shaped node: {text[:300]}"
+            k in node_blob for k in ("curcumin", "compound", "chebi", "inchikey")
+        ), f"Curcumin nodes carry no compound-identity marker: {node_blob[:300]}"
 
 
 # ─── Probe 20: Type 2 diabetes → Disease node ────────────────────────────
 
 
 def test_t2d_resolves_to_disease_node(mcp_call):
-    """'Type 2 diabetes' resolves to a Disease node."""
+    """'Type 2 diabetes' resolves to >= 1 node, with a disease-identity
+    marker on the resolved nodes."""
     inputs = {"seed": "Type 2 diabetes", "max_depth": 1, "max_nodes": 20}
     with bt_span(
         "test_t2d_resolves_to_disease_node",
@@ -87,20 +96,24 @@ def test_t2d_resolves_to_disease_node(mcp_call):
         **inputs,
     ) as span:
         result = mcp_call("kg_node_neighborhood", inputs)
-        text = _payload_text(result)
-        span.log(output={"payload_text_excerpt": text[:300]})
         assert not _is_error(result), f"gateway error: {result.get('error')}"
+        nodes = _payload(result).get("nodes", [])
+        span.log(output={"node_count": len(nodes)})
+        assert len(nodes) >= 1, (
+            "Type 2 diabetes resolved to 0 nodes — not present in the KG"
+        )
+        node_blob = json.dumps(nodes).lower()
         assert any(
-            k in text for k in ("disease", "diabetes", "t2d")
-        ), f"Type 2 diabetes did not resolve to a disease node: {text[:300]}"
+            k in node_blob for k in ("diabetes", "disease", "t2d")
+        ), f"T2D nodes carry no disease-identity marker: {node_blob[:300]}"
 
 
 # ─── Probe 21: Mediterranean diet resolvable ─────────────────────────────
 
 
 def test_mediterranean_diet_resolvable(mcp_call):
-    """'Mediterranean diet' is a resolvable dietary pattern — diet→compounds
-    traversal returns a non-trivial result."""
+    """'Mediterranean diet' is a resolvable dietary pattern — the diet→
+    compounds traversal resolves the seed (seeds_resolved is non-empty)."""
     inputs = {"seed": "Mediterranean diet", "top_k": 5}
     with bt_span(
         "test_mediterranean_diet_resolvable",
@@ -108,65 +121,84 @@ def test_mediterranean_diet_resolvable(mcp_call):
         **inputs,
     ) as span:
         result = mcp_call("kg_diet_to_compounds", inputs)
-        text = _payload_text(result)
-        span.log(output={"payload_text_excerpt": text[:300]})
         assert not _is_error(result), f"gateway error: {result.get('error')}"
-        # A resolved diet pattern returns compounds/chains; an unresolved
-        # seed returns an empty/zero-result payload.
-        assert any(
-            k in text for k in ("compound", "chain", "entity_id", "mediterranean")
-        ), f"Mediterranean diet did not resolve: {text[:300]}"
+        payload = _payload(result)
+        seeds_resolved = payload.get("seeds_resolved", [])
+        chains = payload.get("chains", [])
+        node_count = payload.get("raw_subgraph_node_count", 0)
+        span.log(
+            output={
+                "seeds_resolved": len(seeds_resolved),
+                "chains": len(chains),
+                "raw_subgraph_node_count": node_count,
+            }
+        )
+        # A resolved diet seed lands in seeds_resolved; an unresolved
+        # free-text seed leaves it empty. Fall back to subgraph evidence.
+        assert seeds_resolved or chains or node_count >= 1, (
+            "Mediterranean diet did not resolve — seeds_resolved empty, "
+            f"no chains, subgraph node count {node_count}"
+        )
 
 
 # ─── Probe 22: St John's Wort bilingual aliasing ─────────────────────────
 
 
 def test_sjw_bilingual_aliasing(mcp_call):
-    """'St John's Wort' resolves to its Herb node (Hypericum perforatum)
-    via the bilingual-term resolver."""
+    """'St John's Wort' resolves through the bilingual-term resolver to a
+    non-empty canonical `english` name."""
     inputs = {"term": "St John's Wort"}
     with bt_span(
         "test_sjw_bilingual_aliasing", tool="kg_bilingual_term", **inputs
     ) as span:
         result = mcp_call("kg_bilingual_term", inputs)
-        text = _payload_text(result)
-        span.log(output={"payload_text_excerpt": text[:300]})
         assert not _is_error(result), f"gateway error: {result.get('error')}"
-        assert any(
-            k in text for k in ("hypericum", "st john", "st. john", "perforatum")
-        ), f"St John's Wort did not resolve to its herb node: {text[:300]}"
+        payload = _payload(result)
+        english = (payload.get("english") or "").strip()
+        span.log(output={"english": english, "source": payload.get("source")})
+        assert english, (
+            f"St John's Wort did not resolve to a canonical english name; "
+            f"payload={payload}"
+        )
 
 
 # ─── Probe 23: Astragalus trilingual aliasing ────────────────────────────
 
 
 def test_huangqi_trilingual_aliasing(mcp_call):
-    """'Astragalus membranaceus' / '黄芪' / 'huangqi' all resolve, and each
-    response references the shared canonical entity (Astragalus)."""
+    """'Astragalus membranaceus' / '黄芪' / 'huangqi' resolve to the SAME
+    canonical entity — the bilingual resolver's `english` field is
+    identical across all three surface forms.
+
+    This is the actual aliasing property: three independent lookups must
+    converge on one entity, not merely each echo their own input.
+    """
     surface_forms = ["Astragalus membranaceus", "黄芪", "huangqi"]
-    resolved: dict[str, str] = {}
+    canonical: dict[str, str] = {}
     for term in surface_forms:
-        inputs = {"term": term}
         with bt_span(
             "test_huangqi_trilingual_aliasing",
             tool="kg_bilingual_term",
             term=term,
         ) as span:
-            result = mcp_call("kg_bilingual_term", inputs)
-            text = _payload_text(result)
-            span.log(output={"term": term, "payload_text_excerpt": text[:300]})
+            result = mcp_call("kg_bilingual_term", {"term": term})
             assert not _is_error(result), (
                 f"gateway error for {term!r}: {result.get('error')}"
             )
-            resolved[term] = text
+            payload = _payload(result)
+            english = (payload.get("english") or "").strip().lower()
+            span.log(output={"term": term, "english": english})
+            assert english, (
+                f"surface form {term!r} resolved to an empty english name; "
+                f"payload={payload}"
+            )
+            canonical[term] = english
 
-    # All three surface forms should resolve to the same canonical herb —
-    # use 'astragalus' / 'huangqi' as the shared-identity proxy.
-    for term, text in resolved.items():
-        assert any(k in text for k in ("astragalus", "huangqi", "黄芪")), (
-            f"surface form {term!r} did not resolve to the shared "
-            f"Astragalus entity: {text[:300]}"
-        )
+    distinct = set(canonical.values())
+    assert len(distinct) == 1, (
+        "trilingual surface forms resolved to DIFFERENT canonical entities — "
+        f"aliasing is broken: {canonical}"
+    )
 
 
 # ─── Probe 24: HDI-Safe-50 panel coverage ────────────────────────────────
@@ -187,9 +219,8 @@ def test_hdi_safe_50_panel_coverage(mcp_call):
     for entry in panel:
         herb = entry["herb"]["name"]
         drug = entry["drug"]["name"]
-        inputs = {"herb": herb, "drug": drug}
         try:
-            result = mcp_call("kg_hdi_check", inputs)
+            result = mcp_call("kg_hdi_check", {"herb": herb, "drug": drug})
         except Exception as exc:  # noqa: BLE001 — any transport failure = not queryable
             failures.append(f"{entry['id']} ({herb} x {drug}): {exc}")
             continue
@@ -213,20 +244,23 @@ def test_hdi_safe_50_panel_coverage(mcp_call):
 
 
 def test_herb_node_has_edges(mcp_call):
-    """A known Herb node returns at least one edge — a herb with zero edges
-    indicates a broken or partial ingest."""
+    """A known Herb node returns at least one EDGE — a herb with zero edges
+    indicates a broken or partial ingest.
+
+    Asserts on len(edges), not substring presence of the literal key
+    `"edges"` (which a NodeNeighborhoodOutput carries even when empty).
+    """
     inputs = {"seed": "Astragalus membranaceus", "max_depth": 1, "max_nodes": 25}
     with bt_span(
         "test_herb_node_has_edges", tool="kg_node_neighborhood", **inputs
     ) as span:
         result = mcp_call("kg_node_neighborhood", inputs)
-        payload = result.get("result", {})
-        text = json.dumps(payload).lower()
-        span.log(output={"payload_text_excerpt": text[:300]})
         assert not _is_error(result), f"gateway error: {result.get('error')}"
-        # verify against live gateway: the neighborhood payload should carry
-        # at least one edge/relationship for a herb that is genuinely indexed.
-        assert any(k in text for k in ("edge", "interacts", "contains", "rel")), (
-            f"Astragalus herb node returned no edges — possible partial "
-            f"ingest: {text[:300]}"
+        payload = _payload(result)
+        node_count = len(payload.get("nodes", []))
+        edge_count = len(payload.get("edges", []))
+        span.log(output={"node_count": node_count, "edge_count": edge_count})
+        assert edge_count >= 1, (
+            "Astragalus herb node returned 0 edges — possible partial "
+            f"ingest (node_count={node_count})"
         )

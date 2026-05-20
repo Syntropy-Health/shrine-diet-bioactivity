@@ -97,19 +97,28 @@ def test_paper_grade_results_artifacts_valid(pred_path: Path) -> None:
     #     a str. verdicts MAY be empty (rate-limit error predictions);
     #     each verdict that IS present must carry a known label.
     panel = data["panel"]
-    assert isinstance(panel.get("verdicts"), list), (
-        f"{label}: panel.verdicts is not a list"
-    )
+    verdicts = panel.get("verdicts")
+    assert isinstance(verdicts, list), f"{label}: panel.verdicts is not a list"
     assert isinstance(panel.get("dissent"), list), (
         f"{label}: panel.dissent is not a list"
     )
     assert isinstance(panel.get("moderator_summary"), str), (
         f"{label}: panel.moderator_summary is not a str"
     )
-    for rv in panel["verdicts"]:
+    for rv in verdicts:
         assert rv.get("verdict") in _VALID_VERDICTS, (
             f"{label}: role {rv.get('role')!r} has bad verdict "
             f"{rv.get('verdict')!r}"
+        )
+
+    # --- empty-panel coherence: a prediction whose panel reached NO verdict
+    #     (rate-limit / error cohort) must not also carry a high confidence —
+    #     the calibrator has no panel signal to be confident from. Catches a
+    #     silently-empty panel paired with a stale/fabricated confidence.
+    if not verdicts:
+        assert conf <= 0.5, (
+            f"{label}: panel produced 0 verdicts but confidence={conf} "
+            "(> 0.5) — confidence is not grounded in any panel deliberation"
         )
 
     # --- defer flag is a real boolean ---------------------------------
