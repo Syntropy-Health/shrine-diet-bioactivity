@@ -1,15 +1,20 @@
-"""Shared fixtures + env-gating for `eval/tests/integration/` — Phase 3 of
-the integration-test coverage uplift plan
+"""Shared fixtures + env-gating for `eval/tests/integration/` — Phases 3 & 4
+of the integration-test coverage uplift plan
 (`research-journal/plans/2026-05-08-integration-test-coverage-uplift-plan.md`).
 
-Each test in this directory drives the full `diet_os.run(scenario)` pipeline
-against:
-  - real OpenRouter (env: OPENROUTER_API_KEY)
-  - real MCP gateway (env: MCP_API_KEY; MCP_URL defaults to staged Railway)
+Two kinds of test live here:
 
-Tests carry `pytestmark = [pytest.mark.e2e, pytest.mark.live_llm, pytest.mark.slow]`
-so they're excluded by default and run only when those markers are explicitly
-selected (nightly CI).
+  - Phase 3 (`test_pipeline_e2e.py`) — drives `diet_os.run(scenario)` against
+    real OpenRouter (OPENROUTER_API_KEY) + real MCP gateway (MCP_API_KEY).
+    Marked `[e2e, live_llm, slow]`.
+  - Phase 4 (`test_report_rerender.py`, `test_benchmark_fixtures.py`,
+    `test_results_artifact.py`) — local-only: re-render committed results +
+    validate committed fixtures/artifacts. Marked `[integration]`
+    (+ `slow` for the re-render). No network.
+
+The `_require_live_env` autouse fixture is MARKER-AWARE: it only enforces
+credential presence on tests carrying `e2e` or `live_llm`. Phase 4 local
+tests run without credentials.
 """
 
 from __future__ import annotations
@@ -58,15 +63,23 @@ def scenario_by_id(benchmark: BenchmarkSet):
 
 
 @pytest.fixture(autouse=True)
-def _require_live_env() -> None:
-    """Skip every test in this directory unless both live-env credentials
-    are present. Combined with the file-level `live_llm` marker, this gives
-    two layers of safety against accidental cost incurrence:
+def _require_live_env(request: pytest.FixtureRequest) -> None:
+    """Skip live tests (carrying `e2e` or `live_llm`) unless both live-env
+    credentials are present.
 
+    Marker-aware: Phase 4 local tests (`integration`-only) are exempt — they
+    read committed artifacts and need no network. Phase 3 pipeline tests
+    (`e2e + live_llm`) require credentials.
+
+    For live tests this gives two layers of safety against accidental cost:
       1. Default `-m "not e2e"` (mcp/pyproject.toml addopts) deselects them.
-      2. This autouse fixture skips them even if explicitly selected without
-         credentials in env.
+      2. This fixture skips them even if explicitly selected without creds.
     """
+    needs_live = any(
+        request.node.get_closest_marker(m) for m in ("e2e", "live_llm")
+    )
+    if not needs_live:
+        return
     missing = [
         var for var in ("OPENROUTER_API_KEY", "MCP_API_KEY") if not os.environ.get(var)
     ]
