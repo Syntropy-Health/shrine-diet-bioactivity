@@ -3,8 +3,13 @@
 ## Layout
 
 - `unit/` — pure unit tests, no I/O. Run by default.
-- `e2e/` — gateway roundtrip tests against the live MCP gateway. Deselected
-  by default via `addopts = ["-m", "not e2e"]` in `pyproject.toml`.
+- `e2e/` — gateway tests against the live MCP gateway. Deselected by
+  default via `addopts = ["-m", "not e2e"]` in `pyproject.toml`.
+  - `test_live_endpoints.py` — auth + handshake.
+  - `test_tool_roundtrips.py` — one roundtrip per tool (Phase 2).
+  - `test_kg_coverage_probes.py` — entity-resolution probes against the
+    indexed Aura KG (Phase 5): Curcumin/T2D/Mediterranean-diet resolution,
+    bilingual aliasing, HDI-Safe-50 panel coverage, herb edge density.
 
 ## Running
 
@@ -16,6 +21,30 @@ python3 -m pytest -m unit -q
 KG_MCP_E2E_URL=https://kg-mcp-test.up.railway.app \
 KG_MCP_API_KEY=<bearer-token> \
 python3 -m pytest -m e2e -q
+```
+
+## Run modes
+
+Marker lanes, per the integration-test coverage uplift plan
+(`research-journal/plans/2026-05-08-integration-test-coverage-uplift-plan.md`):
+
+```bash
+pytest -m "unit"                            # per-PR, fast, hermetic
+pytest -m "integration and not slow"        # per-PR optional, real artifacts
+pytest -m "e2e or live_llm or aura"         # nightly — live gateway / Aura / LLM
+pytest -m "slow"                            # nightly — > 30s runtime
+```
+
+## Coverage ratio
+
+`scripts/test_coverage_ratio.py` (repo root) reports the real-integration
+vs unit ratio across all Python test lanes. The `test-coverage-ratio` job
+in `.github/workflows/mcp-ci.yml` runs it in `--mode warn` (report-only;
+never fails the build).
+
+```bash
+python3 scripts/test_coverage_ratio.py          # table + ratio
+python3 scripts/test_coverage_ratio.py --json   # machine-readable
 ```
 
 ## Braintrust logging

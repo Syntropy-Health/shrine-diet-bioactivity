@@ -17,6 +17,7 @@ on:
       - 'mcp/**'
       - 'shrine-diet-bioactivity/lightrag/tests/**'
       - '.github/workflows/mcp-ci.yml'
+      - 'scripts/test_coverage_ratio.py'
   push:
     branches: [main, test]
   workflow_dispatch:
@@ -118,3 +119,28 @@ jobs:
           # -rs surfaces the full skip reason in the pytest summary so we
           # can distinguish 'secret missing' from 'connection failed'.
           python -m pytest tests/test_aura_data_integrity.py -v -rs
+
+  test-coverage-ratio:
+    name: Real-integration ratio (warn-only)
+    runs-on: ubuntu-latest
+    # Reports the real-integration vs unit test ratio for visibility.
+    # WARN-ONLY by design — the project's real-integration ratio is well
+    # below the plan's 50% target (the target assumes a narrower
+    # denominator that has not yet been triaged), so a fail-gate would be
+    # permanently red. Flip --mode to `fail` once the denominator is
+    # reclassified. See research-journal/plans/2026-05-08-integration-test-
+    # coverage-uplift-plan.md.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Report real-integration ratio
+        # scripts/test_coverage_ratio.py is stdlib-only (ast/csv/json) —
+        # no install step needed. --mode warn always exits 0.
+        run: python3 scripts/test_coverage_ratio.py --mode warn
