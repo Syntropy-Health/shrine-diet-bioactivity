@@ -40,12 +40,58 @@ from extra_sources import (
     extract_herb2_relationships,
 )
 
+# Side-effect import: registers ScopedNeo4JStorage / ScopedNeo4JVectorStorage
+# into upstream LightRAG's storage whitelist before any LightRAG() call.
+# Without this, LightRAG.__post_init__ rejects the Scoped* storages named in
+# config_*.env. See Issue #13.
+import lightrag_init  # noqa: F401
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent
 DB_PATH = SCRIPT_DIR / ".." / "data_local" / "herbal_botanicals.db"
+
+
+# ---------------------------------------------------------------------------
+# Embedding — OpenAI-compatible (OpenRouter) without base64 encoding_format
+# ---------------------------------------------------------------------------
+
+
+async def _openai_compat_embed(
+    texts: list[str],
+    model: str,
+    base_url: str,
+    api_key: str | None,
+    embedding_dim: int,
+):
+    """Call an OpenAI-compatible /embeddings endpoint with float encoding.
+
+    lightrag's bundled openai_embed forces ``encoding_format="base64"``,
+    which OpenRouter rejects. This calls the endpoint directly, requests
+    default (float) encoding, and returns results in input order.
+    """
+    import httpx
+    import numpy as np
+
+    url = base_url.rstrip("/") + "/embeddings"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    payload = {"model": model, "input": texts, "dimensions": embedding_dim}
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        resp.raise_for_status()
+        body = resp.json()
+
+    data = body.get("data")
+    if not isinstance(data, list):
+        raise RuntimeError(f"embeddings endpoint returned no data: {body.get('error', body)}")
+    # Sort by `index` so embeddings line up with input order.
+    ordered = sorted(data, key=lambda d: d.get("index", 0))
+    return np.array([d["embedding"] for d in ordered], dtype=np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -430,14 +476,26 @@ async def main() -> None:
             ),
         )
     else:
-        from lightrag.llm.openai import gpt_4o_mini_complete, openai_embed
+        from lightrag.llm.openai import gpt_4o_mini_complete
         llm_func = gpt_4o_mini_complete
+        # NOTE: lightrag's openai_embed hardcodes `encoding_format="base64"`,
+        # which OpenRouter rejects ({"error":...}, no `data`) → downstream
+        # 'NoneType' object is not iterable. Use a direct OpenRouter call
+        # (float encoding) instead. api_key resolved like scoped_server.
+        embed_api_key = (
+            os.getenv("EMBEDDING_BINDING_API_KEY")
+            or os.getenv("OPENROUTER_API_KEY")
+            or os.getenv("OPENAI_API_KEY")
+        )
         embed_func = EmbeddingFunc(
             embedding_dim=embedding_dim,
             max_token_size=8192,
             func=partial(
-                openai_embed.func,
+                _openai_compat_embed,
                 model=embedding_model,
+                base_url=embedding_host,
+                api_key=embed_api_key,
+                embedding_dim=embedding_dim,
             ),
         )
 
