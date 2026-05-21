@@ -121,15 +121,18 @@ jobs:
           python -m pytest tests/test_aura_data_integrity.py -v -rs
 
   test-coverage-ratio:
-    name: Real-integration ratio (warn-only)
+    name: Real-integration ratio (regression floor)
     runs-on: ubuntu-latest
-    # Reports the real-integration vs unit test ratio for visibility.
-    # WARN-ONLY by design — the project's real-integration ratio is well
-    # below the plan's 50% target (the target assumes a narrower
-    # denominator that has not yet been triaged), so a fail-gate would be
-    # permanently red. Flip --mode to `fail` once the denominator is
-    # reclassified. See research-journal/plans/2026-05-08-integration-test-
-    # coverage-uplift-plan.md.
+    # Gates the real-integration vs unit test ratio against a REGRESSION
+    # FLOOR, not the plan's aspirational 50% target. The floor (0.10) sits
+    # just below the current measured ratio (~0.12) — so the gate fails
+    # only if coverage regresses, and is never unreachably red.
+    #
+    # Ratchet the --threshold upward as real-integration tests are added.
+    # The plan's 50% headline additionally needs a denominator
+    # reclassification (triaging pure schema/wiring unit tests out of the
+    # ratio) — see research-journal/plans/2026-05-08-integration-test-
+    # coverage-uplift-plan.md lines 44-47.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -140,7 +143,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Report real-integration ratio
+      - name: Check real-integration ratio floor
         # scripts/test_coverage_ratio.py is stdlib-only (ast/csv/json) —
-        # no install step needed. --mode warn always exits 0.
-        run: python3 scripts/test_coverage_ratio.py --mode warn
+        # no install step needed. --mode fail exits 1 if ratio < threshold.
+        run: python3 scripts/test_coverage_ratio.py --mode fail --threshold 0.10

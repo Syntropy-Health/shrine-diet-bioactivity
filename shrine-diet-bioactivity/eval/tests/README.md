@@ -52,8 +52,10 @@ The `integration/` pipeline tests require `OPENROUTER_API_KEY` +
 ## Coverage ratio
 
 `scripts/test_coverage_ratio.py` (repo root) reports the real-integration
-vs unit ratio across all Python test lanes. Wired into
-`.github/workflows/mcp-ci.yml` in `--mode warn` (report-only).
+vs unit ratio across all Python test lanes. The `test-coverage-ratio` job
+in `.github/workflows/mcp-ci.yml` runs it as a regression floor
+(`--mode fail --threshold 0.10`) — fails only if the ratio regresses below
+10% (current ~12%). Ratchet the threshold up as coverage grows.
 
 ```bash
 python3 scripts/test_coverage_ratio.py          # table + ratio
