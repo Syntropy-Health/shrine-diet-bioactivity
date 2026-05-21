@@ -44,7 +44,7 @@ This distinction is critical:
 |----------|--------|---------------------|-----------|
 | **Local-first** | Embedded SQLite → Kuzu | Cloud graph DB (Neo4j Aura) | Zero latency, offline-capable, no API keys, <200ms per call |
 | **Pre-built** | ETL at build time | Runtime API queries | Deterministic, reproducible, cacheable |
-| **Composable** | Separate MCP server | Extend mcp-opennutrition | Clean separation of concerns; different data models |
+| **Composable** | Separate MCP server | Single nutrition-only MCP | Clean separation of concerns; different data models |
 | **Schema-first** | Zod validation on all inputs | Freeform JSON | Prevents hallucinated parameters from LLM agents |
 | **Read-only** | `readOnlyHint: true` on all tools | Read-write | Data is reference material, not user state |
 
@@ -302,7 +302,7 @@ Graphiti (github.com/getzep/graphiti, 24.6K stars) is a temporal knowledge graph
 
 3. **Server dependency**: Graphiti requires Neo4j or FalkorDB running as a server. Our architecture is local-first, zero-dependency — the DB is a single file shipped with the MCP server.
 
-4. **Python runtime**: Graphiti is Python-only. Our MCP server is TypeScript to match `mcp-opennutrition`'s patterns.
+4. **Python runtime**: Graphiti is Python-only. This architecture document predates the move to a Python `kg-mcp` gateway (`mcp/`) plus a TypeScript thin-adapter (`shrine-diet-bioactivity/src/`); the original "TypeScript-everywhere" rationale no longer applies, but the rest of the comparison still does.
 
 ### What We Took From Graphiti
 
@@ -401,25 +401,32 @@ this.server.tool(
 );
 ```
 
-### Composability with mcp-opennutrition
+### Composability across the data stack
 
-The two MCP servers are designed to work together in the same agent:
+The kg-mcp gateway combines herb/compound/symptom data with vendored
+OpenNutrition macros via a single tool surface:
 
 ```
-Agent has: mcp-opennutrition (326K foods with macros)
-         + mcp-herbal-botanicals (2,376 herbs, 94K compounds, symptoms)
+Agent has: kg-mcp gateway (10 tools over the unified KG)
+           — herbs (2,376), compounds (94K), symptoms, targets, diseases
+           — OpenNutrition macros (326K foods, vendored as fixture)
 
 User: "I need more iron in my diet and want natural options"
 
 Agent:
-  1. search-by-symptom("fatigue") → finds herbs rich in iron
-  2. get-compound-foods("iron") → foods containing iron  
-  3. search_foods("spinach") [opennutrition] → full macro breakdown
-  
+  1. kg_compound_to_symptoms("iron") / kg_symptom_to_compounds("fatigue")
+     → herbs rich in iron
+  2. kg_compound_to_diseases / nutrition lookup → foods containing iron
+  3. Macro breakdown returned inline via the vendored OpenNutrition data
+
   Response: "Spinach has 2.7mg iron per 100g (36% DV), 23 kcal.
              Nettle tea is traditionally used for iron supplementation.
              Other iron-rich foods: lentils, beef liver, pumpkin seeds."
 ```
+
+Earlier drafts of this document described a separate `mcp-opennutrition`
+submodule consumed alongside this server; that submodule was removed in
+2026-05 and OpenNutrition is now vendored as a fixture inside this repo.
 
 ### Transport
 

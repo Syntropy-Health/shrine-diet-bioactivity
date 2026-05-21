@@ -24,6 +24,8 @@ from kg_mcp.schemas import (
     TraversalInput,
 )
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def fake_client():

@@ -19,6 +19,8 @@ import pytest
 
 from kg_mcp import analytics
 
+pytestmark = pytest.mark.unit
+
 
 # ─── No-op paths (client is None) ─────────────────────────────────────────
 

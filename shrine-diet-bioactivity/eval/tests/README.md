@@ -12,6 +12,18 @@
 | `aura` | Hits live Neo4j Aura |
 | `slow` | Runtime > 30s |
 
+## Layout
+
+- `test_*.py` — unit tests for the eval harness (runner, report, metrics,
+  baselines, scenario schema).
+- `integration/` — Phase 3 & 4 of the coverage uplift plan:
+  - `test_pipeline_e2e.py` — `diet_os.run()` against real OpenRouter + MCP
+    gateway (`e2e + live_llm + slow`).
+  - `test_benchmark_fixtures.py` — DietResearchBench v1 fixture sanity.
+  - `test_results_artifact.py` — paper-grade per-prediction JSON validation.
+  - `test_report_rerender.py` — `eval.report` re-render reproducibility
+    (`integration + slow`).
+
 ## Running
 
 ```bash
@@ -20,6 +32,34 @@ python3 -m pytest -m unit -q
 
 # Integration tests
 python3 -m pytest -m integration -q
+```
+
+## Run modes
+
+Marker lanes, per the integration-test coverage uplift plan
+(`research-journal/plans/2026-05-08-integration-test-coverage-uplift-plan.md`):
+
+```bash
+pytest -m "unit"                            # per-PR, fast, hermetic
+pytest -m "integration and not slow"        # per-PR optional, real artifacts
+pytest -m "e2e or live_llm or aura"         # nightly — live gateway / Aura / LLM
+pytest -m "slow"                            # nightly — > 30s runtime
+```
+
+The `integration/` pipeline tests require `OPENROUTER_API_KEY` +
+`MCP_API_KEY` in env; they skip cleanly when those are unset.
+
+## Coverage ratio
+
+`scripts/test_coverage_ratio.py` (repo root) reports the real-integration
+vs unit ratio across all Python test lanes. The `test-coverage-ratio` job
+in `.github/workflows/mcp-ci.yml` runs it as a regression floor
+(`--mode fail --threshold 0.10`) — fails only if the ratio regresses below
+10% (current ~12%). Ratchet the threshold up as coverage grows.
+
+```bash
+python3 scripts/test_coverage_ratio.py          # table + ratio
+python3 scripts/test_coverage_ratio.py --json   # machine-readable
 ```
 
 ## Braintrust logging

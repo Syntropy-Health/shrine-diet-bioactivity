@@ -17,6 +17,7 @@ on:
       - 'mcp/**'
       - 'shrine-diet-bioactivity/lightrag/tests/**'
       - '.github/workflows/mcp-ci.yml'
+      - 'scripts/test_coverage_ratio.py'
   push:
     branches: [main, test]
   workflow_dispatch:
@@ -118,3 +119,31 @@ jobs:
           # -rs surfaces the full skip reason in the pytest summary so we
           # can distinguish 'secret missing' from 'connection failed'.
           python -m pytest tests/test_aura_data_integrity.py -v -rs
+
+  test-coverage-ratio:
+    name: Real-integration ratio (regression floor)
+    runs-on: ubuntu-latest
+    # Gates the real-integration vs unit test ratio against a REGRESSION
+    # FLOOR, not the plan's aspirational 50% target. The floor (0.10) sits
+    # just below the current measured ratio (~0.12) — so the gate fails
+    # only if coverage regresses, and is never unreachably red.
+    #
+    # Ratchet the --threshold upward as real-integration tests are added.
+    # The plan's 50% headline additionally needs a denominator
+    # reclassification (triaging pure schema/wiring unit tests out of the
+    # ratio) — see research-journal/plans/2026-05-08-integration-test-
+    # coverage-uplift-plan.md lines 44-47.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check real-integration ratio floor
+        # scripts/test_coverage_ratio.py is stdlib-only (ast/csv/json) —
+        # no install step needed. --mode fail exits 1 if ratio < threshold.
+        run: python3 scripts/test_coverage_ratio.py --mode fail --threshold 0.10

@@ -54,7 +54,6 @@ mcp-knowledge-graph/
 # (lightrag PYPI package is installed via requirements.txt; we don't need
 # the full LightRAG source repo)
 lightrag/
-mcp-opennutrition/
 
 # Also exclude any nested data caches the runtime doesn't need
 shrine-diet-bioactivity/audit/
