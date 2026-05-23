@@ -9,7 +9,9 @@
         "tsx",
         "./shrine-diet-bioactivity/src/index.ts"
       ],
-      "env": {}
+      "env": {
+        "LIGHTRAG_API_URL": "http://localhost:9621"
+      }
     }
   }
 }
