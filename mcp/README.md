@@ -106,6 +106,73 @@ curl -fsS -X POST https://kg-mcp-test.up.railway.app/mcp \
 
 A complete Python smoke that initializes a session and calls each tool: [`tests/e2e/test_live_endpoints.py`](tests/e2e/test_live_endpoints.py). Set `KG_MCP_E2E_URL` and `ADMIN_API_TOKEN` (or legacy `KG_MCP_API_KEY`) in env to run with `pytest -m e2e`.
 
+## Consumer integration
+
+`kg-mcp` is a generic MCP server — any conformant MCP client can drive it. In practice the production consumer is **[Syntropy-Journals](https://github.com/Syntropy-Health/SyntropyJournal)** (Reflex/Hydra Python backend) via the **SJ-MCP federation** workstream ([Linear project](https://linear.app/syntropyhealth/project/sj-mcp-tool-manifest-bioactivity-federation-ed858d190602)); other LLM-agent clients (Claude Desktop, custom SDK loops) work identically.
+
+### Transport contract
+
+Streamable-HTTP transport. Every conversation is three POSTs to `/mcp` with a session header:
+
+```
+POST /mcp  { "method": "initialize", ... }                              ← capture `mcp-session-id` from response headers
+POST /mcp  { "method": "notifications/initialized" }   + session header
+POST /mcp  { "method": "tools/call", "params": { "name": ..., "arguments": ... } }   + session header
+```
+
+Tool output arrives as both `content[].text` (JSON-string MCP text wrapper) and `structuredContent` (typed object — match against the Pydantic shape in [`src/kg_mcp/schemas.py`](src/kg_mcp/schemas.py)). **Always read `structuredContent`** — the `text` wrapper is for display.
+
+### Python reference client
+
+A complete, reusable client lives in [`tests/e2e/conftest.py`](tests/e2e/conftest.py) (the `mcp_call` fixture). It's ~50 lines of `httpx.Client` — copy-paste into Syntropy-Journals and replace the env-var gating with your auth source.
+
+```python
+import httpx, json
+
+GATEWAY = "https://kg-mcp-test.up.railway.app"
+TOKEN = "<sj_id_secret | clerk_jwt | mcp_static_key>"
+
+def call_tool(tool: str, args: dict) -> dict:
+    h = {"Authorization": f"Bearer {TOKEN}",
+         "Content-Type": "application/json",
+         "Accept": "application/json, text/event-stream"}
+    with httpx.Client(timeout=60) as c:
+        r = c.post(f"{GATEWAY}/mcp", headers=h,
+            json={"jsonrpc":"2.0","id":1,"method":"initialize",
+                  "params":{"protocolVersion":"2024-11-05","capabilities":{},
+                            "clientInfo":{"name":"sj","version":"0.1"}}})
+        sid = r.headers["mcp-session-id"]
+        h2 = {**h, "mcp-session-id": sid}
+        c.post(f"{GATEWAY}/mcp", headers=h2,
+            json={"jsonrpc":"2.0","method":"notifications/initialized","params":{}})
+        r = c.post(f"{GATEWAY}/mcp", headers=h2,
+            json={"jsonrpc":"2.0","id":2,"method":"tools/call",
+                  "params":{"name":tool,"arguments":args}})
+        # Streamable-HTTP can return SSE; tolerate both shapes.
+        for line in r.text.splitlines():
+            if line.startswith("data: "):
+                return json.loads(line[6:])
+        return r.json()
+```
+
+### Auth choice matrix for consumers
+
+| Consumer environment | Token type | Why |
+|---|---|---|
+| **Syntropy-Journals prod** (multi-user) | `sj_<id>_<secret>` admin token issued per request | Per-user audit trail; cross-service validator lands in #10 |
+| **Syntropy-Journals dev / staging** | Clerk session JWT | The user's signed-in session already carries it |
+| **CI / smoke tests / external pentests** | static `MCP_API_KEY` (`mcp_…` prefix) | Deprecated path retained while #10 ships — do not use for new integrations |
+
+### Reference integration test suite
+
+[`mcp/tests/e2e/`](tests/e2e/) is the canonical integration-test reference for any consumer:
+
+- `test_live_endpoints.py` — system-level (health, auth, transport, tools/list).
+- `test_tool_roundtrips.py` — one functional test per MCP tool, structural assertions only.
+- `test_kg_coverage_probes.py` — named-entity probes that detect KG drift.
+
+All three are gated on `KG_MCP_E2E_URL` + `KG_MCP_API_KEY`; clone the pattern when wiring a consumer-side suite. **Assertion discipline**: probes check structured payload fields (`len(chains) >= 1`, `len(nodes) >= 1`, `english` claim non-empty) — never substring-search the JSON dump, which would mistake schema keys for content.
+
 ## Tool catalog (10 tools, 3 layers)
 
 Every tool returns Pydantic-validated structured output. Schemas in [`src/kg_mcp/schemas.py`](src/kg_mcp/schemas.py).
