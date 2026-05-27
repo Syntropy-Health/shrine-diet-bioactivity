@@ -33,17 +33,28 @@ def _norm(s: Optional[str]) -> str:
 
 
 def binomial_key(latin: Optional[str]) -> Optional[str]:
-    """First two whitespace-separated tokens of a Latin name, lowercased.
+    """First two meaningful whitespace-separated tokens of a Latin name,
+    lowercased.
+
+    Drops botanical hybrid marks (``×``) and authority tokens that begin
+    with an apostrophe (e.g. cultivar tags like ``'Hidcote'``) before
+    picking the first two tokens (#24[8]). Without this, ``Mentha ×
+    piperita`` produces ``mentha ×`` which never matches Duke's plain
+    binomials.
 
     Trims subspecies / variety / authority annotations:
         "Achillea millefolium subsp. lanulosa" → "achillea millefolium"
+        "Mentha × piperita"                    → "mentha piperita"
 
-    Returns None if the input has fewer than two tokens.
+    Returns None if the input has fewer than two meaningful tokens.
     """
     n = _norm(latin)
     if not n:
         return None
-    parts = n.split()
+    parts = [
+        p for p in n.split()
+        if p != "×" and not p.startswith("'")
+    ]
     if len(parts) < 2:
         return None
     return f"{parts[0]} {parts[1]}"
@@ -70,11 +81,21 @@ def _alt_names(raw: Optional[str]) -> list[str]:
     return [str(s) for s in parsed if s]
 
 
-def match_herbs(*, duke: Iterable[dict], herb2: Iterable[dict]) -> list[HerbMatch]:
+def match_herbs(
+    *,
+    duke: Iterable[dict],
+    herb2: Iterable[dict],
+    max_genus_matches_per_duke_herb: Optional[int] = None,
+) -> list[HerbMatch]:
     """Resolve Duke herbs to HERB 2.0 herbs across four match tiers.
 
     Each tier emits its own record per (duke_id, herb2_id) pair — a single
     Duke herb may appear under multiple tiers for the same target.
+
+    ``max_genus_matches_per_duke_herb`` (default None = no cap, #24[7])
+    bounds Tier-4 records per Duke herb. Widespread genera (Astragalus,
+    Carex, Senecio) otherwise produce hundreds of low-confidence rows per
+    Duke entry. Has no effect on Tiers 1-3.
     """
     duke_list = list(duke)
     herb2_list = list(herb2)
@@ -169,7 +190,13 @@ def match_herbs(*, duke: Iterable[dict], herb2: Iterable[dict]) -> list[HerbMatc
         # Tier 4 — genus (first token of Latin). Lower confidence; broad recall.
         gk = genus_key(sci)
         if gk:
+            genus_emitted = 0
             for h2 in h2_by_genus.get(gk, []):
+                if (
+                    max_genus_matches_per_duke_herb is not None
+                    and genus_emitted >= max_genus_matches_per_duke_herb
+                ):
+                    break
                 hid = h2["herb_id"]
                 if hid in seen_t4:
                     continue
@@ -182,5 +209,6 @@ def match_herbs(*, duke: Iterable[dict], herb2: Iterable[dict]) -> list[HerbMatc
                         match_score=0.5,
                     )
                 )
+                genus_emitted += 1
 
     return out

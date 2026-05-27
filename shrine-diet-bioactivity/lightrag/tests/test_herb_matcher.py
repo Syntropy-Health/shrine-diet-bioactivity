@@ -218,10 +218,6 @@ def test_no_duplicate_match_records_across_tiers():
     triples; same (duke, herb2) appearing twice in the same tier is a
     matcher bug. Tier 3 had the guard; Tiers 1/2/4 must follow (#57).
     """
-    # Construct a Duke herb with an alternate Latin form that maps to the
-    # same Herb-2 entry through both tier 1 (exact) and tier 2 (binomial).
-    # Without the dedup guard, the same (duke_id, herb2_id) appears for
-    # multiple match_types within a single call.
     duke = [{
         "id": "D-X",
         "scientific_name": "Astragalus membranaceus",
@@ -235,7 +231,6 @@ def test_no_duplicate_match_records_across_tiers():
         {"herb_id": "H-X", "name_en": "milk-vetch", "latin": "Astragalus membranaceus"},
     ]
     matches = match_herbs(duke=duke, herb2=herb2)
-    # The fix: same (duke_id, herb2_id, match_type) triple may not repeat.
     seen = set()
     dupes = []
     for m in matches:
@@ -247,3 +242,44 @@ def test_no_duplicate_match_records_across_tiers():
         f"Duplicate (duke_id, herb2_id, match_type) records: {dupes} "
         "(see #57 — Tier 1/2/4 need the same seen_pairs guard as Tier 3)."
     )
+
+
+# ---- Issue #24[7]: per-Duke genus cap -----------------------------------
+
+
+def test_match_herbs_caps_genus_tier_per_duke_herb():
+    """For widespread genera (Astragalus ~3K species, Carex ~2K, Senecio
+    ~1.25K), each Duke herb can produce hundreds of genus-tier rows. The
+    matcher accepts an optional ``max_genus_matches_per_duke_herb`` (#24[7])
+    that caps Tier-4 records per Duke herb without affecting Tiers 1-3.
+    """
+    duke = [{"id": "D-A", "scientific_name": "Astragalus membranaceus"}]
+    herb2 = [
+        {"herb_id": f"H-{i}", "name_en": f"sp{i}", "latin": f"Astragalus sp{i}"}
+        for i in range(120)
+    ]
+    matches = match_herbs(
+        duke=duke, herb2=herb2, max_genus_matches_per_duke_herb=50
+    )
+    genus_count = sum(1 for m in matches if m.match_type == "genus")
+    assert genus_count <= 50, (
+        f"genus cap not enforced: produced {genus_count} > 50 (#24[7])"
+    )
+
+
+# ---- Issue #24[8]: hybrid mark in binomial_key -------------------------
+
+
+def test_binomial_key_drops_hybrid_mark():
+    """``Mentha × piperita`` → binomial key ``mentha piperita`` (drop the
+    botanical hybrid mark ``×``). Before the fix the key was ``mentha ×``
+    which never matched Duke's plain binomials (#24[8])."""
+    assert binomial_key("Mentha × piperita") == "mentha piperita"
+    assert binomial_key("Citrus × paradisi") == "citrus paradisi"
+
+
+def test_binomial_key_drops_authority_apostrophe():
+    """Tokens beginning with ``'`` are authority markers (e.g.
+    ``'Lavendula 'Hidcote''``) and should be dropped (#24[8])."""
+    # Multi-token authority: 'Hidcote' is a cultivar tag.
+    assert binomial_key("Lavandula 'Hidcote' angustifolia") == "lavandula angustifolia"
