@@ -135,9 +135,7 @@ jobs:
 
       - name: Install MCP package + test deps
         working-directory: ./mcp
-        run: |
-          pip install -e .
-          pip install pytest pytest-asyncio pytest-cov httpx
+        run: pip install -e '.[test]'
 
       - name: Run tests with coverage
         working-directory: ./mcp
