@@ -113,15 +113,45 @@ async def _build_scoped_rag() -> Any:
     )
 
     if llm_binding == "openai":
-        from lightrag.llm.openai import openai_complete_if_cache, openai_embed
+        from lightrag.llm.openai import openai_complete_if_cache
 
         async def _embed(texts: list[str]) -> Any:
-            return await openai_embed(
-                texts,
-                model=embedding_model,
-                base_url=llm_host,
-                api_key=api_key,
-            )
+            """Direct OpenRouter-compatible /embeddings call.
+
+            lightrag's bundled ``openai_embed`` hardcodes
+            ``encoding_format='base64'`` which OpenRouter rejects
+            (returns ``{"error":...}`` with no ``data``) → downstream
+            ``'NoneType' object is not iterable``. Float encoding
+            instead — and the entities_vdb was embedded the same way,
+            so query/store stay vector-space-consistent.
+            """
+            import httpx
+            import numpy as np
+
+            url = llm_host.rstrip("/") + "/embeddings"
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            payload = {
+                "model": embedding_model,
+                "input": texts,
+                "dimensions": embedding_dim,
+            }
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                body = resp.json()
+            data = body.get("data")
+            if not isinstance(data, list):
+                raise RuntimeError(
+                    f"embeddings endpoint returned no data: {body.get('error', body)}"
+                )
+            if any("index" not in d for d in data):
+                raise RuntimeError(
+                    f"embeddings response item missing 'index': {data[:2]}"
+                )
+            ordered = sorted(data, key=lambda d: d["index"])
+            return np.array([d["embedding"] for d in ordered], dtype=np.float32)
 
         async def _llm(prompt: str, system_prompt: str | None = None,
                        history_messages: list[dict] | None = None, **kwargs: Any) -> str:
