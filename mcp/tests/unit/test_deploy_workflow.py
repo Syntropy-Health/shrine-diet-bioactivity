@@ -24,6 +24,11 @@ pytestmark = [pytest.mark.unit]
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW_PATH = REPO_ROOT / ".github/workflows/deploy-mcp.yml"
+MCP_CI_PATH = REPO_ROOT / ".github/workflows/mcp-ci.yml"
+COMPLETENESS_TEST = (
+    REPO_ROOT
+    / "shrine-diet-bioactivity/lightrag/tests/test_kg_completeness_gates.py"
+)
 RESOLVE_SCRIPT = REPO_ROOT / "scripts/ci/resolve_railway_domain.sh"
 
 
@@ -207,3 +212,66 @@ class TestNoStalePromotionGuard:
         text = WORKFLOW_PATH.read_text()
         assert "PR Promotion Guard" not in text
         assert "pr-promotion-guard" not in text
+
+
+# ─── Aura gate must not silently pass on missing secrets (issue #65) ──────
+
+
+class TestAuraGateRequiresSecrets:
+    """The aura-data-integrity job in mcp-ci.yml previously skipped on
+    missing NEO4J_* secrets and still reported SUCCESS — a false-green
+    that hides a misconfigured environment. Lock in a guard step that
+    fails the job when the event is push/dispatch (i.e., a trusted run
+    that should have secrets) and any required secret is empty."""
+
+    def _aura_job_run_text(self) -> str:
+        data = yaml.safe_load(MCP_CI_PATH.read_text())
+        job = data["jobs"]["aura-data-integrity"]
+        # Join all step `run:` blocks so the guard text can live in any of them.
+        return "\n".join(
+            step.get("run", "")
+            for step in job["steps"]
+            if isinstance(step, dict)
+        )
+
+    def test_aura_job_has_secret_presence_guard(self):
+        """The job must error (exit 1) when invoked on a real push/dispatch
+        without the secrets being set — not just warn."""
+        text = self._aura_job_run_text()
+        # The fix must explicitly fail when the event isn't a PR and a
+        # NEO4J_* secret is empty. We match on the documented sentinel
+        # phrase so the check is robust to bash style.
+        assert "exit 1" in text, (
+            "aura-data-integrity job has no `exit 1` — likely still "
+            "warning-only on missing secrets (see #65)."
+        )
+        assert "GH_EVENT_NAME" in text or "github.event_name" in text or "EVENT_NAME" in text, (
+            "Guard must condition on event type so PRs from forks "
+            "still skip cleanly (they have no secrets by design)."
+        )
+
+
+# ─── Completeness gates test must declare a marker (issue #49) ────────────
+
+
+class TestCompletenessGatesHasMarker:
+    """``test_kg_completeness_gates.py`` requires a 5.5 GB local SQLite DB
+    that CI doesn't ship, so it must be marked ``integration`` (or
+    deselected by default) — otherwise the default pytest run picks it
+    up, hits a skip cascade, and inflates the noise floor of test reports.
+    """
+
+    def test_file_declares_pytestmark(self):
+        text = COMPLETENESS_TEST.read_text()
+        # Either ``pytestmark = pytest.mark.X`` or
+        # ``pytestmark = [pytest.mark.X, ...]`` — both syntaxes are valid.
+        assert "pytestmark" in text, (
+            f"{COMPLETENESS_TEST.name} has no pytestmark — add the "
+            "`integration` marker so default runs deselect it (see #49)."
+        )
+        # Must mark with one of the catalogued markers from
+        # shrine-diet-bioactivity/pytest.ini. ``integration`` is the
+        # appropriate one because the gates need the local KG DB.
+        assert "integration" in text, (
+            "completeness gates need the local KG DB → mark `integration`."
+        )

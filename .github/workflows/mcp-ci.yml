@@ -101,6 +101,30 @@ jobs:
       - name: Install Neo4j driver + pytest
         run: pip install neo4j pytest
 
+      - name: Require Aura secrets on push/dispatch (issue #65)
+        # Trusted runs (post-merge push, manual dispatch) MUST have the
+        # NEO4J_* secrets — a misconfigured secret store should fail the
+        # gate, not produce silent SUCCESS via pytest.skip. PRs from forks
+        # have no secret access by design; the outer job-level `if:`
+        # already routes those to the fork-safe path where this step is
+        # skipped along with the rest of the job.
+        env:
+          GH_EVENT_NAME: ${{ github.event_name }}
+          NEO4J_URI: ${{ secrets.NEO4J_URI }}
+          NEO4J_USERNAME: ${{ secrets.NEO4J_USERNAME }}
+          NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
+        run: |
+          if [ "$GH_EVENT_NAME" = "push" ] || [ "$GH_EVENT_NAME" = "workflow_dispatch" ]; then
+            MISSING=()
+            [ -z "$NEO4J_URI" ]      && MISSING+=("NEO4J_URI")
+            [ -z "$NEO4J_USERNAME" ] && MISSING+=("NEO4J_USERNAME")
+            [ -z "$NEO4J_PASSWORD" ] && MISSING+=("NEO4J_PASSWORD")
+            if [ "${#MISSING[@]}" -gt 0 ]; then
+              echo "::error::Aura gate invoked on $GH_EVENT_NAME but secrets missing: ${MISSING[*]} — refusing to run as a silent skip."
+              exit 1
+            fi
+          fi
+
       - name: Run Aura data-integrity gates
         env:
           NEO4J_URI: ${{ secrets.NEO4J_URI }}
@@ -113,11 +137,10 @@ jobs:
           echo "NEO4J_URI: present=$([ -n \"$NEO4J_URI\" ] && echo yes || echo no), len=${#NEO4J_URI}"
           echo "NEO4J_USERNAME: present=$([ -n \"$NEO4J_USERNAME\" ] && echo yes || echo no), len=${#NEO4J_USERNAME}"
           echo "NEO4J_PASSWORD: present=$([ -n \"$NEO4J_PASSWORD\" ] && echo yes || echo no), len=${#NEO4J_PASSWORD}"
-          if [ -z "$NEO4J_URI" ]; then
-            echo "::warning::NEO4J_URI secret not set — running gates in skip mode"
-          fi
           # -rs surfaces the full skip reason in the pytest summary so we
-          # can distinguish 'secret missing' from 'connection failed'.
+          # can distinguish 'secret missing' from 'connection failed'. For
+          # PR-from-fork events, secrets may legitimately be empty and the
+          # pytest tier should skip cleanly — that's the fork-safe path.
           python -m pytest tests/test_aura_data_integrity.py -v -rs
 
   test-coverage-ratio:
