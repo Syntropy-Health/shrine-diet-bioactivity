@@ -40,12 +40,101 @@ from extra_sources import (
     extract_herb2_relationships,
 )
 
+# Side-effect import: registers ScopedNeo4JStorage / ScopedNeo4JVectorStorage
+# into upstream LightRAG's storage whitelist before any LightRAG() call.
+# Without this, LightRAG.__post_init__ rejects the Scoped* storages named in
+# config_*.env. See Issue #13.
+import lightrag_init  # noqa: F401
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent
 DB_PATH = SCRIPT_DIR / ".." / "data_local" / "herbal_botanicals.db"
+
+
+# ---------------------------------------------------------------------------
+# Embedding — OpenAI-compatible (OpenRouter) without base64 encoding_format
+# ---------------------------------------------------------------------------
+
+
+# HTTP status / OpenRouter error codes worth retrying — transient upstream
+# failures (rate limit, gateway, Cloudflare 5xx). 4xx auth/bad-request codes
+# are NOT here: retrying those just wastes time.
+_TRANSIENT_HTTP_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504, 520, 522, 524})
+
+
+async def _openai_compat_embed(
+    texts: list[str],
+    model: str,
+    base_url: str,
+    api_key: str | None,
+    embedding_dim: int,
+    max_retries: int = 5,
+):
+    """Call an OpenAI-compatible /embeddings endpoint with float encoding.
+
+    lightrag's bundled openai_embed forces ``encoding_format="base64"``,
+    which OpenRouter rejects. This calls the endpoint directly, requests
+    default (float) encoding, and returns results in input order.
+
+    Transient failures (HTTP 429/5xx, network errors, and OpenRouter's
+    200-with-error-body for upstream 5xx) are retried with exponential
+    backoff. Without this, one transient blip silently drops a whole
+    ingest batch — its entities never get embedded or written.
+    """
+    import asyncio as _asyncio
+
+    import httpx
+    import numpy as np
+
+    url = base_url.rstrip("/") + "/embeddings"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    payload = {"model": model, "input": texts, "dimensions": embedding_dim}
+
+    last_err: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                body = resp.json()
+
+            data = body.get("data")
+            if isinstance(data, list):
+                # A missing `index` must fail loudly — a default sort key
+                # would collapse items to 0 and misalign embeddings.
+                if any("index" not in d for d in data):
+                    raise RuntimeError(f"embeddings response item missing 'index': {data[:2]}")
+                ordered = sorted(data, key=lambda d: d["index"])
+                return np.array([d["embedding"] for d in ordered], dtype=np.float32)
+
+            # No `data`: OpenRouter returns HTTP 200 with {"message":...,
+            # "code":520} when its upstream fails. Retry transient codes.
+            err = body.get("error", body)
+            code = err.get("code") if isinstance(err, dict) else None
+            if code in _TRANSIENT_HTTP_CODES and attempt < max_retries:
+                last_err = RuntimeError(f"transient embeddings error: {err}")
+            else:
+                raise RuntimeError(f"embeddings endpoint returned no data: {err}")
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in _TRANSIENT_HTTP_CODES and attempt < max_retries:
+                last_err = exc
+            else:
+                raise
+        except httpx.RequestError as exc:
+            # Network-level failure (timeout, connection reset) — transient.
+            if attempt < max_retries:
+                last_err = exc
+            else:
+                raise
+
+        await _asyncio.sleep(min(2 ** attempt, 30))
+
+    raise RuntimeError(f"embeddings failed after {max_retries} attempts: {last_err}")
 
 
 # ---------------------------------------------------------------------------
@@ -430,14 +519,26 @@ async def main() -> None:
             ),
         )
     else:
-        from lightrag.llm.openai import gpt_4o_mini_complete, openai_embed
+        from lightrag.llm.openai import gpt_4o_mini_complete
         llm_func = gpt_4o_mini_complete
+        # NOTE: lightrag's openai_embed hardcodes `encoding_format="base64"`,
+        # which OpenRouter rejects ({"error":...}, no `data`) → downstream
+        # 'NoneType' object is not iterable. Use a direct OpenRouter call
+        # (float encoding) instead. api_key resolved like scoped_server.
+        embed_api_key = (
+            os.getenv("EMBEDDING_BINDING_API_KEY")
+            or os.getenv("OPENROUTER_API_KEY")
+            or os.getenv("OPENAI_API_KEY")
+        )
         embed_func = EmbeddingFunc(
             embedding_dim=embedding_dim,
             max_token_size=8192,
             func=partial(
-                openai_embed.func,
+                _openai_compat_embed,
                 model=embedding_model,
+                base_url=embedding_host,
+                api_key=embed_api_key,
+                embedding_dim=embedding_dim,
             ),
         )
 
