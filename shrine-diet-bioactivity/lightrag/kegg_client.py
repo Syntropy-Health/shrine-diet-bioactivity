@@ -17,12 +17,25 @@ machine. Cache invalidation = manual delete of the file.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import time
 from pathlib import Path
 from typing import Optional
 
 KEGG_BASE = "https://rest.kegg.jp"
+
+
+def _batch_cache_key(batch: list[str]) -> str:
+    """Build a collision-resistant cache key for a gene-ID batch (#60).
+
+    Earlier shape ``list_genes_batch_{len}_{first_id}`` collided whenever
+    two batches happened to share length + first element. Now hash the
+    full sorted-tuple of IDs so equal batches reuse one cache entry but
+    distinct batches always diverge.
+    """
+    digest = hashlib.sha1("\n".join(sorted(batch)).encode("utf-8")).hexdigest()[:16]
+    return f"list_genes_batch_{len(batch)}_{digest}"
 DEFAULT_TIMEOUT_S = 30.0
 DEFAULT_RATE_LIMIT_SLEEP_S = 0.35  # KEGG soft limit ~3 req/s
 DEFAULT_BATCH_SIZE = 50  # /list/<a+b+c> — keep URL length manageable
@@ -142,7 +155,14 @@ class KeggClient:
         return self.cache_dir / f"{flat}.tsv"
 
     def _get(self, endpoint: str, *, cache_key: Optional[str] = None) -> str:
-        """GET; cache; retry on 5xx; return body or '' on persistent failure."""
+        """GET; cache; retry on 5xx; return body or '' on persistent failure.
+
+        Sleep discipline (#61): 5xx / network error → exponential backoff
+        only (a polite rate-limit sleep on top would just double the wait).
+        200 success → polite rate-limit sleep before returning, so the
+        *next* call respects KEGG's rate limit. 4xx → no sleep; client
+        error is final.
+        """
         import httpx
 
         key = cache_key or endpoint
@@ -157,10 +177,10 @@ class KeggClient:
             except httpx.RequestError:
                 time.sleep(self.rate_limit_sleep_s * (2**attempt))
                 continue
-            time.sleep(self.rate_limit_sleep_s)
             if resp.status_code == 200:
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
                 cache_file.write_text(resp.text)
+                time.sleep(self.rate_limit_sleep_s)
                 return resp.text
             if 500 <= resp.status_code < 600:
                 time.sleep(self.rate_limit_sleep_s * (2**attempt))
@@ -231,7 +251,7 @@ class KeggClient:
             joined = "+".join(batch)
             body = self._get(
                 f"/list/{joined}",
-                cache_key=f"list_genes_batch_{len(batch)}_{batch[0].replace(':', '_')}",
+                cache_key=_batch_cache_key(batch),
             )
             out.update(parse_gene_aliases(body))
         return out

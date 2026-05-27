@@ -195,3 +195,86 @@ def test_client_resolve_gene_symbols_batches_by_chunk(tmp_path):
     assert out == {"hsa:1": "A", "hsa:2": "B", "hsa:3": "C"}
     # 3 IDs in one batch (batch_size=10 ≥ 3).
     assert mock_get.call_count == 1
+
+
+# ---- Issue #60: cache-key collision across distinct batches ------------
+
+
+def test_resolve_gene_symbols_cache_distinguishes_batches_with_same_len_and_first_id(tmp_path):
+    """Two distinct batches with identical ``len`` and identical ``batch[0]``
+    must NOT share a cache file.
+
+    Before the fix, the key was ``list_genes_batch_{len(batch)}_{batch[0]}``
+    so batches ``[hsa:1, hsa:2]`` and ``[hsa:1, hsa:9999]`` collided →
+    the second batch silently served stale results from the first.
+
+    The fix must produce different cache files for the two batches.
+    """
+    cache_dir = tmp_path / "kegg_cache"
+    resp_a = httpx.Response(status_code=200, text="hsa:1\tA\nhsa:2\tB\n")
+    resp_b = httpx.Response(status_code=200, text="hsa:1\tA\nhsa:9999\tZ\n")
+
+    # First call: batch A
+    with patch("httpx.get", return_value=resp_a):
+        client = KeggClient(cache_dir=cache_dir, batch_size=10, rate_limit_sleep_s=0)
+        out_a = client.resolve_gene_symbols(["hsa:1", "hsa:2"])
+    assert out_a == {"hsa:1": "A", "hsa:2": "B"}
+
+    # Second call: batch B (same length=2, same first=hsa:1, different second)
+    with patch("httpx.get", return_value=resp_b):
+        client = KeggClient(cache_dir=cache_dir, batch_size=10, rate_limit_sleep_s=0)
+        out_b = client.resolve_gene_symbols(["hsa:1", "hsa:9999"])
+
+    # The fix is observable as: batch B's lookup hit the HTTP layer (no
+    # cache collision served stale A). out_b must include hsa:9999.
+    assert "hsa:9999" in out_b, (
+        "Cache key collision: batch B served stale data from batch A "
+        "(see #60)."
+    )
+
+
+# ---- Issue #61: unconditional rate-limit sleep doubles retry wait -------
+
+
+def test_get_does_not_double_sleep_on_5xx_retry(tmp_path, monkeypatch):
+    """On a 5xx response, the retry backoff is the only delay; the polite
+    rate-limit sleep must NOT also fire on the same attempt.
+
+    Before the fix, the polite ``time.sleep(rate_limit_sleep_s)`` fired
+    after EVERY HTTP response, so a 5xx retry waited
+    ``rate_limit_sleep_s + rate_limit_sleep_s * 2**attempt``. With the
+    fix, only the backoff fires on the failure path.
+    """
+    sleeps: list[float] = []
+    monkeypatch.setattr("kegg_client.time.sleep", lambda s: sleeps.append(s))
+
+    # Two 503s then a 200 — one retry, one final success.
+    responses = [
+        httpx.Response(status_code=503, text=""),
+        httpx.Response(status_code=503, text=""),
+        httpx.Response(status_code=200, text="path:hsa01100\tMetabolic pathways\n"),
+    ]
+    rate = 1.0  # explicit, easy to assert against
+    cache_dir = tmp_path / "kegg_cache"
+
+    with patch("httpx.get", side_effect=responses):
+        client = KeggClient(
+            cache_dir=cache_dir,
+            rate_limit_sleep_s=rate,
+            max_retries=3,
+        )
+        body = client.list_pathways(organism="hsa")
+
+    assert body != []  # eventual success
+
+    # Expected sleeps with the fix:
+    #   attempt 0 (503) → backoff rate * 2**0 = 1.0
+    #   attempt 1 (503) → backoff rate * 2**1 = 2.0
+    #   attempt 2 (200) → polite rate-limit  = 1.0  (only on success path)
+    # Sum = 4.0. With the bug, sum was 1.0 + 1.0 + 2.0 + 1.0 + 2.0 + 1.0 = 8.0
+    # (polite sleep fired on each of the three responses, plus the two
+    # backoffs). The fix's total budget must be ≤ 5.0.
+    assert sum(sleeps) <= 5.0, (
+        f"Total sleep budget {sum(sleeps)}s exceeds expected ≤5.0s "
+        f"(see #61). Sleeps observed: {sleeps}"
+    )
