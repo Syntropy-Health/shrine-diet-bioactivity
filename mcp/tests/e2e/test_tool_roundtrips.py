@@ -30,6 +30,7 @@ from typing import Any
 import pytest
 
 from ._braintrust_logger import bt_span
+from ._helpers import _extract_chains, _extract_source_ids  # noqa: F401
 
 pytestmark = [pytest.mark.e2e, pytest.mark.aura]
 
@@ -257,77 +258,25 @@ def test_layer_b_source_id_prefixes(mcp_call, tool_name, seed):
             span.log(output={"chain_count": 0, "skipped": True})
             pytest.skip(f"{tool_name} returned no chains for {seed!r}; gateway/KG state-dependent")
 
-        entity_ids: list[str] = []
+        source_ids: list[str] = []
         for chain in chains:
-            elements = chain if isinstance(chain, list) else [chain]
-            for entity in elements:
-                eid = _extract_entity_id(entity)
-                if eid:
-                    entity_ids.append(eid)
+            source_ids.extend(_extract_source_ids(chain))
 
-        bad = [eid for eid in entity_ids if not _SOURCE_ID_PREFIX_PATTERN.match(eid)]
+        bad = [sid for sid in source_ids if not _SOURCE_ID_PREFIX_PATTERN.match(sid)]
         span.log(
             output={
                 "chain_count": len(chains),
-                "entity_id_count": len(entity_ids),
+                "source_id_count": len(source_ids),
                 "bad_count": len(bad),
                 "bad_examples": bad[:3],
             }
         )
 
-        assert entity_ids, f"No entity_ids found in chains for {tool_name}/{seed}: {chains[:2]}"
+        assert source_ids, f"No source_ids found in chain edges for {tool_name}/{seed}: {chains[:2]}"
         assert not bad, (
-            f"{len(bad)} of {len(entity_ids)} entity_ids in {tool_name}/{seed} lack a "
+            f"{len(bad)} of {len(source_ids)} source_ids in {tool_name}/{seed} lack a "
             f"documented source-id prefix. Examples: {bad[:3]}"
         )
 
 
-# ─── Helpers ──────────────────────────────────────────────────────────────
-
-
-def _extract_chains(result: dict[str, Any]) -> list:
-    """Pull a chains list out of an MCP tools/call response.
-
-    Tries (in order):
-      1. ``result.chains`` (direct JSON return)
-      2. ``result.data.chains`` (envelope variant)
-      3. ``result.content[0].text`` parsed as JSON, then ``.chains``
-         (MCP-canonical text-content wrapper)
-
-    Returns ``[]`` when no chains can be located — callers may treat that
-    as an empty result and either fail or skip depending on test intent.
-    """
-    payload = result.get("result", {})
-    if not isinstance(payload, dict):
-        return []
-
-    chains = payload.get("chains")
-    if chains:
-        return chains
-
-    data = payload.get("data")
-    if isinstance(data, dict):
-        chains = data.get("chains")
-        if chains:
-            return chains
-
-    content_list = payload.get("content")
-    if isinstance(content_list, list) and content_list:
-        first = content_list[0]
-        if isinstance(first, dict):
-            text = first.get("text", "")
-            if text:
-                try:
-                    parsed = json.loads(text)
-                except (json.JSONDecodeError, TypeError):
-                    return []
-                if isinstance(parsed, dict):
-                    return parsed.get("chains") or parsed.get("data", {}).get("chains") or []
-    return []
-
-
-def _extract_entity_id(entity: Any) -> str | None:
-    """Pull an ``entity_id`` from various chain-element shapes."""
-    if isinstance(entity, dict):
-        return entity.get("entity_id") or entity.get("id") or entity.get("source_id")
-    return None
+# Helpers moved to mcp/tests/e2e/_helpers.py — imported above.
