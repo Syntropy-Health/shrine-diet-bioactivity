@@ -161,7 +161,9 @@ function createSchema(db: Database.Database): void {
       resolved_at          TEXT NOT NULL,
       FOREIGN KEY (compound_id) REFERENCES compounds(id)
     );
-    CREATE INDEX IF NOT EXISTS idx_compound_identity_inchikey ON compound_identity(inchikey);
+    -- UNIQUE on inchikey enforces one canonical identity per compound (#43);
+    -- a second compound with the same InChIKey is a resolver bug, not data.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_compound_identity_inchikey ON compound_identity(inchikey) WHERE inchikey IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_compound_identity_chembl ON compound_identity(chembl_id);
     CREATE INDEX IF NOT EXISTS idx_compound_identity_pubchem ON compound_identity(pubchem_cid);
 

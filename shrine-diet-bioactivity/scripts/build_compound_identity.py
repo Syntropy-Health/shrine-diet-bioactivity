@@ -140,7 +140,12 @@ def main() -> int:
                         resolved_rdkit_verified += 1
                         inchi = rdkit_id.inchi
                     elif rdkit_id and rdkit_id.inchikey != inchikey:
+                        # PubChem and RDKit disagree on the canonical InChIKey
+                        # for this SMILES. Flag the row with a distinct
+                        # resolution_method so downstream consumers can
+                        # filter or audit them (#42).
                         rdkit_mismatches += 1
+                        method = "rdkit_mismatch"
 
         xrefs = unichem.get(inchikey, {}) if inchikey else {}
         if xrefs:

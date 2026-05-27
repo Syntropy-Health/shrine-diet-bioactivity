@@ -192,7 +192,12 @@ def resolve_compound_by_name(
 
     cache[name] = parsed
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_text(json.dumps(cache, indent=2, sort_keys=True))
+    # Atomic write (#44): write to a sibling tmp file, then rename. A kill
+    # mid-write leaves either the old cache (rename never ran) or the new
+    # one (rename completed) — never a half-flushed JSON.
+    tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(cache, indent=2, sort_keys=True))
+    tmp_path.replace(cache_path)
     if parsed is None:
         return None
     return PubChemResult(
