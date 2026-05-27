@@ -97,3 +97,26 @@ def test_score_diet_pathway_rollup_works_when_targets_exist(db_conn):
     if result["pathways"]:
         assert "kegg_id" in result["pathways"][0]
         assert "n_targets_hit" in result["pathways"][0]
+
+
+def test_score_diet_top_diseases_each_carry_pubmed_citations(db_conn):
+    """Use-case-A criterion (#63): top-10 ranked diseases should each carry
+    ≥1 PubMed citation so the recommendation is explainable.
+
+    Skips cleanly without the live DB. When the DB is present this gate is
+    stronger than ``test_score_diet_disease_breakdown_has_pubmed_total`` —
+    that older test passes even when ``pubmed_total == 0``.
+    """
+    diet = [("Turmeric", 5), ("Ginger", 10), ("Broccoli", 100)]
+    result = score_diet(diet, conn=db_conn)
+    diseases = result["diseases"][:10]
+    if not diseases:
+        pytest.skip("no diseases scored — KG may lack disease coverage")
+    no_cite = [
+        d for d in diseases
+        if d["evidence_breakdown"]["pubmed_total"] <= 0
+    ]
+    assert not no_cite, (
+        f"top-{len(diseases)} diseases include {len(no_cite)} with 0 "
+        f"PubMed citations — use-case-A (#63) requires ≥1 each."
+    )

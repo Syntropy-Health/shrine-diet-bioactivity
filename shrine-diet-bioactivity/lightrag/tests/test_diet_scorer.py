@@ -254,3 +254,23 @@ def test_evidence_weights_documented():
     # All disease-layer weights below 1.0 (target binding is the gold).
     for k in ("direct_therapeutic", "direct_marker", "inferred_via_gene"):
         assert 0.0 < EVIDENCE_WEIGHTS[k] < 1.0
+
+
+# ---- Issue #64: target_id_via_gene contract ----------------------------
+
+
+def test_score_pathways_target_id_via_gene_is_target_id_not_gene_symbol():
+    """``kpg_rows`` third element MUST be a ``targets.id`` value, not a
+    gene_symbol. The upstream SQL joins ``kegg_pathway_genes`` ↔ ``targets``
+    via gene_symbol, but the column passed to ``score_pathways`` is the
+    resolved target_id. Passing a gene_symbol silently misses the score
+    lookup (regression guard for #64).
+    """
+    target_scores = [{"target_id": "T1", "target": "NFKB1", "score": 100.0}]
+    # Pass the *gene symbol* (NFKB1) where target_id (T1) is expected.
+    kpg_rows = [("hsa04064", "NF-kB", "NFKB1")]
+    out = score_pathways(target_scores, kpg_rows)
+    assert out == [], (
+        "score_pathways looked up gene_symbol as if it were target_id — "
+        "the docstring contract is broken (#64)."
+    )
