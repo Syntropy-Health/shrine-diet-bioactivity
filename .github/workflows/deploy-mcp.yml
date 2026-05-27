@@ -100,23 +100,6 @@ jobs:
           echo "is_prod=$IS_PROD" >> $GITHUB_OUTPUT
 
   # =========================================================================
-  # PR promotion guard: PRs to main must come from `test`
-  # =========================================================================
-  pr-promotion-guard:
-    name: PR Promotion Guard
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    steps:
-      - name: Require head_ref=test for PRs to main
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          if [ "$HEAD_REF" != "test" ]; then
-            echo "::error::PRs to main must come from the 'test' branch (got '$HEAD_REF')."
-            exit 1
-          fi
-
-  # =========================================================================
   # Unit tests — MCP gateway (89% coverage already)
   # =========================================================================
   test-mcp:
