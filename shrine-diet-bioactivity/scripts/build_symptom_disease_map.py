@@ -50,13 +50,28 @@ def _build_argparser() -> argparse.ArgumentParser:
     description = (__doc__ or "Build symptom_disease_map").split("\n\n")[0]
     ap = argparse.ArgumentParser(description=description)
     ap.add_argument("--db", type=Path, required=True)
+    def _positive_int(s: str) -> int:
+        """Reject 0 and negatives — both make ``extras >= N-1`` vacuously true.
+
+        See #24[3]: the off-by-one in the inner loop means ``0`` silently
+        accepted ``--max-fallbacks-per-symptom 0`` while disabling all
+        tier-4 expansion, which is not what the flag name suggests.
+        """
+        v = int(s)
+        if v < 1:
+            raise argparse.ArgumentTypeError(
+                "must be ≥ 1 — passing 0 disables expansion silently (#24[3])."
+            )
+        return v
+
     ap.add_argument(
         "--max-fallbacks-per-symptom",
-        type=int,
+        type=_positive_int,
         default=5,
         help=(
             "When tier-4 (target_diseases substring) is the only match, "
-            "cap how many disease rows to record per symptom (default: 5)."
+            "cap how many disease rows to record per symptom (default: 5; "
+            "must be ≥ 1)."
         ),
     )
     return ap
@@ -134,6 +149,11 @@ def main() -> int:
                     s["name"], modern=modern, tcm=tcm, diseases=diseases
                 )
                 if best is None:
+                    # Per-symptom visibility (#52) — emit the unmapped name
+                    # so the operator can spot coverage holes (e.g. clinical
+                    # concepts like "Low immunity" with no literal hit in
+                    # SymMap or target_diseases).
+                    print(f"  unmapped: {s['name']!r} — no SymMap/disease hit")
                     continue
                 cur.execute(
                     insert_sql,
