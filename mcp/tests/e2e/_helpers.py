@@ -31,14 +31,22 @@ def _is_error(result: dict) -> bool:
 def _payload(result: dict) -> dict:
     """The tool result payload (the structured tool output).
 
-    NOTE: this function is the SYN-89 fix point. Currently returns the
-    outer envelope, which is wrong (the envelope keys are
-    ``content``/``structuredContent``/``isError``, not the typed
-    payload). The next commit fixes this — keeping the buggy body here
-    verbatim so the extract-then-fix diff is bisectable.
+    MCP ``tools/call`` wraps every tool's return in
+    ``{"content":[{"type":"text","text":"..."}], "structuredContent":{...},
+    "isError": bool}``. The ``structuredContent`` field is the
+    Pydantic-validated typed payload — assert against this. The
+    ``content[].text`` wrapper is a JSON-string mirror for display.
+
+    Falls back to the envelope itself when ``structuredContent`` is
+    absent (pre-typed-output gateway versions).
     """
-    payload = result.get("result", {})
-    return payload if isinstance(payload, dict) else {}
+    envelope = result.get("result", {})
+    if not isinstance(envelope, dict):
+        return {}
+    sc = envelope.get("structuredContent")
+    if isinstance(sc, dict):
+        return sc
+    return envelope
 
 
 def _extract_chains(result: dict) -> list:
@@ -76,16 +84,22 @@ def _extract_chains(result: dict) -> list:
 
 
 def _extract_source_ids(chain: Any) -> list[str]:
-    """Pull ``source_id`` values from a chain.
+    """Pull ``source_id`` attribution off chain edges.
 
-    NOTE: this function is the SYN-89 fix point. The buggy body below
-    checks the chain dict for ``entity_id``/``id``/``source_id`` — but
-    chains are ``{"edges":[{...}]}`` and the source_id lives on each
-    EDGE, not on the chain. The next commit fixes this; the body here
-    is preserved for bisectability.
+    Chain shape from Layer-B traversals is
+    ``{"edges":[{src_id, tgt_id, rel_type, source_id, ...}]}``;
+    the source_id lives one level deep on each edge. Earlier variants
+    used flat entity dicts (top-level source_id) — handled as fallback.
     """
-    # BUG (fixed in next commit): doesn't descend into edges.
-    if isinstance(chain, dict):
-        sid = chain.get("entity_id") or chain.get("id") or chain.get("source_id")
-        return [sid] if sid else []
-    return []
+    if not isinstance(chain, dict):
+        return []
+    edges = chain.get("edges")
+    if isinstance(edges, list):
+        return [
+            e["source_id"]
+            for e in edges
+            if isinstance(e, dict) and e.get("source_id")
+        ]
+    # Fallback: flat entity-shape chain (no edges array).
+    sid = chain.get("source_id") or chain.get("entity_id") or chain.get("id")
+    return [sid] if sid else []
