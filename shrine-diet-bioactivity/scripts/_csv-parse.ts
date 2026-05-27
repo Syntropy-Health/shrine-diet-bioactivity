@@ -42,8 +42,12 @@ export function parseCsvLine(line: string): string[] {
       continue;
     }
 
-    if (ch === '"' && buf.length === 0) {
-      // Field-opening quote (only at the start of a field).
+    if (ch === '"' && buf.trim() === '') {
+      // Field-opening quote — at the start of a field, ignoring any
+      // leading whitespace (#55). Some CTD producers pad fields after
+      // the comma; before this change the leading space prevented the
+      // quote from being recognized, and the comma inside the quoted
+      // disease name leaked through as a field separator.
       inQuotes = true;
       i += 1;
       continue;

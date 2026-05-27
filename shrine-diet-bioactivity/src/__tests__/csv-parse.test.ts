@@ -88,3 +88,41 @@ describe('parseCsvLine', () => {
     expect(parseCsvLine('a,b,c\r')).toEqual(['a', 'b', 'c\r']);
   });
 });
+
+// ---- Issue #55: leading-whitespace quoted field ---------------------------
+
+describe('parseCsvLine — issue #55 (leading whitespace + quoted field)', () => {
+  it('treats a quote opening as field-opener even after leading whitespace', () => {
+    // CTD producers sometimes pad fields: `a, "Lymphoma, Mantle-Cell",b`.
+    // Before the fix, the leading space puts `buf=" "` so the `"` is not
+    // treated as field-opening — the comma inside the quoted name then
+    // gets parsed as a field separator, shifting every later column.
+    expect(parseCsvLine('a, "Lymphoma, Mantle-Cell",b')).toEqual([
+      'a',
+      ' Lymphoma, Mantle-Cell',
+      'b',
+    ]);
+  });
+});
+
+// ---- Issue #54: CRLF cross-layer contract --------------------------------
+
+describe('CRLF cross-layer contract (#54)', () => {
+  // The contract is: load-ctd.streamGzipCsv strips a trailing \r before
+  // calling parseCsvLine, so the last field never carries a stray \r.
+  // The parser itself is line-ending agnostic; this test pins both halves.
+
+  it('parser passes-through a stray \\r — caller must strip', () => {
+    expect(parseCsvLine('a,b,c\r')).toEqual(['a', 'b', 'c\r']);
+  });
+
+  it('the caller-side strip (rawLine.endsWith) handles CRLF', () => {
+    const rawLine = 'a,b,c\r';
+    const stripped = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+    expect(parseCsvLine(stripped)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('LF-only lines (current CTD shape) parse cleanly', () => {
+    expect(parseCsvLine('a,b,c')).toEqual(['a', 'b', 'c']);
+  });
+});

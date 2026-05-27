@@ -65,9 +65,25 @@ async function streamGzipCsv(
 
   const gunzip = zlib.createGunzip();
   const input = fs.createReadStream(filePath);
+
+  // Surface stream errors loudly (#53). Without these handlers, a missing
+  // file or corrupt .gz would emit an unhandled 'error' event — readline
+  // would end the for-await silently and the loader would report 0 rows
+  // as if the file were empty.
+  let streamError: Error | null = null;
+  input.on('error', (err) => {
+    streamError = new Error(`load-ctd: read failed for ${filePath}: ${err.message}`);
+  });
+  gunzip.on('error', (err) => {
+    streamError = new Error(`load-ctd: gunzip failed for ${filePath}: ${err.message}`);
+  });
+
   const rl = readline.createInterface({ input: input.pipe(gunzip) });
 
   for await (const rawLine of rl) {
+    if (streamError) {
+      throw streamError;
+    }
     // Defense-in-depth against CRLF: CTD currently ships LF-only files
     // (verified May 2026), but readline does NOT strip a trailing \r if
     // the upstream ever switches to Windows endings. Strip it here so
@@ -95,6 +111,12 @@ async function streamGzipCsv(
     } else {
       stats.skipped++;
     }
+  }
+
+  // Also check after the loop in case the error fires after the last
+  // successful read (e.g., a gunzip trailer mismatch on the final chunk).
+  if (streamError) {
+    throw streamError;
   }
 
   return stats;
