@@ -2,10 +2,11 @@
 #
 # Mirrors apps/Syntropy-Journals deployment pattern.
 # Branch → Environment:
-#   main  → prod
+#   main  → test  (until the kg-mcp Railway service exists in the prod env;
+#                  flip back to prod once that's provisioned)
 #   test  → test
 #   dev-* → test
-#   workflow_dispatch → user choice
+#   workflow_dispatch → user choice (prod still selectable manually)
 #
 # Required secrets (per environment):
 #   RAILWAY_TOKEN — project-scoped Railway deployment token
@@ -79,7 +80,9 @@ jobs:
           if [ "$GH_EVENT_NAME" = "workflow_dispatch" ]; then
             ENV="$GH_DISPATCH_ENV"
           elif [ "$GH_REF" = "refs/heads/main" ]; then
-            ENV="prod"
+            # Until kg-mcp exists in the prod Railway env, route main→test.
+            # workflow_dispatch can still pick prod explicitly.
+            ENV="test"
           elif [ "$GH_REF" = "refs/heads/test" ]; then
             ENV="test"
           elif [[ "$GH_REF" == refs/heads/dev-* ]]; then
@@ -87,8 +90,8 @@ jobs:
           else
             ENV="test"
           fi
-          if [ "$ENV" = "prod" ] && [ "$GH_REF" != "refs/heads/main" ]; then
-            echo "::error::prod deploys are only allowed from refs/heads/main (got $GH_REF)"
+          if [ "$ENV" = "prod" ] && [ "$GH_EVENT_NAME" != "workflow_dispatch" ]; then
+            echo "::error::prod deploys are only allowed via workflow_dispatch (got event=$GH_EVENT_NAME, ref=$GH_REF)"
             exit 1
           fi
           IS_PROD="false"
@@ -216,12 +219,15 @@ jobs:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           ENV_NAME: ${{ needs.detect-environment.outputs.environment }}
         run: |
-          # Railway exposes domain via `railway status --json`. Parse it then
-          # poll /health until 200 or timeout.
+          # Resolve domain via `railway status --json` with a fallback to the
+          # known `${SERVICE}-${ENV}.up.railway.app` pattern. The fallback
+          # exists because the CLI's JSON shape has drifted across versions
+          # and fresh services briefly report an empty serviceDomains array.
+          # See scripts/ci/resolve_railway_domain.sh + its unit tests.
           STATUS=$(railway status --service "${{ env.RAILWAY_SERVICE }}" --environment "$ENV_NAME" --json 2>/dev/null || echo '{}')
-          DOMAIN=$(echo "$STATUS" | python3 -c "import sys,json; d=json.load(sys.stdin); print((d.get('service',{}).get('serviceDomains') or [{}])[0].get('domain',''))" 2>/dev/null || true)
+          DOMAIN=$(printf '%s' "$STATUS" | scripts/ci/resolve_railway_domain.sh "${{ env.RAILWAY_SERVICE }}" "$ENV_NAME")
           if [ -z "$DOMAIN" ]; then
-            echo "::error::Could not resolve Railway domain — check service name and env"
+            echo "::error::resolve_railway_domain.sh returned empty — service '${{ env.RAILWAY_SERVICE }}' env '$ENV_NAME'"
             exit 1
           fi
           URL="https://$DOMAIN/health"
