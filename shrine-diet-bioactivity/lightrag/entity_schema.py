@@ -232,6 +232,9 @@ RELATIONSHIP_TYPES = {
         # so the edge points at the canonical Disease entity, not a free-text
         # alias. Falls back to symptom_disease_map.disease_name for rows that
         # don't yet have a canonical anchor.
+        # Filter out tier-4 string-match rows (match_score=0.3) — they're
+        # noisy and pollute the recommendation graph (#50). Keep tiers 1-3
+        # (≥0.5) which represent exact / Jaccard / substring matches.
         "query": (
             "SELECT s.name AS src_name, "
             "       COALESCE(d.preferred_name, sdm.disease_name) AS tgt_name, "
@@ -241,6 +244,7 @@ RELATIONSHIP_TYPES = {
             "FROM symptom_disease_map sdm "
             "JOIN symptoms s ON s.id = sdm.symptom_id "
             "LEFT JOIN diseases_canonical d ON d.mesh_id = sdm.mesh_id "
+            "WHERE sdm.match_score >= 0.5 "
             "ORDER BY s.id, sdm.match_score DESC"
         ),
     },
