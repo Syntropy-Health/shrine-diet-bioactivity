@@ -228,8 +228,11 @@ def score_pathways(
 
     Args:
       target_scores: output of score_targets() (each has target_id + score)
-      kpg_rows: (kegg_pathway_id, pathway_name, target_id_via_gene) tuples
-        — pre-joined from kegg_pathway_genes ↔ targets via gene_symbol.
+      kpg_rows: (kegg_pathway_id, pathway_name, target_id_via_gene) tuples.
+        ``target_id_via_gene`` is **always a ``targets.id`` value** (resolved
+        upstream through ``kegg_pathway_genes`` ↔ ``targets`` via
+        ``gene_symbol``). It is NOT a raw gene_symbol; passing a symbol
+        silently misses the score lookup. See #64.
 
     Returns list sorted by score desc, top TOP_N.
     """
