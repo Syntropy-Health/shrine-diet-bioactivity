@@ -31,6 +31,7 @@ from pathlib import Path
 import pytest
 
 from ._braintrust_logger import bt_span
+from ._helpers import _is_error, _payload  # noqa: F401 — re-exported for in-module reads
 
 pytestmark = [pytest.mark.e2e, pytest.mark.aura]
 
@@ -42,17 +43,6 @@ _HDI_SAFE_50_PATH = (
     / "shared"
     / "hdi_safe_50.json"
 )
-
-
-def _is_error(result: dict) -> bool:
-    """True if the JSON-RPC envelope carries an error."""
-    return "error" in result and result.get("error") is not None
-
-
-def _payload(result: dict) -> dict:
-    """The tool result payload (the structured tool output)."""
-    payload = result.get("result", {})
-    return payload if isinstance(payload, dict) else {}
 
 
 # ─── Probe 19: Curcumin → Compound node ──────────────────────────────────

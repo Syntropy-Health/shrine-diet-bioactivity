@@ -36,8 +36,10 @@ lightrag/.env
 # LightRAG local storage (KV + vector DB files, ~54 MB)
 lightrag/rag_storage_local/
 lightrag/rag_storage_production/
+lightrag/rag_storage_clinical_embed/
 rag_storage_local/
 rag_storage_production/
+rag_storage_clinical_embed/
 
 # Raw source data dumps (CMAUP, TTD, BATMAN-TCM TSVs, ~115 MB)
 data/cmaup-*.txt
