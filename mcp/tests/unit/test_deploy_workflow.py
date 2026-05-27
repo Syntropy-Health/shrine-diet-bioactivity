@@ -167,3 +167,43 @@ class TestResolveRailwayDomain:
         rc, out = self._run("{}", service="kg-mcp", env="prod")
         assert rc == 0
         assert out == "kg-mcp-prod.up.railway.app"
+
+
+# ─── Stale promotion guard (issue #46) ────────────────────────────────────
+
+
+class TestNoStalePromotionGuard:
+    """The test→main promotion guard predates the live workflow: the `test`
+    branch is hundreds of commits behind main and effectively dead, so the
+    guard fails on every PR for no operational reason. Lock its removal in
+    so it can't quietly come back."""
+
+    def _workflow(self) -> dict:
+        return yaml.safe_load(WORKFLOW_PATH.read_text())
+
+    def test_pr_promotion_guard_job_is_absent(self):
+        jobs = self._workflow()["jobs"]
+        assert "pr-promotion-guard" not in jobs, (
+            "The pr-promotion-guard job has been removed (see #46) — "
+            "do not reintroduce it without also reactivating the test branch."
+        )
+
+    def test_no_other_job_depends_on_promotion_guard(self):
+        """Sanity: even after removal, ensure nothing in `needs:` still
+        names the deleted job (which would silently fail to schedule)."""
+        jobs = self._workflow()["jobs"]
+        for name, body in jobs.items():
+            needs = body.get("needs") or []
+            if isinstance(needs, str):
+                needs = [needs]
+            assert "pr-promotion-guard" not in needs, (
+                f"job {name!r} still has pr-promotion-guard in its needs"
+            )
+
+    def test_no_step_step_references_promotion_guard(self):
+        """Catch leftover step-name strings (e.g., `name: PR Promotion Guard`).
+        Stronger than the job-key check because step-name strings are easy
+        to copy-paste."""
+        text = WORKFLOW_PATH.read_text()
+        assert "PR Promotion Guard" not in text
+        assert "pr-promotion-guard" not in text
