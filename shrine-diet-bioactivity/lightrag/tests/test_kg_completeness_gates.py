@@ -25,6 +25,11 @@ from pathlib import Path
 
 import pytest
 
+# These gates need the 5.5 GB local KG SQLite (``data_local/herbal_botanicals.db``)
+# which CI doesn't ship. Default pytest runs deselect ``integration`` so the
+# whole file stays quiet unless explicitly requested via ``-m integration``.
+pytestmark = [pytest.mark.integration]
+
 DB_PATH = Path(__file__).parent.parent.parent / "data_local" / "herbal_botanicals.db"
 
 

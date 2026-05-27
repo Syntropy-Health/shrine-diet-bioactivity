@@ -153,7 +153,7 @@ Sorted by use-case impact × ease of remediation.
 **Single failing test that captures the requirement** — landed in this PR as a **RED** test (xfail-marked until implementation lands).
 
 ```python
-# shrine-diet-bioactivity/lightrag/tests/test_ctd_coverage.py
+# shrine-diet-bioactivity/lightrag/tests/test_kg_completeness_gates.py
 def test_chemical_diseases_has_meaningful_coverage(db_conn):
     """CTD chem→disease map should have ≥10K rows after ingest.
 
