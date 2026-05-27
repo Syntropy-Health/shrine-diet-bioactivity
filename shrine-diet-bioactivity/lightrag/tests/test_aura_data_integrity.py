@@ -85,9 +85,15 @@ def test_label_node_count_meets_floor(neo4j_driver, label: str, min_count: int) 
 def test_no_orphan_nodes(neo4j_driver) -> None:
     """Every node should participate in at least one relationship.
 
-    Orphans are usually a sign of half-failed ingest (e.g., entities
-    inserted but their edge-batch errored). Floor at 95% — a small
-    handful of standalone nodes is normal.
+    Floor: 15% (lowered from the prior 95% on 2026-05-27). The free-tier
+    Aura strategy keeps all entity metadata for semantic-search recall
+    even when an entity has no current typed edges — notably ~90K
+    compounds from the SYN-85 clinical-anchor embed. The original 95%
+    threshold encoded an "all-edges-loaded" expectation that doesn't
+    match the prototype-v0 free-tier shape. SYN-109 tracks ingestion
+    work that will reduce the orphan count by adding Target→Disease
+    plus broader Herb→Disease edges; ratchet this threshold upward
+    as that lands.
     """
     with neo4j_driver.session() as s:
         total = s.run("MATCH (n) RETURN count(n) AS n").single()["n"]
@@ -97,7 +103,8 @@ def test_no_orphan_nodes(neo4j_driver) -> None:
         if total == 0:
             pytest.skip("Empty graph; orphan check N/A.")
         ratio = connected / total
-        assert ratio >= 0.95, (
+        assert ratio >= 0.15, (
             f"Only {ratio:.1%} of nodes have at least one edge "
-            f"({connected}/{total}). Likely half-loaded ingest."
+            f"({connected}/{total}). Below the free-tier-strategy floor "
+            f"of 15%; likely half-loaded ingest or KG corruption."
         )
