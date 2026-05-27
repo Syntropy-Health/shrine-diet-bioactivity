@@ -116,6 +116,15 @@ def extract_duke_relationships(
     cols = [d[0] for d in cur.description]
     rows = [dict(zip(cols, r)) for r in cur.fetchall()]
 
+    if not rows and rel_type == "COMPOUND_IN_PATHWAY":
+        # Lazy-activation observability (#62): the JOIN through
+        # compound_identity is empty until Phase 1 ingest populates it.
+        # Surface this rather than silently producing zero pathway edges.
+        print(
+            "::warning::COMPOUND_IN_PATHWAY returned 0 rows — likely "
+            "compound_identity is empty (Phase 1 ingest not yet run)."
+        )
+
     rels: list[dict] = []
     for row in rows:
         src = str(row.get("src_name", "")).strip()
