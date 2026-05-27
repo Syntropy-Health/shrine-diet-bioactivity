@@ -208,3 +208,42 @@ def test_null_latin_in_herb2_is_skipped():
     assert bad == [], (
         f"Should not derive Latin-tier matches from null-latin herb2: {bad}"
     )
+
+
+# ---- Issue #57: Tier 1/2/4 must dedup the same way Tier 3 does ----------
+
+
+def test_no_duplicate_match_records_across_tiers():
+    """``seen_pairs`` should keep distinct (duke_id, herb2_id, match_type)
+    triples; same (duke, herb2) appearing twice in the same tier is a
+    matcher bug. Tier 3 had the guard; Tiers 1/2/4 must follow (#57).
+    """
+    # Construct a Duke herb with an alternate Latin form that maps to the
+    # same Herb-2 entry through both tier 1 (exact) and tier 2 (binomial).
+    # Without the dedup guard, the same (duke_id, herb2_id) appears for
+    # multiple match_types within a single call.
+    duke = [{
+        "id": "D-X",
+        "scientific_name": "Astragalus membranaceus",
+        "common_name": "milk-vetch",
+        "alternate_names": "milk-vetch",
+    }]
+    # Two herb2 rows with the same herb_id + latin (known mode in the
+    # source data when multiple regional accessions list one botanical).
+    herb2 = [
+        {"herb_id": "H-X", "name_en": "milk-vetch", "latin": "Astragalus membranaceus"},
+        {"herb_id": "H-X", "name_en": "milk-vetch", "latin": "Astragalus membranaceus"},
+    ]
+    matches = match_herbs(duke=duke, herb2=herb2)
+    # The fix: same (duke_id, herb2_id, match_type) triple may not repeat.
+    seen = set()
+    dupes = []
+    for m in matches:
+        key = (m.duke_id, m.herb2_id, m.match_type)
+        if key in seen:
+            dupes.append(m)
+        seen.add(key)
+    assert dupes == [], (
+        f"Duplicate (duke_id, herb2_id, match_type) records: {dupes} "
+        "(see #57 — Tier 1/2/4 need the same seen_pairs guard as Tier 3)."
+    )

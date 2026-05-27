@@ -75,7 +75,14 @@ def main() -> int:
     # at insert time. Per code review: without this the FK clauses are
     # documentation-only.
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(DDL)
+    # DDL application must be transactional (#58). ``executescript`` auto-
+    # commits and leaves partial state on error; ``with conn:`` wraps the
+    # execute in BEGIN/COMMIT so a mid-script failure rolls back cleanly.
+    with conn:
+        for stmt in DDL.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                conn.execute(stmt)
 
     print("Loading herbs ...")
     duke = _load_duke(conn)
@@ -86,23 +93,43 @@ def main() -> int:
     matches = match_herbs(duke=duke, herb2=herb2)
     print(f"  {len(matches)} match records across all tiers")
 
+    # Plain INSERT (#56). PK-duplicate is impossible after the in-memory
+    # match_herbs dedup; any IntegrityError now must be a referential or
+    # CHECK violation, which should surface, not be swallowed by
+    # ``INSERT OR IGNORE``.
     insert_sql = """
-        INSERT OR IGNORE INTO herb_resolution_map
+        INSERT INTO herb_resolution_map
           (duke_id, herb2_id, match_type, match_score)
         VALUES (?, ?, ?, ?)
     """
 
     inserted = 0
+    skipped_duplicate = 0
     try:
         with conn:
             cur = conn.cursor()
             cur.execute("DELETE FROM herb_resolution_map")
             for m in matches:
-                cur.execute(
-                    insert_sql,
-                    (m.duke_id, m.herb2_id, m.match_type, m.match_score),
-                )
-                inserted += 1
+                try:
+                    cur.execute(
+                        insert_sql,
+                        (m.duke_id, m.herb2_id, m.match_type, m.match_score),
+                    )
+                    inserted += 1
+                except sqlite3.IntegrityError as exc:
+                    msg = str(exc).lower()
+                    if "foreign key" in msg:
+                        # Surface FK violations — they're resolver bugs, not data dups.
+                        raise
+                    if "unique" in msg or "primary key" in msg:
+                        skipped_duplicate += 1
+                        continue
+                    raise
+        if skipped_duplicate:
+            print(
+                f"  skipped {skipped_duplicate} duplicate match record(s) "
+                "(PK conflict — match_herbs produced a dup)"
+            )
     finally:
         conn.close()
 

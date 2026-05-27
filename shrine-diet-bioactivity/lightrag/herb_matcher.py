@@ -109,12 +109,24 @@ def match_herbs(*, duke: Iterable[dict], herb2: Iterable[dict]) -> list[HerbMatc
         common = d.get("common_name")
         alt = _alt_names(d.get("alternate_names"))
 
+        # Per-tier dedup guard (#57). Earlier code applied this to Tier 3
+        # only; Tiers 1/2/4 emitted duplicates when HERB-2's bucket lists
+        # contained multiple rows that resolved to the same herb_id.
+        seen_t1: set[str] = set()
+        seen_t2: set[str] = set()
+        seen_t3: set[str] = set()
+        seen_t4: set[str] = set()
+
         # Tier 1 — Latin exact (case-insensitive).
         for h2 in h2_by_latin.get(_norm(sci), []):
+            hid = h2["herb_id"]
+            if hid in seen_t1:
+                continue
+            seen_t1.add(hid)
             out.append(
                 HerbMatch(
                     duke_id=duke_id,
-                    herb2_id=h2["herb_id"],
+                    herb2_id=hid,
                     match_type="latin_exact",
                     match_score=1.0,
                 )
@@ -124,10 +136,14 @@ def match_herbs(*, duke: Iterable[dict], herb2: Iterable[dict]) -> list[HerbMatc
         bk = binomial_key(sci)
         if bk:
             for h2 in h2_by_binomial.get(bk, []):
+                hid = h2["herb_id"]
+                if hid in seen_t2:
+                    continue
+                seen_t2.add(hid)
                 out.append(
                     HerbMatch(
                         duke_id=duke_id,
-                        herb2_id=h2["herb_id"],
+                        herb2_id=hid,
                         match_type="binomial",
                         match_score=0.85,
                     )
@@ -135,17 +151,16 @@ def match_herbs(*, duke: Iterable[dict], herb2: Iterable[dict]) -> list[HerbMatc
 
         # Tier 3 — common_name exact (Duke common_name OR alt_names vs HERB2 name_en).
         candidates = [common] + alt if common else alt
-        seen_pairs: set[tuple[str, str]] = set()
         for c in candidates:
             for h2 in h2_by_name_en.get(_norm(c), []):
-                pair = (duke_id, h2["herb_id"])
-                if pair in seen_pairs:
+                hid = h2["herb_id"]
+                if hid in seen_t3:
                     continue
-                seen_pairs.add(pair)
+                seen_t3.add(hid)
                 out.append(
                     HerbMatch(
                         duke_id=duke_id,
-                        herb2_id=h2["herb_id"],
+                        herb2_id=hid,
                         match_type="common_name",
                         match_score=0.7,
                     )
@@ -155,10 +170,14 @@ def match_herbs(*, duke: Iterable[dict], herb2: Iterable[dict]) -> list[HerbMatc
         gk = genus_key(sci)
         if gk:
             for h2 in h2_by_genus.get(gk, []):
+                hid = h2["herb_id"]
+                if hid in seen_t4:
+                    continue
+                seen_t4.add(hid)
                 out.append(
                     HerbMatch(
                         duke_id=duke_id,
-                        herb2_id=h2["herb_id"],
+                        herb2_id=hid,
                         match_type="genus",
                         match_score=0.5,
                     )
