@@ -68,6 +68,65 @@ def _load_config() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Vector backend selection (PR2 of Milvus migration stack)
+# ---------------------------------------------------------------------------
+
+
+_VECTOR_BACKEND_MAP = {
+    "nano": "NanoVectorDBStorage",
+    "milvus": "MilvusVectorDBStorage",
+}
+
+
+def _resolve_vector_storage(env) -> str:
+    """Pick the LightRAG ``vector_storage`` class name from env.
+
+    Default is ``nano`` so the gateway boots with no behaviour change
+    until ``KG_VECTOR_BACKEND=milvus`` is set explicitly. Raises on
+    unknown values so a typo can't silently fall through to the default.
+    """
+    raw = (env.get("KG_VECTOR_BACKEND") or "nano").strip().lower()
+    impl = _VECTOR_BACKEND_MAP.get(raw)
+    if impl is None:
+        raise ValueError(
+            f"KG_VECTOR_BACKEND={raw!r} is not supported. "
+            f"Valid values: {sorted(_VECTOR_BACKEND_MAP)}"
+        )
+    return impl
+
+
+def _apply_zilliz_env_shim(env) -> None:
+    """Mirror ZILLIZ_* secrets onto LightRAG's MILVUS_* env-var names.
+
+    Why: secrets are stored at Infisical path ``/mcp/kg/`` as ``ZILLIZ_*``
+    (matches the Zilliz Cloud console). LightRAG's bundled
+    ``MilvusVectorDBStorage`` reads ``MILVUS_URI``, ``MILVUS_TOKEN``, etc.
+    This shim makes both naming schemes co-exist without renaming either.
+
+    Precedence: an explicit ``MILVUS_*`` value already in env wins (operator
+    override). Only ``ZILLIZ_*`` keys that have non-empty values are
+    forwarded — so a partial secret set doesn't pollute env with empty
+    ``MILVUS_*`` keys.
+
+    Mutates ``env`` in place (typically ``os.environ``).
+    """
+    aliases = {
+        "ZILLIZ_URI": "MILVUS_URI",
+        "ZILLIZ_TOKEN": "MILVUS_TOKEN",
+        "ZILLIZ_DB_USER": "MILVUS_USER",
+        "ZILLIZ_DB_PASSWORD": "MILVUS_PASSWORD",
+        "ZILLIZ_DB_NAME": "MILVUS_DB_NAME",
+    }
+    for source, target in aliases.items():
+        value = env.get(source)
+        if not value:
+            continue
+        if env.get(target):
+            continue
+        env[target] = value
+
+
+# ---------------------------------------------------------------------------
 # LightRAG factory — registers ScopedNeo4JStorage and returns a booted rag
 # ---------------------------------------------------------------------------
 
@@ -189,10 +248,23 @@ async def _build_scoped_rag() -> Any:
     if llm_binding == "ollama":
         llm_kwargs = {"host": llm_host, "options": {"num_ctx": 32768}}
 
+    # PR2 of Milvus migration stack — pick the vector backend and apply
+    # the ZILLIZ_*→MILVUS_* env shim so LightRAG's bundled
+    # ``MilvusVectorDBStorage`` finds the secrets we mirror in from
+    # Infisical /mcp/kg/. Default ``nano`` preserves prior behaviour.
+    _apply_zilliz_env_shim(os.environ)
+    vector_storage = _resolve_vector_storage(os.environ)
+    logger.info(
+        "vector backend: %s (KG_VECTOR_BACKEND=%s)",
+        vector_storage,
+        os.environ.get("KG_VECTOR_BACKEND", "nano"),
+    )
+
     rag = LightRAG(
         working_dir=working_dir,
         workspace=workspace,
         graph_storage="ScopedNeo4JStorage",
+        vector_storage=vector_storage,
         llm_model_func=llm_func,
         llm_model_name=llm_model,
         llm_model_kwargs=llm_kwargs,
