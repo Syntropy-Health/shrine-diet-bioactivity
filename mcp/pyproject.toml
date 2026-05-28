@@ -34,6 +34,11 @@ test = [
 vector-milvus = [
     "pymilvus>=2.4",
 ]
+# Agentic E2E extras — only needed when running tests/e2e/test_agentic_*.
+# Skips cleanly without the SDK; CI installs on the dedicated agentic job.
+agentic = [
+    "anthropic>=0.40",
+]
 
 [project.scripts]
 kg-mcp-server = "kg_mcp.server:main"
