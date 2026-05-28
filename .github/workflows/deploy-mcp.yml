@@ -13,6 +13,9 @@
 # Required repo secrets:
 #   NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD — Aura connection (set in Railway dashboard, NOT here)
 #   OPENROUTER_API_KEY — for embedder + LLM (set in Railway dashboard)
+#   ZILLIZ_URI, ZILLIZ_TOKEN — Milvus vector store (set in Railway dashboard;
+#     mirrored from Infisical /mcp/kg/; required when KG_VECTOR_BACKEND=milvus)
+#   KG_VECTOR_BACKEND — "nano" (default) | "milvus" — selects the vector backend
 # Required Railway service:
 #   kg-mcp — single combined service (scoped_server + MCP gateway)
 

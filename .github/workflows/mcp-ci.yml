@@ -143,6 +143,43 @@ jobs:
           # pytest tier should skip cleanly — that's the fork-safe path.
           python -m pytest tests/test_aura_data_integrity.py -v -rs
 
+  # =========================================================================
+  # Milvus vector-store integration — gated by ZILLIZ_URI presence (PR3 of
+  # Milvus migration stack). PRs from forks skip cleanly; same-repo PRs
+  # and trusted runs execute against the live Zilliz cluster.
+  # =========================================================================
+  milvus-integration:
+    name: Milvus VectorStore (integration)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install MCP + vector-milvus extras + test deps
+        run: pip install -e '.[test,vector-milvus]'
+
+      - name: Run Milvus integration tier
+        env:
+          ZILLIZ_URI: ${{ secrets.ZILLIZ_URI }}
+          ZILLIZ_TOKEN: ${{ secrets.ZILLIZ_TOKEN }}
+          EMBEDDING_DIM: '4'  # tiny dim for fast schema bootstrap
+        run: |
+          # ``-m integration`` flips the default deselect.
+          # When ZILLIZ_URI is empty the tests skip cleanly via the
+          # _milvus_env() helper; with secrets they run end-to-end.
+          python -m pytest tests/integration/test_milvus_vectorstore.py -v -rs -m integration
+
   test-coverage-ratio:
     name: Real-integration ratio (regression floor)
     runs-on: ubuntu-latest
