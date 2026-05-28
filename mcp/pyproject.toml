@@ -28,6 +28,12 @@ test = [
     "braintrust>=0.0.180",
     "pyyaml>=6.0",  # tests/unit/test_deploy_workflow.py parses deploy-mcp.yml
 ]
+# Production extras — installed in the Railway image when
+# KG_VECTOR_BACKEND=milvus. Local dev defaults to KG_VECTOR_BACKEND=nano,
+# which has no extra runtime deps.
+vector-milvus = [
+    "pymilvus>=2.4",
+]
 
 [project.scripts]
 kg-mcp-server = "kg_mcp.server:main"
