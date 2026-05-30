@@ -22,10 +22,14 @@ WORKDIR /app
 COPY shrine-diet-bioactivity/lightrag/requirements.txt /tmp/lightrag-requirements.txt
 RUN pip install --no-cache-dir --user -r /tmp/lightrag-requirements.txt
 
-# Install MCP gateway package
+# Install MCP gateway package + Milvus vector-store extra. The
+# vector-milvus extra pulls in pymilvus, which is required at runtime
+# when KG_VECTOR_BACKEND=milvus (LightRAG's bundled MilvusVectorDBStorage
+# imports it lazily). Cheap to bake in even when nano is the active
+# backend — pymilvus is ~20 MB and adds no startup cost.
 COPY mcp/pyproject.toml /tmp/mcp/pyproject.toml
 COPY mcp/src /tmp/mcp/src
-RUN pip install --no-cache-dir --user /tmp/mcp
+RUN pip install --no-cache-dir --user '/tmp/mcp[vector-milvus]'
 
 # Server-side runtime deps used by scoped_server.py
 RUN pip install --no-cache-dir --user \
