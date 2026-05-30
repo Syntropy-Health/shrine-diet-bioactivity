@@ -88,21 +88,70 @@ async def _bootstrap_lightrag_milvus() -> Any:
 
 
 def _milvus_client():
-    """Return a pymilvus client built from the (already-shimmed) env."""
+    """Return a pymilvus client built from the (already-shimmed) env.
+
+    On Zilliz Cloud serverless the user has no admin rights, so passing
+    ``db_name`` in the constructor is the only way to attach to the
+    pre-provisioned database (calling ``use_database`` raises
+    ``PERMISSION_DENIED`` on ``DescribeDatabase``).
+    """
     from pymilvus import MilvusClient  # noqa: E402
 
     uri = os.environ["MILVUS_URI"]
     token = os.environ.get("MILVUS_TOKEN")
     user = os.environ.get("MILVUS_USER")
     password = os.environ.get("MILVUS_PASSWORD")
+    db_name = os.environ.get("MILVUS_DB_NAME")
+
+    common = {"uri": uri}
+    if db_name:
+        common["db_name"] = db_name
 
     if token:
-        return MilvusClient(uri=uri, token=token)
+        return MilvusClient(token=token, **common)
     if user and password:
-        return MilvusClient(uri=uri, user=user, password=password)
+        return MilvusClient(user=user, password=password, **common)
     raise RuntimeError(
         "Migration needs MILVUS_TOKEN or MILVUS_USER + MILVUS_PASSWORD."
     )
+
+
+def _record_for_collection(
+    collection_name: str, src_row: dict, vector: list[float]
+) -> dict:
+    """Map a NanoVectorDB ``data[i]`` row onto the schema LightRAG's
+    ``MilvusVectorDBStorage`` creates per namespace.
+
+    LightRAG creates one collection per namespace named
+    ``{workspace}_{namespace}``. Each has a slightly different field set:
+
+      entities       : id, vector, created_at, entity_name, file_path
+      relationships  : id, vector, created_at, src_id, tgt_id, file_path
+      chunks         : id, vector, created_at, full_doc_id, file_path
+
+    Unknown columns are dropped; missing columns are filled with safe
+    defaults so the upsert never bounces on a schema-shape mismatch.
+    """
+    created_raw = src_row.get("__created_at__", 0)
+    try:
+        created_at = int(str(created_raw).strip() or "0")
+    except ValueError:
+        created_at = 0
+
+    base = {
+        "id": src_row.get("__id__", ""),
+        "vector": vector,
+        "created_at": created_at,
+        "file_path": src_row.get("file_path", ""),
+    }
+    if collection_name.endswith("_entities"):
+        base["entity_name"] = src_row.get("entity_name", "")
+    elif collection_name.endswith("_relationships"):
+        base["src_id"] = src_row.get("src_id", "")
+        base["tgt_id"] = src_row.get("tgt_id", "")
+    elif collection_name.endswith("_chunks"):
+        base["full_doc_id"] = src_row.get("full_doc_id", "")
+    return base
 
 
 def _migrate_file(
@@ -131,15 +180,7 @@ def _migrate_file(
         batch_rows = data[offset : offset + batch_size]
         batch_vecs = matrix[offset : offset + batch_size]
         records = [
-            {
-                "id": row.get("__id__", ""),
-                "vector": batch_vecs[i],
-                "created_at": int(row.get("__created_at__", 0)),
-                "content": (row.get("content") or "")[:8000],
-                "entity_name": row.get("entity_name", ""),
-                "source_id": row.get("source_id", ""),
-                "file_path": row.get("file_path", ""),
-            }
+            _record_for_collection(collection_name, row, batch_vecs[i])
             for i, row in enumerate(batch_rows)
         ]
         client.upsert(collection_name=collection_name, data=records)
@@ -214,11 +255,13 @@ def main() -> int:
         os.environ["KG_VECTOR_BACKEND"] = "milvus"
         print("Bootstrapping LightRAG → Milvus (creates collection on first run)")
         rag = asyncio.run(_bootstrap_lightrag_milvus())
-        # ``rag.entities_vdb`` is the LightRAG-side wrapper; its
-        # ``namespace`` is the actual Milvus collection name.
-        entities_col = rag.entities_vdb.namespace
-        rels_col = rag.relationships_vdb.namespace
-        chunks_col = rag.chunks_vdb.namespace
+        # The collection LightRAG actually writes to is ``final_namespace``,
+        # which is ``{workspace}_{namespace}`` after sanitisation. Reading
+        # ``.namespace`` directly would give us the unprefixed string and
+        # cause "collection not found" on upsert.
+        entities_col = rag.entities_vdb.final_namespace
+        rels_col = rag.relationships_vdb.final_namespace
+        chunks_col = rag.chunks_vdb.final_namespace
     else:
         entities_col = rels_col = chunks_col = "<dry-run>"
 

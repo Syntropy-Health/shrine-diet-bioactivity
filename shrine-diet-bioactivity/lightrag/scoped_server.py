@@ -78,6 +78,38 @@ _VECTOR_BACKEND_MAP = {
 }
 
 
+def _patch_lightrag_milvus_for_zilliz_serverless() -> None:
+    """Override ``MilvusVectorDBStorage._create_milvus_client`` to pass
+    ``db_name`` in the connection constructor instead of calling
+    ``use_database`` afterwards.
+
+    Zilliz Cloud serverless denies ``DescribeDatabase`` / ``CreateDatabase``
+    to non-admin tokens — pymilvus's ``use_database`` issues a describe
+    call under the hood, so the LightRAG default bootstrap raises
+    ``PERMISSION_DENIED`` even though the data RPCs work fine. Passing
+    ``db_name`` in the ``MilvusClient(...)`` kwargs avoids that path.
+
+    Idempotent: re-running the patch is a no-op. Only applies when
+    KG_VECTOR_BACKEND=milvus so the nano default stays uninstrumented.
+    """
+    try:
+        from lightrag.kg import milvus_impl  # type: ignore
+        from pymilvus import MilvusClient  # type: ignore
+    except ImportError:
+        return
+
+    cls = getattr(milvus_impl, "MilvusVectorDBStorage", None)
+    if cls is None or getattr(cls, "_zilliz_patched", False):
+        return
+
+    def _create_zilliz_safe(self):
+        kwargs = self._get_milvus_connection_kwargs(include_db_name=True)
+        return MilvusClient(**kwargs)
+
+    cls._create_milvus_client = _create_zilliz_safe  # type: ignore[assignment]
+    cls._zilliz_patched = True  # type: ignore[attr-defined]
+
+
 def _resolve_vector_storage(env) -> str:
     """Pick the LightRAG ``vector_storage`` class name from env.
 
@@ -254,6 +286,9 @@ async def _build_scoped_rag() -> Any:
     # Infisical /mcp/kg/. Default ``nano`` preserves prior behaviour.
     _apply_zilliz_env_shim(os.environ)
     vector_storage = _resolve_vector_storage(os.environ)
+    if vector_storage == "MilvusVectorDBStorage":
+        # Zilliz serverless RPC-perms workaround; see helper docstring.
+        _patch_lightrag_milvus_for_zilliz_serverless()
     logger.info(
         "vector backend: %s (KG_VECTOR_BACKEND=%s)",
         vector_storage,
