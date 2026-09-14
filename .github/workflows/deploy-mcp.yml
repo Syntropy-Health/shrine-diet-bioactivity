@@ -401,14 +401,21 @@ jobs:
           # Capture to a FILE (not a pipe to tail) so railway's own exit is not
           # swallowed and an EMPTY capture shows as a 0-line count rather than
           # reading as success.
+          # First run (34830389366) proved the fallback is diagnosable: both calls
+          # hit "No service linked" — `railway logs` needs the same --service /
+          # --environment context that up/down pass. AND `railway logs --build`
+          # is CLI-rejected together with `--deployment` ("--build cannot be used
+          # with --deployment"), so the build call drops --deployment and reads
+          # the latest deployment's build (which, before the teardown below, IS
+          # the crashed one).
           echo "-- build logs (last 200) --"
-          railway logs --build --deployment "$ID" > /tmp/kgmcp_build.log 2>&1 \
-            || echo "(build logs unavailable via 'railway logs --build --deployment'; CLI flag may differ)"
+          railway logs --build --service "${{ env.RAILWAY_SERVICE }}" --environment "$ENV_NAME" > /tmp/kgmcp_build.log 2>&1 \
+            || echo "(build logs unavailable via 'railway logs --build --service --environment'; CLI flag may differ)"
           tail -n 200 /tmp/kgmcp_build.log 2>/dev/null || true
           echo "  [build: $(wc -l < /tmp/kgmcp_build.log 2>/dev/null || echo 0) lines captured]"
           echo "-- deploy/runtime logs (last 200) --"
-          railway logs --deployment "$ID" > /tmp/kgmcp_deploy.log 2>&1 \
-            || echo "(deploy logs unavailable via 'railway logs --deployment'; CLI flag may differ)"
+          railway logs --deployment "$ID" --service "${{ env.RAILWAY_SERVICE }}" --environment "$ENV_NAME" > /tmp/kgmcp_deploy.log 2>&1 \
+            || echo "(deploy logs unavailable via 'railway logs --deployment --service --environment'; CLI flag may differ)"
           tail -n 200 /tmp/kgmcp_deploy.log 2>/dev/null || true
           echo "  [deploy: $(wc -l < /tmp/kgmcp_deploy.log 2>/dev/null || echo 0) lines captured]"
 
