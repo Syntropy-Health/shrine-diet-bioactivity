@@ -605,6 +605,8 @@ def _build_traverse_cypher(
         f"       type(r1) AS rel_type_1, type(r2) AS rel_type_2, "
         f"       coalesce(r1.description, '') AS description_1, "
         f"       coalesce(r2.description, '') AS description_2, "
+        f"       coalesce(r1.evidence_tier, '') AS evidence_tier_1, "
+        f"       coalesce(r2.evidence_tier, '') AS evidence_tier_2, "
         f"       coalesce(r1.source_id, '') AS source_id_1, "
         f"       coalesce(r2.source_id, '') AS source_id_2 "
         f"LIMIT $top_k"
@@ -717,7 +719,7 @@ async def traverse(request: TraverseRequest) -> dict[str, Any]:
                         "tgt_id": rec["mid_id"],
                         "rel_type": rec["rel_type_1"],
                         "description": rec["description_1"],
-                        "evidence_tier": "",
+                        "evidence_tier": rec["evidence_tier_1"],
                         "source_id": rec["source_id_1"],
                     },
                     {
@@ -725,7 +727,7 @@ async def traverse(request: TraverseRequest) -> dict[str, Any]:
                         "tgt_id": rec["tgt_id"],
                         "rel_type": rec["rel_type_2"],
                         "description": rec["description_2"],
-                        "evidence_tier": "",
+                        "evidence_tier": rec["evidence_tier_2"],
                         "source_id": rec["source_id_2"],
                     },
                 ]})
