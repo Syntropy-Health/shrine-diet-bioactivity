@@ -314,6 +314,32 @@ def test_traverse_depth_1_still_carries_evidence_tier(client: TestClient) -> Non
     assert resp.json()["chains"][0]["edges"][0]["evidence_tier"] == "assay"
 
 
+def test_traverse_accepts_evidence_edge_types_and_carries_tier(client: TestClient) -> None:
+    # shrine-diet #108: HAS_EVIDENCE / EVIDENCE_FOR_TARGET are the only tiered
+    # edges and were NOT on ALLOWED_EDGE_TYPES — /traverse rejected them (400),
+    # so the tier had no wire path. They must now be accepted AND (via #107)
+    # carry evidence_tier through the depth-2 chain.
+    client._fake_session.run.return_value = _result_with_records([
+        {
+            "src_id": "1,4-NAPHTHOQUINONE", "mid_id": "1768", "tgt_id": "Sucrase-isomaltase",
+            "rel_type_1": "HAS_EVIDENCE", "rel_type_2": "EVIDENCE_FOR_TARGET",
+            "description_1": "", "description_2": "",
+            "evidence_tier_1": "assay", "evidence_tier_2": "assay",
+            "source_id_1": "chembl:doc1", "source_id_2": "chembl:doc1",
+        },
+    ])  # type: ignore[attr-defined]
+    resp = client.post("/traverse", json={
+        "start_label": "Compound",
+        "edge_types": ["HAS_EVIDENCE", "EVIDENCE_FOR_TARGET"],
+        "seed": "1,4-NAPHTHOQUINONE", "direction": "outbound", "depth": 2, "top_k": 25,
+    })
+    assert resp.status_code == 200, resp.text  # RED before the allow-list: was 400
+    edges = resp.json()["chains"][0]["edges"]
+    assert edges[0]["rel_type"] == "HAS_EVIDENCE"
+    assert edges[0]["evidence_tier"] == "assay"
+    assert edges[1]["evidence_tier"] == "assay"
+
+
 def test_traverse_passes_seed_and_scope_filter_as_params(client: TestClient) -> None:
     client._fake_session.run.return_value = _result_with_records([])  # type: ignore[attr-defined]
     resp = client.post("/traverse", json={

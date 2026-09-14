@@ -508,6 +508,11 @@ ALLOWED_EDGE_TYPES: set[str] = {
     "TARGETS_PROTEIN", "ASSOCIATED_WITH_DISEASE", "TREATS_SYMPTOM",
     "FOUND_IN_FOOD", "CONTAINS_COMPOUND", "INTERACTS_WITH", "DIRECTED",
     "MODULATES_PATHWAY",
+    # ChEMBL bioactivity EVIDENCE layer (shrine-diet #108): the only edges that
+    # carry evidence_tier + source_id. Chain shape: Compound -HAS_EVIDENCE->
+    # BioactivityEvidence -EVIDENCE_FOR_TARGET-> Target. Without these on the
+    # allow-list, /traverse rejects them and the tiered rows have no wire path.
+    "HAS_EVIDENCE", "EVIDENCE_FOR_TARGET",
 }
 
 

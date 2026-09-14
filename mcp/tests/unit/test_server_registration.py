@@ -24,6 +24,8 @@ EXPECTED_TOOLS = {
     "kg_herb_to_diseases",
     "kg_herb_to_symptoms",
     "kg_compound_to_symptoms",
+    # Evidence layer (shrine-diet #108) — the only tool surfacing evidence_tier
+    "kg_compound_evidence",
     # Layer C (3 lookup primitives)
     "kg_hdi_check",
     "kg_bilingual_term",
@@ -70,6 +72,7 @@ async def test_layer_b_tools_take_seed_and_top_k():
     layer_b = {
         "kg_diet_to_compounds", "kg_compound_to_targets", "kg_compound_to_diseases",
         "kg_herb_to_diseases", "kg_herb_to_symptoms", "kg_compound_to_symptoms",
+        "kg_compound_evidence",
     }
     for t in tools:
         if t.name in layer_b:

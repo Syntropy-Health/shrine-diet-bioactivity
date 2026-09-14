@@ -20,6 +20,7 @@ from kg_mcp.schemas import (
 )
 from kg_mcp.tools import (
     kg_bilingual_term,
+    kg_compound_evidence,
     kg_compound_to_diseases,
     kg_compound_to_symptoms,
     kg_compound_to_targets,
@@ -97,6 +98,26 @@ async def test_kg_compound_to_diseases_is_depth_2_chain(fake_client):
     kwargs = fake_client.traverse.await_args.kwargs
     assert kwargs["edge_types"] == ["TARGETS_PROTEIN", "ASSOCIATED_WITH_DISEASE"]
     assert kwargs["depth"] == 2
+
+
+async def test_kg_compound_evidence_traverses_the_tiered_evidence_layer(fake_client):
+    # shrine-diet #108: the ONLY tool over the tiered HAS_EVIDENCE / EVIDENCE_FOR_TARGET
+    # edges. It must traverse exactly those (not the untiered compound->target path)
+    # as a depth-2 chain, and surface evidence_tier from the wire.
+    fake_client.traverse.return_value = {"chains": [{"edges": [
+        {"src_id": "1,4-NAPHTHOQUINONE", "tgt_id": "1768", "rel_type": "HAS_EVIDENCE",
+         "evidence_tier": "assay", "source_id": "chembl:doc1"},
+        {"src_id": "1768", "tgt_id": "Sucrase-isomaltase", "rel_type": "EVIDENCE_FOR_TARGET",
+         "evidence_tier": "assay", "source_id": "chembl:doc1"},
+    ]}]}
+    out = await kg_compound_evidence(fake_client, TraversalInput(seed="1,4-NAPHTHOQUINONE"))
+    kwargs = fake_client.traverse.await_args.kwargs
+    assert kwargs["start_label"] == "Compound"
+    assert kwargs["edge_types"] == ["HAS_EVIDENCE", "EVIDENCE_FOR_TARGET"]
+    assert kwargs["depth"] == 2
+    # the point of the tool: tier reaches the output (EMPTY here would be the #233(a) gap)
+    tiers = [e.evidence_tier for c in out.chains for e in c.edges]
+    assert "assay" in tiers, tiers
 
 
 @pytest.mark.asyncio
