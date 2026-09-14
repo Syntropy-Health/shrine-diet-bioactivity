@@ -239,6 +239,81 @@ def test_traverse_returns_typed_chains(client: TestClient) -> None:
     assert body["raw_subgraph_edge_count"] == 2
 
 
+def test_traverse_depth_2_chain_carries_evidence_tier(client: TestClient) -> None:
+    # shrine-diet #107 RED arm: both depth-2 chain edges used to hardcode
+    # evidence_tier="" (scoped_server.py ~720,728), so a chain whose DB edges
+    # HAVE tiers reported none — indistinguishable from "no tier in the corpus".
+    # A depth-2 record whose edges carry tiers must now surface them.
+    client._fake_session.run.return_value = _result_with_records([
+        {
+            "src_id": "Curcumin", "mid_id": "PTGS2", "tgt_id": "Inflammation",
+            "rel_type_1": "TARGETS_PROTEIN", "rel_type_2": "ASSOCIATED_WITH_DISEASE",
+            "description_1": "inhibits", "description_2": "implicated",
+            "evidence_tier_1": "assay", "evidence_tier_2": "curated",
+            "source_id_1": "chembl:doc1", "source_id_2": "ctd:doc2",
+        },
+    ])  # type: ignore[attr-defined]
+    resp = client.post("/traverse", json={
+        "start_label": "Compound",
+        "edge_types": ["TARGETS_PROTEIN", "ASSOCIATED_WITH_DISEASE"],
+        "seed": "Curcumin", "direction": "outbound", "depth": 2, "top_k": 10,
+    })
+    assert resp.status_code == 200, resp.text
+    edges = resp.json()["chains"][0]["edges"]
+    assert len(edges) == 2
+    # the exact defect: these were "" regardless of DB content
+    assert edges[0]["evidence_tier"] == "assay", edges[0]
+    assert edges[1]["evidence_tier"] == "curated", edges[1]
+    assert edges[0]["source_id"] == "chembl:doc1"
+    assert edges[1]["source_id"] == "ctd:doc2"
+    # and the generated Cypher must actually RETURN the per-edge tiers (so the
+    # keys exist against real Aura, not only in this mock).
+    cypher = client._fake_session.run.call_args.args[0]  # type: ignore[attr-defined]
+    assert "AS evidence_tier_1" in cypher
+    assert "AS evidence_tier_2" in cypher
+
+
+def test_traverse_depth_2_absent_tier_is_empty_not_fabricated(client: TestClient) -> None:
+    # Honest absence: when the DB genuinely has no tier, coalesce -> "" — the
+    # same contract depth-1 uses. "" now means "no tier on this edge", never
+    # "the builder dropped it".
+    client._fake_session.run.return_value = _result_with_records([
+        {
+            "src_id": "A", "mid_id": "B", "tgt_id": "C",
+            "rel_type_1": "TARGETS_PROTEIN", "rel_type_2": "ASSOCIATED_WITH_DISEASE",
+            "description_1": "", "description_2": "",
+            "evidence_tier_1": "", "evidence_tier_2": "",
+            "source_id_1": "", "source_id_2": "",
+        },
+    ])  # type: ignore[attr-defined]
+    resp = client.post("/traverse", json={
+        "start_label": "Compound",
+        "edge_types": ["TARGETS_PROTEIN", "ASSOCIATED_WITH_DISEASE"],
+        "seed": "A", "direction": "outbound", "depth": 2, "top_k": 10,
+    })
+    assert resp.status_code == 200, resp.text
+    edges = resp.json()["chains"][0]["edges"]
+    assert edges[0]["evidence_tier"] == ""
+    assert edges[1]["evidence_tier"] == ""
+
+
+def test_traverse_depth_1_still_carries_evidence_tier(client: TestClient) -> None:
+    # GREEN control: the depth-1 tier path is unchanged by the depth-2 fix.
+    client._fake_session.run.return_value = _result_with_records([
+        {
+            "src_id": "Curcumin", "tgt_id": "PTGS2", "rel_type": "TARGETS_PROTEIN",
+            "description": "inhibits", "evidence_tier": "assay",
+            "source_id": "chembl:doc1",
+        },
+    ])  # type: ignore[attr-defined]
+    resp = client.post("/traverse", json={
+        "start_label": "Compound", "edge_types": ["TARGETS_PROTEIN"],
+        "seed": "Curcumin", "direction": "outbound", "depth": 1, "top_k": 10,
+    })
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["chains"][0]["edges"][0]["evidence_tier"] == "assay"
+
+
 def test_traverse_passes_seed_and_scope_filter_as_params(client: TestClient) -> None:
     client._fake_session.run.return_value = _result_with_records([])  # type: ignore[attr-defined]
     resp = client.post("/traverse", json={
