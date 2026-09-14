@@ -367,6 +367,51 @@ jobs:
           echo "::error::Health check did not pass within 5 minutes"
           exit 1
 
+      # DIAGNOSTIC — print the crashed container's OWN logs BEFORE the teardown
+      # below deletes the deployment, so a boot crash is readable from the run
+      # log without a Railway dashboard login (which needs principal/devex).
+      # Uses `railway logs` (container stdout/stderr) ONLY — never
+      # `railway variables` — so env VALUES are never printed. Container log
+      # lines are the app's own output (e.g. a "NEO4J_URI not set" NAME, not a
+      # value); it is not scrubbed further, per the directive. Fires on the same
+      # confirmed-crash verdict as the rollback and sits IMMEDIATELY before it so
+      # the deployment still exists to read. continue-on-error so it can never
+      # change the job outcome the deploy verdict already decided.
+      - name: Print crashed deployment logs (diagnostic, before rollback)
+        if: always() && steps.deploy_status.outputs.verdict == 'crashed'
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: bash
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          ENV_NAME: ${{ needs.detect-environment.outputs.environment }}
+        run: |
+          set -o pipefail
+          # Re-derive the crashed deployment id the SAME way the capture step
+          # does (railway_deployment.py newest-id) rather than trust a formatted
+          # status string. It prints the id, or "NONE" for an empty list.
+          RAW=$(railway deployment list --service "${{ env.RAILWAY_SERVICE }}" --environment "$ENV_NAME" --limit 20 --json 2>&1) || RAW=""
+          ID=$(printf '%s' "$RAW" | python3 scripts/ci/railway_deployment.py newest-id 2>/dev/null) || ID=""
+          ID=${ID//[$'\n\r']/}
+          if [ -z "$ID" ] || [ "$ID" = "NONE" ]; then
+            echo "::warning::could not resolve the crashed deployment id — no logs to fetch"
+            exit 0
+          fi
+          echo "== crashed deployment: $ID =="
+          # Capture to a FILE (not a pipe to tail) so railway's own exit is not
+          # swallowed and an EMPTY capture shows as a 0-line count rather than
+          # reading as success.
+          echo "-- build logs (last 200) --"
+          railway logs --build --deployment "$ID" > /tmp/kgmcp_build.log 2>&1 \
+            || echo "(build logs unavailable via 'railway logs --build --deployment'; CLI flag may differ)"
+          tail -n 200 /tmp/kgmcp_build.log 2>/dev/null || true
+          echo "  [build: $(wc -l < /tmp/kgmcp_build.log 2>/dev/null || echo 0) lines captured]"
+          echo "-- deploy/runtime logs (last 200) --"
+          railway logs --deployment "$ID" > /tmp/kgmcp_deploy.log 2>&1 \
+            || echo "(deploy logs unavailable via 'railway logs --deployment'; CLI flag may differ)"
+          tail -n 200 /tmp/kgmcp_deploy.log 2>/dev/null || true
+          echo "  [deploy: $(wc -l < /tmp/kgmcp_deploy.log 2>/dev/null || echo 0) lines captured]"
+
       # `railway down` DELETES the most recent deployment. It must fire ONLY on
       # positive evidence that the new deployment is terminally bad.
       #
