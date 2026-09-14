@@ -40,11 +40,42 @@ from typing import Any
 from lightrag.kg.neo4j_impl import READ_RETRY, Neo4JStorage
 from lightrag.utils import logger
 
-from scope_context import get_scope_filter
+from scope_context import DEFAULT_SCOPE, get_scope_filter
+
+# The scope stamped on writes that arrive WITHOUT an explicit scope. Open-corpus
+# ingest (LightRAG semantic extraction) has no tenant, so it is shared — matching
+# scope_context.DEFAULT_SCOPE and the 'shared' vector nodes ScopedNeo4JVectorStorage
+# writes. Single source of truth so the two paths cannot drift.
+WRITE_SCOPE_DEFAULT: str = DEFAULT_SCOPE[0]
 
 
 class ScopedNeo4JStorage(Neo4JStorage):
     """Neo4JStorage with WHERE-clause tenant filtering on all reads."""
+
+    # ------------------------------------------------------------------
+    # Writes — stamp scope at WRITE time.
+    #
+    # The parent Neo4JStorage writes node_data/edge_data verbatim, and this
+    # subclass filters only READS — so LightRAG's semantic ingest wrote
+    # ``DIRECTED`` edges with no ``scope`` property, which the scoped_server
+    # boot preflight then refuses (shrine-diet #103: 35,092 unscoped DIRECTED
+    # edges crash-looped the container). A one-time bootstrap backfills legacy
+    # rows; THIS is the durable fix — every edge/node is BORN scoped.
+    #
+    # Respect an explicit ``scope`` already on the payload (tenant ingestion
+    # sets ``scope='tenant:<id>'``); otherwise default to 'shared'. A new dict
+    # is built so the caller's dict is never mutated. This does NOT touch the
+    # preflight — that fail-closed control stays exactly as-is.
+    # ------------------------------------------------------------------
+    async def upsert_node(self, node_id: str, node_data: dict[str, str]) -> None:
+        scoped = {**node_data, "scope": (node_data.get("scope") or WRITE_SCOPE_DEFAULT)}
+        await super().upsert_node(node_id, scoped)
+
+    async def upsert_edge(
+        self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
+    ) -> None:
+        scoped = {**edge_data, "scope": (edge_data.get("scope") or WRITE_SCOPE_DEFAULT)}
+        await super().upsert_edge(source_node_id, target_node_id, scoped)
 
     # ------------------------------------------------------------------
     # Node reads
