@@ -67,7 +67,11 @@ jobs:
         env:
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
           BRAINTRUST_PROJECT: shrine-diet-bioactivity
-        run: python -m pytest -m integration -v
+        # Deselect the live-cluster Milvus tier — it has NO Zilliz creds in this
+        # job (they are only mirrored into the dedicated milvus-integration job),
+        # so running it here would hit the fixture's "credential absent -> FAIL"
+        # path. Those tests run behind the reachability gate in their own job.
+        run: python -m pytest -m "integration and not milvus" -v
 
       - name: Coverage report
         if: always()
@@ -178,13 +182,30 @@ jobs:
       - name: Install MCP + vector-milvus extras + test deps
         run: pip install -e '.[test,vector-milvus]'
 
+      - name: Probe Milvus reachability (once — gates the pre-flight)
+        id: probe
+        # ONE reachability verdict, the SAME kg_mcp.milvus_probe code the pytest
+        # fixture consumes — so the pre-flight gate and the fixture can never
+        # disagree. Writes status=ok|unreachable|auth|absent|malformed|unknown to
+        # $GITHUB_OUTPUT plus a job-summary line, and exits 0 on ok|unreachable
+        # (proceed / skip-loud), 1 on the fail-closed statuses. This is why a
+        # present-but-UNREACHABLE Zilliz (dead serverless) no longer reds the job
+        # on the pre-flight connect the 3-way skip was designed to absorb.
+        env:
+          ZILLIZ_URI: ${{ secrets.ZILLIZ_URI }}
+          ZILLIZ_TOKEN: ${{ secrets.ZILLIZ_TOKEN }}
+        run: python -m kg_mcp.milvus_probe
+
       - name: Pre-flight — drop orphaned test sentinel collections
+        # Gated on the probe: only run the cleanup (which needs a live
+        # connection) when the endpoint is reachable. Unreachable -> this step is
+        # skipped (green); the probe already emitted the loud job-summary line.
+        if: steps.probe.outputs.status == 'ok'
         # The Zilliz free tier caps DBs at 5 collections. If a previous run
         # crashed mid-teardown (network blip, RPC retry exhaustion, etc.)
         # the sentinel ``test_kg_entities_<uuid>`` collection leaks, and
         # the next run hits the cap on the first ``create_collection`` call.
-        # Sweeping any stale matching collections here is cheap and
-        # defensive — skipped cleanly when ZILLIZ_URI isn't mirrored.
+        # Sweeping any stale matching collections here is cheap and defensive.
         env:
           ZILLIZ_URI: ${{ secrets.ZILLIZ_URI }}
           ZILLIZ_TOKEN: ${{ secrets.ZILLIZ_TOKEN }}
@@ -256,7 +277,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Check real-integration ratio floor
+      - name: Check real-integration ratio floor (ADVISORY)
         # scripts/test_coverage_ratio.py is stdlib-only (ast/csv/json) —
-        # no install step needed. --mode fail exits 1 if ratio < threshold.
-        run: python3 scripts/test_coverage_ratio.py --mode fail --threshold 0.10
+        # no install step needed.
+        # ADVISORY (--mode warn, always exit 0), threshold UNCHANGED at 0.10.
+        # Ruling #156: the ratio metric is non-monotonic in the good behaviour
+        # (adding unit tests lowers it; deleting them raises it), so a blocking
+        # gate here punishes exactly what it should encourage and is cleared
+        # most cheaply by deletion. It is advisory pending a metric redesign to
+        # an absolute / named-seam floor (tracked ticket). Do NOT lower the
+        # threshold and do NOT clear it by decorating with tests.
+        run: python3 scripts/test_coverage_ratio.py --mode warn --threshold 0.10
