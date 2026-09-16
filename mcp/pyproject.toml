@@ -62,6 +62,7 @@ testpaths = ["tests"]
 markers = [
     "unit: Pure unit test, no I/O, no network",
     "integration: Real components",
+    "milvus: Live Zilliz/Milvus cluster tier — runs only in the dedicated milvus-integration job behind the reachability gate; deselected from the general '-m integration' run",
     "e2e: Real network call to staged services",
     "live_llm: Calls real LLM",
     "live_llm_replay: Cassette replay",

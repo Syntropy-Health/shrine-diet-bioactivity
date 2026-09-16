@@ -19,13 +19,25 @@ collection on teardown so a failed run doesn't leak storage.
 from __future__ import annotations
 
 import os
-import re
 import uuid
 
 import pytest
 
 from kg_mcp.storage import VectorEntry
 from kg_mcp.storage.milvus import MilvusConfig, MilvusVectorStore
+
+# #156 verdict lives in ONE place — the shared probe module, which the mcp-ci
+# ``milvus-integration`` workflow ALSO runs (``python -m kg_mcp.milvus_probe``)
+# to gate its pre-flight step. One classifier, one decision, both consumers, so
+# the pre-flight gate and this fixture can never disagree about reachability.
+# Back-compat aliases keep the by-name unit import stable.
+from kg_mcp.milvus_probe import (  # noqa: E402
+    _emit_summary as _job_summary,
+    classify_probe_error as _classify_probe_error,
+    probe_milvus as _probe_milvus,
+    resolve_env as _resolve_milvus_env,
+    verdict as _milvus_verdict,
+)
 
 # Braintrust tracing — silent no-op without BRAINTRUST_API_KEY env. Wrap
 # each test so live cluster round-trips show up in the dashboard with
@@ -44,83 +56,18 @@ except ImportError:  # pragma: no cover — defensive
         yield _Stub()
 
 
-pytestmark = [pytest.mark.integration]
+# ``milvus`` marks these as the dedicated live-cluster tier: the general
+# ``-m integration`` run (functional-integration job, no Zilliz creds) deselects
+# them via ``-m "integration and not milvus"`` — they run ONLY in the
+# milvus-integration job, behind the reachability gate.
+pytestmark = [pytest.mark.integration, pytest.mark.milvus]
 
 
-# Connection-class error substrings -> the endpoint is UNREACHABLE (infra
-# absence). The dead-Zilliz-serverless signature is "illegal connection params
-# or server unavailable"; the rest are the usual transport failures.
-_UNREACHABLE_SIGNS = (
-    "illegal connection params or server unavailable",
-    "server unavailable",
-    "connection refused",
-    "failed to connect",
-    "fail connecting",
-    "cannot connect",
-    "timed out",
-    "timeout",
-    "name or service not known",
-    "temporary failure in name resolution",
-    "no route to host",
-    "connection error",
-    "connection reset",
-)
-# Auth-class error substrings -> credential REJECTED (our problem -> FAIL).
-_AUTH_SIGNS = (
-    "unauthorized",
-    "unauthenticated",
-    "permission denied",
-    "forbidden",
-    "invalid token",
-    "authentication failed",
-    "access denied",
-)
-
-
-def _classify_probe_error(msg: str) -> str:
-    """Pure classifier (unit-testable without a cluster): map a probe exception
-    message to one of 'unreachable' | 'auth' | 'unknown'.
-
-    Auth is checked FIRST: a rejected credential is our problem and must not be
-    masked as a connectivity skip. Anything unclassifiable is 'unknown' — which
-    the caller FAILs on rather than silently skipping (a skip on an error we do
-    not understand could hide a real regression).
-    """
-    m = (msg or "").lower()
-    if any(s in m for s in _AUTH_SIGNS):
-        return "auth"
-    if any(s in m for s in _UNREACHABLE_SIGNS):
-        return "unreachable"
-    return "unknown"
-
-
-def _job_summary(msg: str) -> None:
-    """Surface a line in the GitHub job summary (not only a log line nobody
-    opens), so anyone reading mcp-ci green can see vector-store coverage is
-    ABSENT this run, not PASSING. Best-effort; also printed to stdout."""
-    print(msg, flush=True)
-    path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if path:
-        try:
-            with open(path, "a", encoding="utf-8") as fh:
-                fh.write(msg + "\n")
-        except Exception:  # noqa: BLE001 — summary is best-effort
-            pass
-
-
-def _probe_milvus(uri: str, token: str | None) -> tuple[str, str]:
-    """Live reachability probe: returns ('ok'|'unreachable'|'auth'|'unknown', detail).
-    A real round-trip (list_collections) with a short timeout."""
-    try:
-        from pymilvus import MilvusClient  # type: ignore[import-not-found]
-    except ImportError as exc:  # the vector-milvus extra is a declared test dep
-        return ("unknown", f"pymilvus not importable: {exc}")
-    try:
-        client = MilvusClient(uri=uri, token=token or "", timeout=10)
-        client.list_collections()
-        return ("ok", "")
-    except Exception as exc:  # noqa: BLE001 — classify, do not swallow
-        return (_classify_probe_error(str(exc)), str(exc)[:200])
+# The reachability signatures, the pure classifier (`_classify_probe_error`),
+# the live probe (`_probe_milvus`) and the job-summary emitter (`_job_summary`)
+# now live in ``kg_mcp.milvus_probe`` — imported above as back-compat aliases so
+# the workflow's pre-flight gate and this fixture share ONE decision. See the
+# module for the verdict semantics.
 
 
 _PROBE_CACHE: dict[str, tuple[str, str]] = {}
@@ -149,46 +96,44 @@ def _milvus_env() -> dict[str, str]:
     if "MILVUS_TOKEN" in env and "ZILLIZ_TOKEN" not in env:
         env["ZILLIZ_TOKEN"] = env["MILVUS_TOKEN"]
 
-    uri = env.get("ZILLIZ_URI", "")
-    token = env.get("ZILLIZ_TOKEN") or None
+    uri, token = _resolve_milvus_env(env)
 
-    # (1) credential ABSENT / MALFORMED -> FAIL (config error, not infra absence).
-    if not uri:
+    # ONE verdict — the same `kg_mcp.milvus_probe.verdict` the mcp-ci pre-flight
+    # step gates on. Cached: one round-trip per (uri, token) per session.
+    key = f"{uri}|{bool(token)}"
+    if key not in _PROBE_CACHE:
+        _PROBE_CACHE[key] = _milvus_verdict(uri, token)
+    status, detail = _PROBE_CACHE[key]
+
+    if status == "unreachable":
+        _job_summary(
+            "⚠️ Milvus/Zilliz UNREACHABLE — vector-store coverage is ABSENT this "
+            f"run (skipped, NOT passing) [reason=unreachable]: {detail}. Infra "
+            "absence (e.g. Zilliz serverless expired); tests re-run automatically "
+            "when it returns [#156]."
+        )
+        pytest.skip(f"Milvus endpoint unreachable — infra absent [#156]: {detail}")
+    if status == "absent":
         pytest.fail(
             "ZILLIZ_URI / MILVUS_URI not set — vector-store credential missing. "
             "Per #156 this FAILS loudly (a config gap someone must fix), rather "
             "than skipping silently and disabling the test forever."
         )
-    if not re.match(r"^https?://", uri):
+    if status == "malformed":
         pytest.fail(
-            f"ZILLIZ_URI malformed (expected an https:// endpoint): {uri!r} — "
-            "config error, not infra absence."
+            f"ZILLIZ_URI malformed — {detail}. Config error, not infra absence [#156]."
         )
-
-    # (2) live reachability probe (cached: one round-trip per session, not per test).
-    key = f"{uri}|{bool(token)}"
-    if key not in _PROBE_CACHE:
-        _PROBE_CACHE[key] = _probe_milvus(uri, token)
-    kind, detail = _PROBE_CACHE[key]
-
-    if kind == "unreachable":
-        _job_summary(
-            "⚠️ Milvus/Zilliz UNREACHABLE — vector-store coverage is ABSENT this "
-            f"run (skipped, NOT passing): {detail}. Infra absence (e.g. Zilliz "
-            "serverless expired); tests re-run automatically when it returns [#156]."
-        )
-        pytest.skip(f"Milvus endpoint unreachable — infra absent [#156]: {detail}")
-    if kind == "auth":
+    if status == "auth":
         pytest.fail(
             f"Milvus reachable but credential REJECTED: {detail} — our problem "
             "(bad/expired token), failing per #156 rather than skipping."
         )
-    if kind == "unknown":
+    if status == "unknown":
         pytest.fail(
             f"Milvus probe failed with an unclassified error: {detail} — failing "
             "rather than skipping, so an unrecognised failure is not masked [#156]."
         )
-    # kind == 'ok' -> reachable + credential good; test failures are the real signal.
+    # status == 'ok' -> reachable + credential good; test failures are the real signal.
     return env
 
 

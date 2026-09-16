@@ -7,20 +7,14 @@ secret; the decision logic it feeds is proven below.)
 """
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
-
 import pytest
 
 pytestmark = [pytest.mark.unit]
 
-# Import the classifier from the integration module by path (it lives beside the
-# live tests, but the classifier itself has no cluster dependency).
-_MOD = Path(__file__).resolve().parents[1] / "integration" / "test_milvus_vectorstore.py"
-_spec = importlib.util.spec_from_file_location("_milvus_vec_probe", _MOD)
-_m = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_m)
-classify = _m._classify_probe_error
+# The classifier's home is the shared probe module — the SAME code the mcp-ci
+# ``milvus-integration`` workflow runs as its pre-flight reachability gate
+# (``python -m kg_mcp.milvus_probe``). Pure stdlib, no cluster dependency.
+from kg_mcp.milvus_probe import classify_probe_error as classify  # noqa: E402
 
 
 def test_dead_zilliz_signature_is_unreachable():
