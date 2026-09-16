@@ -145,6 +145,18 @@ async def kg_compound_to_diseases(seed: str, top_k: int = 20) -> TraversalOutput
 
 
 @server.tool()
+async def kg_compound_evidence(seed: str, top_k: int = 20) -> TraversalOutput:
+    """Compound → BioactivityEvidence → Target (ChEMBL evidence layer, shrine-diet #108).
+
+    The only tool that surfaces evidence_tier + source_id: those live solely on the
+    HAS_EVIDENCE / EVIDENCE_FOR_TARGET edges. Each chain edge carries evidence_tier
+    ('' = no tier on that edge) + source_id (ChEMBL doc ids). This is the KG panel's
+    provenance read path — the compound→target tools traverse untiered edges.
+    """
+    return await t.kg_compound_evidence(_client(), TraversalInput(seed=seed, top_k=top_k))
+
+
+@server.tool()
 async def kg_herb_to_diseases(seed: str, top_k: int = 20) -> TraversalOutput:
     """Herb → Disease. Backed by CMAUP plant-disease + HERB 2.0 evidence-tiered links."""
     return await t.kg_herb_to_diseases(_client(), TraversalInput(seed=seed, top_k=top_k))

@@ -38,6 +38,7 @@ EXPECTED_TOOLS = {
     "kg_herb_to_diseases",
     "kg_herb_to_symptoms",
     "kg_compound_to_symptoms",
+    "kg_compound_evidence",
     "kg_hdi_check",
     "kg_bilingual_term",
     "kg_node_neighborhood",

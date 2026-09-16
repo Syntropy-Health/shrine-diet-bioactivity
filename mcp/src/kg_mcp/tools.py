@@ -213,6 +213,18 @@ kg_compound_to_symptoms = _make_traversal(
     depth=2,
 )
 
+# shrine-diet #108 — the ONLY tool that surfaces the ChEMBL bioactivity EVIDENCE
+# layer, which is the only place evidence_tier + source_id are populated. Chain:
+# Compound -HAS_EVIDENCE-> BioactivityEvidence -EVIDENCE_FOR_TARGET-> Target.
+# depth-2 tier carriage relies on the #107 fix. This is the panel's provenance
+# read path (the older compound->target tools traverse untiered TARGETS_PROTEIN).
+kg_compound_evidence = _make_traversal(
+    start_label="Compound",
+    edge_types=["HAS_EVIDENCE", "EVIDENCE_FOR_TARGET"],
+    direction="outbound",
+    depth=2,
+)
+
 
 # ─── Layer C — Lookup primitives ──────────────────────────────────────────
 

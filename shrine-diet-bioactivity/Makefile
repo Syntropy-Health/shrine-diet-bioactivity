@@ -28,7 +28,7 @@
         lightrag-setup lightrag-dry-run lightrag-ingest-local lightrag-ingest-prod \
         lightrag-benchmark lightrag-server lightrag-server-upstream \
         lightrag-bootstrap-scope lightrag-bootstrap-scope-dry-run \
-        lightrag-bootstrap-scope-prod lightrag-test-scope \
+        lightrag-bootstrap-scope-prod lightrag-test-scope lightrag-test-scope-write \
         lightrag-canary-test lightrag-test-integration audit-recent \
         neo4j-check neo4j-shell neo4j-stats neo4j-status neo4j-watch neo4j-clear \
         embedding-check lms-models clean \
@@ -276,6 +276,12 @@ lightrag-test-scope: ## Run all scope + audit unit tests (no live Neo4j required
 	cd lightrag && python3 -m pytest \
 		test_scope_context.py test_bootstrap_scope.py \
 		test_audit_log.py test_scope_enforcement.py -v
+
+lightrag-test-scope-write: ## Write-time scope-stamp arms (#103): RED write path + preflight-refuses control
+	# Direct python, NOT pytest: this imports lightrag.kg/base which the local
+	# lightrag/ dir shadows under pytest collection (same as the vector-storage
+	# harness). The script self-asserts and exits non-zero on any failure.
+	cd lightrag && python3 test_scope_write_stamp.py
 
 lightrag-canary-test: ## Run cross-tenant isolation canary (requires live Neo4j + scoped_server running)
 	cd lightrag && python3 canary_smoke_test.py --config local
