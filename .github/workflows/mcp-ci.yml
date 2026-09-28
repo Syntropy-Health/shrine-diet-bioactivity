@@ -154,7 +154,7 @@ jobs:
           # can distinguish 'secret missing' from 'connection failed'. For
           # PR-from-fork events, secrets may legitimately be empty and the
           # pytest tier should skip cleanly — that's the fork-safe path.
-          python -m pytest tests/test_aura_data_integrity.py -v -rs
+          python -m pytest tests/test_aura_data_integrity.py tests/test_graphs_scoped_cypher_aura.py -v -rs
 
   # =========================================================================
   # Milvus vector-store integration — gated by ZILLIZ_URI presence (PR3 of

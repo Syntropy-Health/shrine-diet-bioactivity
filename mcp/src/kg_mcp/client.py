@@ -13,6 +13,43 @@ import httpx
 
 DEFAULT_SCOPED_SERVER_URL = "http://localhost:9621"
 DEFAULT_TIMEOUT_SECONDS = 60.0
+_DETAIL_MAX_CHARS = 200
+
+
+def _upstream_detail(r: httpx.Response) -> str:
+    """Human detail for an error: scoped_server's own JSON ``detail`` (its
+    HTTPException strings), else the bare HTTP reason phrase. NEVER the raw
+    body — a proxy HTML page or a stack-trace body would re-open the leak this
+    helper exists to close."""
+    try:
+        body = r.json()
+    except Exception:  # noqa: BLE001 - non-JSON upstream bodies (proxy HTML etc.)
+        body = None
+    if isinstance(body, dict) and "detail" in body:
+        return str(body["detail"])[:_DETAIL_MAX_CHARS]
+    reason = getattr(r, "reason_phrase", "")
+    return reason if isinstance(reason, str) else ""
+
+
+def _check(r: httpx.Response) -> None:
+    """``raise_for_status`` with a SANITISED message.
+
+    httpx's default message embeds the full request URL, which for this client
+    is the INTERNAL scoped_server address (e.g. ``http://127.0.0.1:9621/graphs?…``).
+    FastMCP forwards ``str(exc)`` to consumers verbatim, so that leaked the
+    upstream host/port to every MCP client (shrine-diet #6). Re-raise the same
+    exception TYPE (callers branch on ``exc.response.status_code`` for the 404
+    fallbacks) carrying only status + route path + upstream ``detail``.
+    """
+    try:
+        r.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        path = exc.request.url.path
+        msg = f"scoped_server returned {r.status_code} for {path}"
+        detail = _upstream_detail(r)
+        if detail:
+            msg = f"{msg}: {detail}"
+        raise httpx.HTTPStatusError(msg, request=exc.request, response=exc.response) from None
 
 
 class ScopedServerClient:
@@ -29,7 +66,7 @@ class ScopedServerClient:
 
     async def health(self) -> dict[str, Any]:
         r = await self._client.get(f"{self.base_url}/health")
-        r.raise_for_status()
+        _check(r)
         return r.json()
 
     async def query(
@@ -43,7 +80,7 @@ class ScopedServerClient:
         if scope_filter is not None:
             body["scope_filter"] = scope_filter
         r = await self._client.post(f"{self.base_url}/query", json=body)
-        r.raise_for_status()
+        _check(r)
         return r.json()
 
     async def graphs(
@@ -61,7 +98,7 @@ class ScopedServerClient:
         if scope_filter is not None:
             params["scope_filter"] = ",".join(scope_filter)
         r = await self._client.get(f"{self.base_url}/graphs", params=params)
-        r.raise_for_status()
+        _check(r)
         return r.json()
 
     async def traverse(
@@ -91,7 +128,7 @@ class ScopedServerClient:
             body["scope_filter"] = scope_filter
         try:
             r = await self._client.post(f"{self.base_url}/traverse", json=body)
-            r.raise_for_status()
+            _check(r)
             return r.json()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -107,7 +144,7 @@ class ScopedServerClient:
             r = await self._client.post(
                 f"{self.base_url}/hdi_check", json={"drug": drug, "herb": herb}
             )
-            r.raise_for_status()
+            _check(r)
             return r.json()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -121,7 +158,7 @@ class ScopedServerClient:
                 f"{self.base_url}/bilingual_term",
                 json={"term": term, "languages": languages},
             )
-            r.raise_for_status()
+            _check(r)
             return r.json()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:

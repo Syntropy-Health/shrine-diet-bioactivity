@@ -38,8 +38,18 @@ from __future__ import annotations
 from typing import Any
 
 from lightrag.kg.neo4j_impl import READ_RETRY, Neo4JStorage
+from lightrag.types import KnowledgeGraph, KnowledgeGraphEdge, KnowledgeGraphNode
 from lightrag.utils import logger
 
+from cypher_fragments import (
+    hop_query,
+    nodes_by_ids_query,
+    resolve_exact_query,
+    resolve_scan_query,
+    wildcard_count_query,
+    wildcard_edges_query,
+    wildcard_top_query,
+)
 from scope_context import DEFAULT_SCOPE, get_scope_filter
 
 # The scope stamped on writes that arrive WITHOUT an explicit scope. Open-corpus
@@ -50,7 +60,9 @@ WRITE_SCOPE_DEFAULT: str = DEFAULT_SCOPE[0]
 
 
 class ScopedNeo4JStorage(Neo4JStorage):
-    """Neo4JStorage with WHERE-clause tenant filtering on all reads."""
+    """Neo4JStorage with WHERE-clause tenant filtering on all reads; the
+    subgraph explorer (``get_knowledge_graph``) is a scoped BFS built here, not
+    a filter over upstream's."""
 
     # ------------------------------------------------------------------
     # Writes — stamp scope at WRITE time.
@@ -383,6 +395,185 @@ class ScopedNeo4JStorage(Neo4JStorage):
             await result.consume()
             return labels
 
+
+    # ------------------------------------------------------------------
+    # Subgraph explorer — GET /graphs passthrough (shrine-diet #6).
+    #
+    # Upstream ``Neo4JStorage.get_knowledge_graph`` (lightrag-hku 1.5.0) is
+    # NOT called. It (1) matches the start node on EXACT ``entity_id`` —
+    # "curcumin" misses "CURCUMIN", names/aliases/CIDs never match — and
+    # (2) runs an APOC BFS filtered on the WORKSPACE label only, so it walks
+    # THROUGH tenant nodes: a post-filter can drop them but cannot undo that
+    # the walk reached shared nodes via tenant paths (an inference channel),
+    # spent ``max_depth``/``max_nodes`` on tenant hops, and computed
+    # ``is_truncated`` over tenant nodes (a counting oracle). QG findings
+    # reviewer-code / -security / -design, all P2, one root cause.
+    #
+    # So the traversal itself is scoped: a per-level BFS whose every hop
+    # requires ``a.scope``, ``r.scope`` AND ``b.scope`` in the caller's scope
+    # filter (query text in ``cypher_fragments``, proven against Aura by
+    # ``tests/test_graphs_scoped_cypher_aura.py``). Every returned node is the
+    # seed or reached from it over in-scope edges; the node budget counts only
+    # in-scope nodes; ``is_truncated`` means "in-scope neighbours were left
+    # out". Node ids are ``entity_id`` (what every other tool keys on).
+    # ------------------------------------------------------------------
+    async def get_knowledge_graph(
+        self,
+        node_label: str,
+        max_depth: int = 3,
+        max_nodes: int = 1000,
+    ) -> KnowledgeGraph:
+        scopes = get_scope_filter()
+        if node_label == "*":
+            return await self._scoped_wildcard(max_nodes, scopes)
+        resolved = await self._resolve_seed_in_scope(node_label, scopes)
+        if resolved is None:
+            logger.info(
+                f"[{self.workspace}] get_knowledge_graph: seed {node_label!r} "
+                f"resolves to no node in scope {scopes} — returning empty graph"
+            )
+            return KnowledgeGraph()
+        return await self._scoped_subgraph(resolved, max_depth, max_nodes, scopes)
+
+    async def _resolve_seed_in_scope(self, seed: str, scopes: list[str]) -> str | None:
+        """Map a user-supplied seed to ONE canonical ``entity_id`` within scope:
+        an index-served exact lookup first, the Phase-0/2 predicate scan only on
+        a miss. ``/traverse`` uses the same predicate but fans out over EVERY
+        match; a neighborhood has one centre, so this picks one (see
+        ``cypher_fragments.resolve_scan_query`` for the ordering)."""
+        workspace_label = self._get_workspace_label()
+        for query in (resolve_exact_query(workspace_label), resolve_scan_query(workspace_label)):
+            entity_id = await self._first_entity_id(query, seed=seed, scope_filter=scopes)
+            if entity_id:
+                return entity_id
+        return None
+
+    async def _first_entity_id(self, query: str, **params: Any) -> str | None:
+        async with self._driver.session(
+            database=self._DATABASE, default_access_mode="READ"
+        ) as session:
+            result = await session.run(query, **params)
+            try:
+                records = await result.fetch(1)
+            finally:
+                await result.consume()
+        if not records:
+            return None
+        value = records[0]["entity_id"]
+        return str(value) if value else None
+
+    async def _scoped_subgraph(
+        self, seed_id: str, max_depth: int, max_nodes: int, scopes: list[str]
+    ) -> KnowledgeGraph:
+        """Breadth-first expansion from ``seed_id`` over IN-SCOPE hops only.
+
+        One round-trip per level (``max_depth`` <= 5 at the endpoint). Edges
+        are keyed by ``elementId(r)`` so an undirected match seen from both
+        ends counts once; direction comes from ``startNode(r)``, never from
+        traversal order. A node beyond the budget is not admitted and neither
+        is the edge that reached it, so the result is a connected, in-scope,
+        budget-honest subgraph and ``is_truncated`` reports only in-scope loss.
+        """
+        workspace_label = self._get_workspace_label()
+        query = hop_query(workspace_label)
+        visited: set[str] = {seed_id}
+        order: list[str] = [seed_id]
+        edges: dict[str, KnowledgeGraphEdge] = {}
+        truncated = False
+        frontier: list[str] = [seed_id]
+        async with self._driver.session(
+            database=self._DATABASE, default_access_mode="READ"
+        ) as session:
+            for _level in range(max_depth):
+                if not frontier:
+                    break
+                result = await session.run(query, frontier=frontier, scope_filter=scopes)
+                next_frontier: list[str] = []
+                async for rec in result:
+                    here, src, tgt = str(rec["here"]), str(rec["src"]), str(rec["tgt"])
+                    other = tgt if src == here else src
+                    if other not in visited:
+                        if len(visited) >= max_nodes:
+                            truncated = True
+                            continue  # neither the node nor its edge is admitted
+                        visited.add(other)
+                        order.append(other)
+                        next_frontier.append(other)
+                    rid = str(rec["rid"])
+                    if rid not in edges:
+                        edges[rid] = KnowledgeGraphEdge(
+                            id=rid,
+                            type=rec["rel_type"],
+                            source=src,
+                            target=tgt,
+                            properties=dict(rec["props"] or {}),
+                        )
+                await result.consume()
+                frontier = next_frontier
+            nodes = await self._nodes_by_entity_id(session, order, scopes, workspace_label)
+        present = {n.id for n in nodes}
+        kept_edges = [e for e in edges.values() if e.source in present and e.target in present]
+        return KnowledgeGraph(nodes=nodes, edges=kept_edges, is_truncated=truncated)
+
+    async def _nodes_by_entity_id(
+        self, session: Any, ids: list[str], scopes: list[str], workspace_label: str
+    ) -> list[KnowledgeGraphNode]:
+        """Materialise nodes in ``ids`` order; ``labels`` drop the workspace tag."""
+        if not ids:
+            return []
+        result = await session.run(nodes_by_ids_query(workspace_label), ids=ids, scope_filter=scopes)
+        by_id: dict[str, KnowledgeGraphNode] = {}
+        async for rec in result:
+            eid = str(rec["entity_id"])
+            by_id[eid] = KnowledgeGraphNode(
+                id=eid,
+                labels=[lb for lb in (rec["labels"] or []) if lb != workspace_label],
+                properties=dict(rec["props"] or {}),
+            )
+        await result.consume()
+        return [by_id[i] for i in ids if i in by_id]
+
+    async def _scoped_wildcard(self, max_nodes: int, scopes: list[str]) -> KnowledgeGraph:
+        """``label='*'``: the ``max_nodes`` highest-degree IN-SCOPE nodes (degree
+        over in-scope edges to in-scope neighbours) plus the in-scope edges among
+        them. ``is_truncated`` compares against the in-scope node count, never
+        the workspace total (upstream ranked and counted across every tenant)."""
+        workspace_label = self._get_workspace_label()
+        async with self._driver.session(
+            database=self._DATABASE, default_access_mode="READ"
+        ) as session:
+            result = await session.run(wildcard_count_query(workspace_label), scope_filter=scopes)
+            rec = await result.single()
+            total = int(rec["total"]) if rec else 0
+            await result.consume()
+            result = await session.run(
+                wildcard_top_query(workspace_label), scope_filter=scopes, max_nodes=max_nodes
+            )
+            nodes: list[KnowledgeGraphNode] = []
+            async for r in result:
+                nodes.append(
+                    KnowledgeGraphNode(
+                        id=str(r["entity_id"]),
+                        labels=[lb for lb in (r["labels"] or []) if lb != workspace_label],
+                        properties=dict(r["props"] or {}),
+                    )
+                )
+            await result.consume()
+            ids = [n.id for n in nodes]
+            edges: list[KnowledgeGraphEdge] = []
+            if ids:
+                result = await session.run(
+                    wildcard_edges_query(workspace_label), ids=ids, scope_filter=scopes
+                )
+                async for r in result:
+                    edges.append(
+                        KnowledgeGraphEdge(
+                            id=str(r["rid"]), type=r["rel_type"], source=str(r["src"]),
+                            target=str(r["tgt"]), properties=dict(r["props"] or {}),
+                        )
+                    )
+                await result.consume()
+        return KnowledgeGraph(nodes=nodes, edges=edges, is_truncated=total > len(nodes))
 
 # ---------------------------------------------------------------------------
 # Register with upstream LightRAG's storage-compatibility whitelist and the

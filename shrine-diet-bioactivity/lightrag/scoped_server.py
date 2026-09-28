@@ -35,6 +35,7 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from audit_log import AuditLog, AuditRow, default_audit_log
+from cypher_fragments import seed_match_predicate
 from scope_context import (
     reset_scope_filter,
     set_scope_filter,
@@ -563,11 +564,8 @@ def _build_traverse_cypher(
             f"MATCH (start:`{ws}`:`{sl}`) "
             f"WHERE start.scope IN $scope_filter "
             f"  AND ("
-            f"    toLower(start.entity_id) = toLower($seed) "
-            f"    OR toLower(coalesce(start.common_name, '')) = toLower($seed) "
-            f"    OR any(_a IN coalesce(start.aliases, []) WHERE toLower(_a) = toLower($seed)) "
-            f"    OR (start.pubchem_cid IS NOT NULL AND toString(start.pubchem_cid) = $seed) "
-            f"  ) "
+            + seed_match_predicate("start")
+            + f"  ) "
             f"MATCH {arrow} "
             f"WHERE tgt:`{ws}` AND tgt.scope IN $scope_filter "
             f"  AND r.scope IN $scope_filter "
@@ -597,11 +595,8 @@ def _build_traverse_cypher(
         f"MATCH (start:`{ws}`:`{sl}`) "
         f"WHERE start.scope IN $scope_filter "
         f"  AND ("
-        f"    toLower(start.entity_id) = toLower($seed) "
-        f"    OR toLower(coalesce(start.common_name, '')) = toLower($seed) "
-        f"    OR any(_a IN coalesce(start.aliases, []) WHERE toLower(_a) = toLower($seed)) "
-        f"    OR (start.pubchem_cid IS NOT NULL AND toString(start.pubchem_cid) = $seed) "
-        f"  ) "
+        + seed_match_predicate("start")
+        + f"  ) "
         f"MATCH {chain} "
         f"WHERE r1.scope IN $scope_filter AND r2.scope IN $scope_filter "
         f"  AND mid.scope IN $scope_filter AND tgt.scope IN $scope_filter "
@@ -1049,7 +1044,16 @@ class IngestCustomKGRequest(BaseModel):
 
 @app.get("/graphs")
 async def get_graphs(
-    label: str = Query(..., description="Entity label / entity_id to expand from"),
+    label: str = Query(
+        ...,
+        description=(
+            "Seed to expand from: entity_id, common name, alias, or PubChem CID, "
+            "case-insensitive — resolved server-side WITHIN scope_filter "
+            "(ScopedNeo4JStorage.get_knowledge_graph). Unresolvable -> empty graph. "
+            "'*' = top-degree nodes of the workspace, computed IN scope. "
+            "Node ids in the response are entity_ids."
+        ),
+    ),
     max_depth: int = Query(3, ge=0, le=5),
     max_nodes: int = Query(1000, ge=1, le=10_000),
     scope_filter: str | None = Query(
@@ -1070,9 +1074,35 @@ async def get_graphs(
             max_depth=max_depth,
             max_nodes=max_nodes,
         )
-        nodes = result.get("nodes", []) if isinstance(result, dict) else []
-        row.result_count = len(nodes)
-        return result if isinstance(result, dict) else {"raw": str(result)}
+        graph = _coerce_graph(result)
+        row.result_count = len(graph["nodes"])
+        return graph
+
+
+def _coerce_graph(result: Any) -> dict[str, Any]:
+    """Normalise a storage subgraph result to the wire shape ``{nodes, edges, ...}``.
+
+    ``LightRAG.get_knowledge_graph`` returns a pydantic ``KnowledgeGraph`` (not a
+    dict). The previous handler branched on ``isinstance(result, dict)`` and
+    otherwise answered ``{"raw": str(result)}`` — a 200 that every consumer read
+    as an EMPTY graph (0 nodes / 0 edges): shrine-diet #6's "returns 0 edges".
+    A dict WITH a ``nodes`` key passes through; a pydantic model is dumped;
+    anything else (including a dict without ``nodes``) is a 502, because
+    "nothing measured" must never render as "nothing found".
+    """
+    if isinstance(result, dict) and "nodes" in result:
+        result.setdefault("edges", [])
+        result.setdefault("is_truncated", False)
+        return result
+    dump = getattr(result, "model_dump", None)
+    if callable(dump):
+        data = dump()
+        if isinstance(data, dict) and "nodes" in data:
+            return data
+    raise HTTPException(
+        status_code=502,
+        detail=f"graph storage returned an unexpected result type: {type(result).__name__}",
+    )
 
 
 # ---------------------------------------------------------------------------
