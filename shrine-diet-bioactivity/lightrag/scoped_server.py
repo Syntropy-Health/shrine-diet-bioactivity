@@ -1049,7 +1049,14 @@ class IngestCustomKGRequest(BaseModel):
 
 @app.get("/graphs")
 async def get_graphs(
-    label: str = Query(..., description="Entity label / entity_id to expand from"),
+    label: str = Query(
+        ...,
+        description=(
+            "Seed to expand from: entity_id, common name, alias, or PubChem CID, "
+            "case-insensitive — resolved server-side WITHIN scope_filter "
+            "(ScopedNeo4JStorage.get_knowledge_graph). Unresolvable -> empty graph."
+        ),
+    ),
     max_depth: int = Query(3, ge=0, le=5),
     max_nodes: int = Query(1000, ge=1, le=10_000),
     scope_filter: str | None = Query(
@@ -1070,9 +1077,32 @@ async def get_graphs(
             max_depth=max_depth,
             max_nodes=max_nodes,
         )
-        nodes = result.get("nodes", []) if isinstance(result, dict) else []
-        row.result_count = len(nodes)
-        return result if isinstance(result, dict) else {"raw": str(result)}
+        graph = _coerce_graph(result)
+        row.result_count = len(graph["nodes"])
+        return graph
+
+
+def _coerce_graph(result: Any) -> dict[str, Any]:
+    """Normalise a storage subgraph result to the wire shape ``{nodes, edges, ...}``.
+
+    ``LightRAG.get_knowledge_graph`` returns a pydantic ``KnowledgeGraph`` (not a
+    dict). The previous handler branched on ``isinstance(result, dict)`` and
+    otherwise answered ``{"raw": str(result)}`` — a 200 that every consumer read
+    as an EMPTY graph (0 nodes / 0 edges): shrine-diet #6's "returns 0 edges".
+    A dict passes through; a pydantic model is dumped; anything else is a 502,
+    because "nothing measured" must never render as "nothing found".
+    """
+    if isinstance(result, dict):
+        return result
+    dump = getattr(result, "model_dump", None)
+    if callable(dump):
+        data = dump()
+        if isinstance(data, dict) and "nodes" in data:
+            return data
+    raise HTTPException(
+        status_code=502,
+        detail=f"graph storage returned an unexpected result type: {type(result).__name__}",
+    )
 
 
 # ---------------------------------------------------------------------------

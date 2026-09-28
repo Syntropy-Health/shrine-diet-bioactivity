@@ -251,7 +251,7 @@ async def test_kg_node_neighborhood_calls_graphs(fake_client):
         fake_client, NodeNeighborhoodInput(seed="Curcumin", max_depth=3, max_nodes=50),
     )
     fake_client.graphs.assert_awaited_once_with(
-        label="Curcumin", max_depth=3, max_nodes=50,
+        label="Curcumin", max_depth=3, max_nodes=50, scope_filter=["shared"],
     )
     assert len(out.nodes) == 1
     assert len(out.edges) == 1

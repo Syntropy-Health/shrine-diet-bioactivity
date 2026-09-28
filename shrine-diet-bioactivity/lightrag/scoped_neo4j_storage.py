@@ -38,6 +38,7 @@ from __future__ import annotations
 from typing import Any
 
 from lightrag.kg.neo4j_impl import READ_RETRY, Neo4JStorage
+from lightrag.types import KnowledgeGraph
 from lightrag.utils import logger
 
 from scope_context import DEFAULT_SCOPE, get_scope_filter
@@ -382,6 +383,104 @@ class ScopedNeo4JStorage(Neo4JStorage):
                     labels.append(record["entity_id"])
             await result.consume()
             return labels
+
+
+    # ------------------------------------------------------------------
+    # Subgraph explorer — GET /graphs passthrough (shrine-diet #6).
+    #
+    # Upstream ``Neo4JStorage.get_knowledge_graph`` (lightrag-hku 1.5.0) has
+    # two properties that break it for this KG:
+    #   1. the start node is matched on EXACT ``entity_id`` — so the seed
+    #      "curcumin" misses "CURCUMIN", and common names / aliases / CIDs
+    #      never match at all;
+    #   2. its APOC BFS is WORKSPACE-scoped only — ``scope_filter`` set the
+    #      audit row and the contextvar, but nothing applied it to the
+    #      traversal, so tenant nodes and edges could ride back under
+    #      ``scope_filter=shared``.
+    # This override (a) resolves the seed within scope using the SAME predicate
+    # the typed /traverse route uses (entity_id / common_name / aliases /
+    # pubchem_cid, case-insensitive), (b) delegates the BFS to upstream with
+    # the canonical id, and (c) drops every node/edge outside the scope filter,
+    # FAIL-CLOSED: a node or edge with no ``scope`` property is dropped, never
+    # assumed shared (the boot preflight already refuses unscoped rows, so a
+    # missing scope here is a defect, not a default).
+    # ------------------------------------------------------------------
+    async def get_knowledge_graph(
+        self,
+        node_label: str,
+        max_depth: int = 3,
+        max_nodes: int = 1000,
+    ) -> KnowledgeGraph:
+        scopes = get_scope_filter()
+        if node_label != "*":
+            resolved = await self._resolve_seed_in_scope(node_label, scopes)
+            if resolved is None:
+                logger.info(
+                    f"[{self.workspace}] get_knowledge_graph: seed {node_label!r} "
+                    f"resolves to no node in scope {scopes} — returning empty graph"
+                )
+                return KnowledgeGraph()
+            node_label = resolved
+        graph = await super().get_knowledge_graph(
+            node_label=node_label, max_depth=max_depth, max_nodes=max_nodes
+        )
+        return _filter_graph_to_scopes(graph, scopes)
+
+    async def _resolve_seed_in_scope(self, seed: str, scopes: list[str]) -> str | None:
+        """Map a user-supplied seed to ONE canonical ``entity_id`` within scope.
+
+        Exact ``entity_id`` wins over a case-folded match, which wins over a
+        common-name / alias / CID match — so a seed that IS a canonical id is
+        never re-routed to a homonym. Ties (e.g. Aura holds both
+        ``Curcumin`` and ``CURCUMIN``) break on ``entity_id`` so the answer is
+        deterministic across calls.
+        """
+        workspace_label = self._get_workspace_label()
+        query = (
+            f"MATCH (n:`{workspace_label}`) "
+            f"WHERE n.scope IN $scope_filter "
+            f"  AND ("
+            f"    toLower(n.entity_id) = toLower($seed) "
+            f"    OR toLower(coalesce(n.common_name, '')) = toLower($seed) "
+            f"    OR any(_a IN coalesce(n.aliases, []) WHERE toLower(_a) = toLower($seed)) "
+            f"    OR (n.pubchem_cid IS NOT NULL AND toString(n.pubchem_cid) = $seed) "
+            f"  ) "
+            f"RETURN n.entity_id AS entity_id "
+            f"ORDER BY CASE WHEN n.entity_id = $seed THEN 0 "
+            f"              WHEN toLower(n.entity_id) = toLower($seed) THEN 1 "
+            f"              ELSE 2 END, n.entity_id "
+            f"LIMIT 1"
+        )
+        async with self._driver.session(
+            database=self._DATABASE, default_access_mode="READ"
+        ) as session:
+            result = await session.run(query, seed=seed, scope_filter=scopes)
+            try:
+                records = await result.fetch(1)
+            finally:
+                await result.consume()
+        if not records:
+            return None
+        entity_id = records[0]["entity_id"]
+        return str(entity_id) if entity_id else None
+
+
+def _filter_graph_to_scopes(graph: KnowledgeGraph, scopes: list[str]) -> KnowledgeGraph:
+    """Keep only nodes whose ``scope`` is in ``scopes`` and only edges whose
+    ``scope`` is in ``scopes`` AND whose both endpoints survived. Missing
+    ``scope`` on either kind drops it (fail-closed)."""
+    allowed = set(scopes)
+    kept_nodes = [n for n in graph.nodes if n.properties.get("scope") in allowed]
+    kept_ids = {n.id for n in kept_nodes}
+    kept_edges = [
+        e
+        for e in graph.edges
+        if e.properties.get("scope") in allowed
+        and e.source in kept_ids
+        and e.target in kept_ids
+    ]
+    return KnowledgeGraph(nodes=kept_nodes, edges=kept_edges, is_truncated=graph.is_truncated)
+
 
 
 # ---------------------------------------------------------------------------

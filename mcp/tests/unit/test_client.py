@@ -222,3 +222,62 @@ async def test_bilingual_term_returns_empty_on_404(client):
 
     out = await client.bilingual_term("黄连", ["en"])
     assert out == {}
+
+
+# ─── upstream error sanitisation (shrine-diet #6) ─────────────────────────
+
+
+def _http_error(status: int, url: str, detail: object | None) -> MagicMock:
+    """A failing response whose raise_for_status() raises httpx's default,
+    URL-bearing HTTPStatusError — the message the gateway used to leak."""
+    req = httpx.Request("GET", url)
+    resp = httpx.Response(status, request=req)
+    err = httpx.HTTPStatusError(
+        f"Client error '{status}' for url '{url}'", request=req, response=resp
+    )
+    r = MagicMock()
+    r.status_code = status
+    r.raise_for_status.side_effect = err
+    if detail is None:
+        r.json.side_effect = ValueError("not json")
+        r.text = "<html>upstream</html>"
+    else:
+        r.json.return_value = {"detail": detail}
+    return r
+
+
+@pytest.mark.asyncio
+async def test_graphs_upstream_error_is_sanitized_and_keeps_status(client):
+    """A 400 from scoped_server must surface the route + detail, never the
+    internal host/port (issue #6: '127.0.0.1:9621' leaked to MCP consumers)."""
+    client._client.get = AsyncMock(
+        return_value=_http_error(
+            400,
+            "http://test:1234/graphs?label=Curcumin&max_depth=1",
+            "scope_filter query param required, e.g. ?scope_filter=shared",
+        )
+    )
+    with pytest.raises(httpx.HTTPStatusError) as ei:
+        await client.graphs(label="Curcumin", max_depth=1, max_nodes=20)
+    msg = str(ei.value)
+    assert "400" in msg
+    assert "/graphs" in msg
+    assert "scope_filter query param required" in msg
+    # The whole point: no host, port, scheme, or query string in the message.
+    for leak in ("test:1234", "1234", "http://", "label=Curcumin"):
+        assert leak not in msg, f"leaked {leak!r} in {msg!r}"
+    # Callers that branch on status (the 404 fallbacks) still can.
+    assert ei.value.response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_query_upstream_error_without_json_body_is_still_sanitized(client):
+    """Non-JSON upstream bodies (proxy HTML, etc.) must not break sanitisation."""
+    client._client.post = AsyncMock(
+        return_value=_http_error(502, "http://test:1234/query", None)
+    )
+    with pytest.raises(httpx.HTTPStatusError) as ei:
+        await client.query("x")
+    msg = str(ei.value)
+    assert "502" in msg and "/query" in msg
+    assert "test:1234" not in msg and "http://" not in msg

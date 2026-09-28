@@ -42,13 +42,14 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path):
     fake_driver.session = MagicMock(return_value=fake_session)
     fake_driver.close = AsyncMock()
 
+    rag = MagicMock()
+
+    async def _noop_finalize():
+        return None
+
+    rag.finalize_storages = _noop_finalize
+
     async def _fake_build():
-        rag = MagicMock()
-
-        async def _noop_finalize():
-            return None
-
-        rag.finalize_storages = _noop_finalize
         return rag
 
     async def _fake_init_driver():
@@ -68,6 +69,7 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path):
     with TestClient(ss.app) as c:
         c._fake_session = fake_session  # type: ignore[attr-defined]
         c._fake_driver = fake_driver  # type: ignore[attr-defined]
+        c._fake_rag = rag  # type: ignore[attr-defined]
         yield c
 
 
@@ -465,3 +467,60 @@ def test_bilingual_term_searches_all_three_aliases(client: TestClient) -> None:
     assert "chinese_name" in cypher
     assert "pinyin_name" in cypher
     assert "toLower" in cypher
+
+
+# ─── GET /graphs result coercion (shrine-diet #6) ─────────────────────────
+#
+# LightRAG.get_knowledge_graph returns a pydantic KnowledgeGraph, not a dict.
+# The handler used to answer {"raw": "<repr>"} for it, which the MCP tool read
+# as 0 nodes / 0 edges — the "returns 0 edges" symptom. These live here (not in
+# test_scoped_server_graph.py) because that file is gated on a live Aura
+# connection; this fixture mocks the driver.
+
+
+def _graph_client_returns(client: TestClient, value: Any) -> None:
+    from unittest.mock import AsyncMock
+
+    client._fake_rag.get_knowledge_graph = AsyncMock(return_value=value)  # type: ignore[attr-defined]
+
+
+def test_graphs_coerces_pydantic_knowledge_graph(client: TestClient) -> None:
+    from lightrag.types import KnowledgeGraph, KnowledgeGraphEdge, KnowledgeGraphNode
+
+    _graph_client_returns(
+        client,
+        KnowledgeGraph(
+            nodes=[
+                KnowledgeGraphNode(id="1", labels=["CURCUMIN"], properties={"entity_id": "CURCUMIN", "scope": "shared"}),
+                KnowledgeGraphNode(id="2", labels=["NF-KB"], properties={"entity_id": "NF-KB", "scope": "shared"}),
+            ],
+            edges=[KnowledgeGraphEdge(id="e1", type="DIRECTED", source="1", target="2", properties={"scope": "shared"})],
+            is_truncated=False,
+        ),
+    )
+    resp = client.get("/graphs", params={"label": "CURCUMIN", "scope_filter": "shared"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "raw" not in body
+    assert [n["id"] for n in body["nodes"]] == ["1", "2"]
+    assert [e["id"] for e in body["edges"]] == ["e1"]
+    assert body["edges"][0]["source"] == "1" and body["edges"][0]["target"] == "2"
+    assert body["is_truncated"] is False
+    # forwarded args reach the storage layer unchanged
+    kw = client._fake_rag.get_knowledge_graph.await_args.kwargs  # type: ignore[attr-defined]
+    assert kw["node_label"] == "CURCUMIN"
+
+
+def test_graphs_dict_result_still_passes_through(client: TestClient) -> None:
+    _graph_client_returns(client, {"nodes": [{"id": "x"}], "edges": []})
+    resp = client.get("/graphs", params={"label": "X", "scope_filter": "shared"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["nodes"] == [{"id": "x"}]
+
+
+def test_graphs_unknown_result_type_is_502_not_silent_empty(client: TestClient) -> None:
+    """An unrecognised storage return must FAIL, not degrade to a clean-looking
+    empty graph — 'nothing measured' and 'nothing found' must stay distinct."""
+    _graph_client_returns(client, "nodes=[] edges=[]")
+    resp = client.get("/graphs", params={"label": "X", "scope_filter": "shared"})
+    assert resp.status_code == 502, resp.text

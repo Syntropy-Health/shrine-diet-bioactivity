@@ -271,3 +271,145 @@ def test_cross_tenant_canary_isolation(tmp_path) -> None:  # noqa: ARG001
         )
     finally:
         canary._delete_sentinel(workspace_label, sentinel_id)
+
+
+# ---------------------------------------------------------------------------
+# get_knowledge_graph override (shrine-diet #6): seed resolution within scope
+# + scope-filtered subgraph. Upstream LightRAG 1.5.0 matches the start node
+# on EXACT entity_id and its APOC BFS is workspace-scoped only — so without
+# this override /graphs both misses 'curcumin' (case) AND can return tenant
+# nodes/edges under scope_filter=shared.
+# ---------------------------------------------------------------------------
+
+
+class _ResolvingSession(_FakeAsyncSession):
+    """Answers the seed-resolution query with a fixed entity_id (or nothing)."""
+
+    def __init__(self, log, resolved: str | None) -> None:
+        super().__init__(log)
+        self._resolved = resolved
+
+    async def run(self, query: str, **params: Any) -> _FakeAsyncResult:
+        self._log.append((query, params))
+        if self._resolved is None:
+            return _FakeAsyncResult([])
+        return _FakeAsyncResult([_FakeRecord({"entity_id": self._resolved})])
+
+
+class _ResolvingDriver(_FakeAsyncDriver):
+    def __init__(self, resolved: str | None) -> None:
+        super().__init__()
+        self._resolved = resolved
+
+    def session(self, **_: Any) -> _ResolvingSession:
+        return _ResolvingSession(self.log, self._resolved)
+
+
+def _mixed_scope_graph():
+    """1 shared seed, 2 shared, 3 tenant, 4 unscoped; edges of every kind."""
+    from lightrag.types import KnowledgeGraph, KnowledgeGraphEdge, KnowledgeGraphNode
+
+    def n(nid: str, scope: str | None) -> KnowledgeGraphNode:
+        props: dict[str, Any] = {"entity_id": f"E{nid}"}
+        if scope is not None:
+            props["scope"] = scope
+        return KnowledgeGraphNode(id=nid, labels=[f"E{nid}"], properties=props)
+
+    def e(eid: str, s: str, t: str, scope: str | None) -> KnowledgeGraphEdge:
+        props: dict[str, Any] = {}
+        if scope is not None:
+            props["scope"] = scope
+        return KnowledgeGraphEdge(id=eid, type="DIRECTED", source=s, target=t, properties=props)
+
+    return KnowledgeGraph(
+        nodes=[n("1", "shared"), n("2", "shared"), n("3", "tenant:clinic-a"), n("4", None)],
+        edges=[
+            e("a", "1", "2", "shared"),            # in scope both ends, in-scope edge -> KEEP
+            e("b", "1", "3", "shared"),            # tenant endpoint under shared -> DROP
+            e("c", "1", "4", "shared"),            # unscoped endpoint -> DROP (fail-closed)
+            e("d", "1", "2", "tenant:clinic-a"),   # in-scope ends, tenant EDGE -> DROP under shared
+            e("f", "1", "2", None),                # unscoped edge -> DROP (fail-closed)
+        ],
+        is_truncated=True,
+    )
+
+
+def _patch_parent_get_kg(monkeypatch, calls: list[dict[str, Any]], graph):
+    from lightrag.kg.neo4j_impl import Neo4JStorage
+
+    async def _fake(self, node_label, max_depth=3, max_nodes=1000):
+        calls.append({"node_label": node_label, "max_depth": max_depth, "max_nodes": max_nodes})
+        return graph
+
+    monkeypatch.setattr(Neo4JStorage, "get_knowledge_graph", _fake)
+
+
+@pytest.mark.unit
+def test_get_knowledge_graph_resolves_seed_in_scope_then_filters(monkeypatch) -> None:
+    storage = _make_scoped_storage()
+    storage._get_workspace_label = lambda: "unified_diet_kg"
+    storage._driver = _ResolvingDriver("CURCUMIN")
+    calls: list[dict[str, Any]] = []
+    _patch_parent_get_kg(monkeypatch, calls, _mixed_scope_graph())
+
+    out = _run(storage.get_knowledge_graph("curcumin", max_depth=1, max_nodes=20))
+
+    # (1) the resolve query is scoped and case-insensitive
+    query, params = storage._driver.log[0]
+    assert "$scope_filter" in query and "toLower" in query
+    assert params["scope_filter"] == list(DEFAULT_SCOPE)
+    assert params["seed"] == "curcumin"
+    # (2) upstream is called with the CANONICAL id, limits forwarded
+    assert calls == [{"node_label": "CURCUMIN", "max_depth": 1, "max_nodes": 20}]
+    # (3) under the default scope only shared nodes + one fully-shared edge survive
+    assert sorted(n.id for n in out.nodes) == ["1", "2"]
+    assert [e.id for e in out.edges] == ["a"]
+    assert out.is_truncated is True  # upstream flag preserved
+
+
+@pytest.mark.unit
+def test_get_knowledge_graph_scope_filter_is_differential(monkeypatch) -> None:
+    """Widening the scope must CHANGE the answer — proves the filter reads the
+    variable rather than always returning the same subset."""
+    storage = _make_scoped_storage()
+    storage._get_workspace_label = lambda: "unified_diet_kg"
+    storage._driver = _ResolvingDriver("CURCUMIN")
+    _patch_parent_get_kg(monkeypatch, [], _mixed_scope_graph())
+
+    token = set_scope_filter(["shared", "tenant:clinic-a"])
+    try:
+        out = _run(storage.get_knowledge_graph("curcumin"))
+    finally:
+        reset_scope_filter(token)
+
+    assert sorted(n.id for n in out.nodes) == ["1", "2", "3"]   # node 4 (unscoped) still out
+    assert sorted(e.id for e in out.edges) == ["a", "b", "d"]  # c (unscoped end) + f (unscoped edge) out
+
+
+@pytest.mark.unit
+def test_get_knowledge_graph_unresolved_seed_returns_empty_without_delegating(monkeypatch) -> None:
+    storage = _make_scoped_storage()
+    storage._get_workspace_label = lambda: "unified_diet_kg"
+    storage._driver = _ResolvingDriver(None)
+    calls: list[dict[str, Any]] = []
+    _patch_parent_get_kg(monkeypatch, calls, _mixed_scope_graph())
+
+    out = _run(storage.get_knowledge_graph("no-such-thing"))
+
+    assert calls == [], "upstream BFS must not run for an unresolvable seed"
+    assert out.nodes == [] and out.edges == [] and out.is_truncated is False
+
+
+@pytest.mark.unit
+def test_get_knowledge_graph_wildcard_skips_resolution_but_still_filters(monkeypatch) -> None:
+    storage = _make_scoped_storage()
+    storage._get_workspace_label = lambda: "unified_diet_kg"
+    storage._driver = _ResolvingDriver("SHOULD-NOT-BE-USED")
+    calls: list[dict[str, Any]] = []
+    _patch_parent_get_kg(monkeypatch, calls, _mixed_scope_graph())
+
+    out = _run(storage.get_knowledge_graph("*"))
+
+    assert storage._driver.log == [], "no resolve query for the wildcard"
+    assert calls[0]["node_label"] == "*"
+    assert sorted(n.id for n in out.nodes) == ["1", "2"]
