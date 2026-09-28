@@ -524,3 +524,41 @@ def test_graphs_unknown_result_type_is_502_not_silent_empty(client: TestClient) 
     _graph_client_returns(client, "nodes=[] edges=[]")
     resp = client.get("/graphs", params={"label": "X", "scope_filter": "shared"})
     assert resp.status_code == 502, resp.text
+
+
+def test_graphs_dict_without_nodes_is_502(client: TestClient) -> None:
+    _graph_client_returns(client, {"edges": []})
+    resp = client.get("/graphs", params={"label": "X", "scope_filter": "shared"})
+    assert resp.status_code == 502, resp.text
+
+
+def test_graphs_route_hands_scope_and_limits_to_storage(client: TestClient) -> None:
+    """QG finding (reviewer-test P2): the seam between the route and the storage
+    layer — the contextvar scope the storage reads, and the forwarded limits —
+    was never asserted."""
+    from unittest.mock import AsyncMock
+    from lightrag.types import KnowledgeGraph
+    from scope_context import get_scope_filter
+
+    seen: dict[str, Any] = {}
+
+    async def _record(node_label, max_depth=3, max_nodes=1000):
+        seen.update(scope=get_scope_filter(), node_label=node_label, max_depth=max_depth, max_nodes=max_nodes)
+        return KnowledgeGraph()
+
+    client._fake_rag.get_knowledge_graph = AsyncMock(side_effect=_record)  # type: ignore[attr-defined]
+    resp = client.get("/graphs", params={"label": "X", "max_depth": 1, "max_nodes": 7, "scope_filter": "shared,tenant:clinic-a"})
+    assert resp.status_code == 200, resp.text
+    assert seen == {"scope": ["shared", "tenant:clinic-a"], "node_label": "X", "max_depth": 1, "max_nodes": 7}
+    assert resp.json() == {"nodes": [], "edges": [], "is_truncated": False}
+
+
+def test_traverse_cypher_embeds_the_shared_seed_predicate(client: TestClient) -> None:
+    """Drift guard: /traverse and the /graphs resolver must use ONE predicate."""
+    from cypher_fragments import seed_match_predicate
+
+    client._fake_session.run.return_value = _result_with_records([])  # type: ignore[attr-defined]
+    resp = client.post("/traverse", json={"start_label": "Compound", "edge_types": ["TARGETS_PROTEIN"], "seed": "x", "direction": "outbound", "depth": 1})
+    assert resp.status_code == 200, resp.text
+    cypher = client._fake_session.run.call_args.args[0]  # type: ignore[attr-defined]
+    assert seed_match_predicate("start") in cypher

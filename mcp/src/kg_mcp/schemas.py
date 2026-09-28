@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ─── Layer A — General Q&A ────────────────────────────────────────────────
@@ -101,8 +101,22 @@ class NodeNeighborhoodInput(BaseModel):
     max_depth: int = Field(2, ge=0, le=5)
     max_nodes: int = Field(200, ge=1, le=2000)
 
+    @field_validator("seed")
+    @classmethod
+    def _seed_is_an_entity_not_a_wildcard(cls, v: str) -> str:
+        # scoped_server treats '*' as "top-degree nodes of the whole workspace".
+        # That is not a neighborhood; refuse it here rather than hand an agent a
+        # workspace dump under a tool documented as bounded (QG, reviewer-design P3).
+        if v.strip() in {"", "*"}:
+            raise ValueError("seed must name an entity (id, common name, alias or PubChem CID); '*' is not accepted")
+        return v
+
 
 class NodeNeighborhoodOutput(BaseModel):
     nodes: list[dict] = Field(default_factory=list)
     edges: list[dict] = Field(default_factory=list)
+    is_truncated: bool = Field(
+        default=False,
+        description="True when in-scope neighbours were left out by max_nodes — a partial neighborhood.",
+    )
     bt_span_id: str | None = Field(default=None, description="Braintrust span UUID for provenance; null when tracing is disabled")

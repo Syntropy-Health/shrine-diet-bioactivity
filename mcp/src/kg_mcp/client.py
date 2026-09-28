@@ -17,15 +17,18 @@ _DETAIL_MAX_CHARS = 200
 
 
 def _upstream_detail(r: httpx.Response) -> str:
-    """Best-effort human detail from an error body, never the raw body dump."""
+    """Human detail for an error: scoped_server's own JSON ``detail`` (its
+    HTTPException strings), else the bare HTTP reason phrase. NEVER the raw
+    body — a proxy HTML page or a stack-trace body would re-open the leak this
+    helper exists to close."""
     try:
         body = r.json()
     except Exception:  # noqa: BLE001 - non-JSON upstream bodies (proxy HTML etc.)
         body = None
     if isinstance(body, dict) and "detail" in body:
         return str(body["detail"])[:_DETAIL_MAX_CHARS]
-    text = getattr(r, "text", "")
-    return text[:_DETAIL_MAX_CHARS] if isinstance(text, str) else ""
+    reason = getattr(r, "reason_phrase", "")
+    return reason if isinstance(reason, str) else ""
 
 
 def _check(r: httpx.Response) -> None:
@@ -41,7 +44,7 @@ def _check(r: httpx.Response) -> None:
     try:
         r.raise_for_status()
     except httpx.HTTPStatusError as exc:
-        path = exc.request.url.path if exc.request is not None else "?"
+        path = exc.request.url.path
         msg = f"scoped_server returned {r.status_code} for {path}"
         detail = _upstream_detail(r)
         if detail:

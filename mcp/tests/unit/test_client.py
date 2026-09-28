@@ -281,3 +281,54 @@ async def test_query_upstream_error_without_json_body_is_still_sanitized(client)
     msg = str(ei.value)
     assert "502" in msg and "/query" in msg
     assert "test:1234" not in msg and "http://" not in msg
+    assert "<html>" not in msg, "raw upstream body must never reach consumers"
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda c: c.health(), id="health"),
+        pytest.param(lambda c: c.query("q"), id="query"),
+        pytest.param(lambda c: c.graphs(label="X", scope_filter=["shared"]), id="graphs"),
+        pytest.param(lambda c: c.traverse("Compound", ["TARGETS_PROTEIN"], "X"), id="traverse"),
+        pytest.param(lambda c: c.hdi_check("warfarin", "ginkgo"), id="hdi_check"),
+        pytest.param(lambda c: c.bilingual_term("x", ["en"]), id="bilingual_term"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_every_client_method_sanitises_a_500(client, call):
+    """QG finding (reviewer-test P2): sanitisation was only pinned on 2 of 6
+    sites; reverting any single site to raise_for_status() stayed green."""
+    err = _http_error(500, "http://test:1234/whatever?x=1", "Internal Server Error")
+    client._client.get = AsyncMock(return_value=err)
+    client._client.post = AsyncMock(return_value=err)
+    with pytest.raises(httpx.HTTPStatusError) as ei:
+        await call(client)
+    msg = str(ei.value)
+    assert "500" in msg
+    for leak in ("test:1234", "http://", "x=1"):
+        assert leak not in msg, f"{leak!r} leaked in {msg!r}"
+    assert ei.value.__cause__ is None and ei.value.__suppress_context__ is True
+
+
+@pytest.mark.asyncio
+async def test_upstream_detail_is_truncated_and_other_body_keys_never_leak(client):
+    long_detail = "d" * 500
+    r = _http_error(400, "http://test:1234/graphs", long_detail)
+    r.json.return_value = {"detail": long_detail, "trace": "SECRET-TRACE"}
+    client._client.get = AsyncMock(return_value=r)
+    with pytest.raises(httpx.HTTPStatusError) as ei:
+        await client.graphs(label="X", scope_filter=["shared"])
+    msg = str(ei.value)
+    assert "SECRET-TRACE" not in msg
+    assert msg.count("d") <= 200 + len("scoped_server returned 400 for /graphs: ")
+
+
+@pytest.mark.asyncio
+async def test_transport_error_propagates_without_host(client):
+    """httpx.RequestError is not an HTTPStatusError and is not wrapped; pin that
+    its own message carries no host (measured: 'All connection attempts failed')."""
+    client._client.get = AsyncMock(side_effect=httpx.ConnectError("All connection attempts failed"))
+    with pytest.raises(httpx.ConnectError) as ei:
+        await client.health()
+    assert "test:1234" not in str(ei.value)

@@ -337,12 +337,15 @@ async def kg_node_neighborhood(
                 max_nodes=args.max_nodes,
                 # scoped_server GET /graphs is fail-closed on a missing scope_filter
                 # (400); this passthrough never forwarded one, so the tool 400d on
-                # every call (shrine-diet #6). Same default the other tools use.
+                # every call (shrine-diet #6). The POST routes get the same value
+                # from scoped_server's own pydantic default; GET /graphs has none,
+                # so this is the one tool that pins the scope client-side.
                 scope_filter=list(DEFAULT_SCOPE_FILTER),
             )
             result = NodeNeighborhoodOutput(
                 nodes=list(raw.get("nodes", [])),
                 edges=list(raw.get("edges", [])),
+                is_truncated=bool(raw.get("is_truncated", False)),
                 bt_span_id=span_id(span),
             )
             analytics.capture(

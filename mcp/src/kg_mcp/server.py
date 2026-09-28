@@ -196,8 +196,10 @@ async def kg_node_neighborhood(
     """Generic bounded-depth subgraph dump. Use only when a role-priored tool doesn't fit.
 
     ``seed`` is resolved server-side within the shared scope: entity_id, common
-    name, alias, or PubChem CID, case-insensitive (e.g. "curcumin" == "CURCUMIN").
-    An unresolvable seed returns an empty graph, not an error.
+    name, alias, or PubChem CID, case-insensitive (e.g. "curcumin" resolves to
+    "CURCUMIN"). An unresolvable seed returns an empty graph, not an error; '*'
+    is rejected. Node ids and edge endpoints are entity_ids (joinable with every
+    other kg_* tool); ``is_truncated`` marks a neighborhood cut by max_nodes.
     """
     return await t.kg_node_neighborhood(
         _client(), NodeNeighborhoodInput(seed=seed, max_depth=max_depth, max_nodes=max_nodes)

@@ -255,3 +255,20 @@ async def test_kg_node_neighborhood_calls_graphs(fake_client):
     )
     assert len(out.nodes) == 1
     assert len(out.edges) == 1
+    assert out.is_truncated is False
+
+
+@pytest.mark.asyncio
+async def test_kg_node_neighborhood_carries_is_truncated(fake_client):
+    fake_client.graphs.return_value = {"nodes": [{"id": "A"}], "edges": [], "is_truncated": True}
+    out = await kg_node_neighborhood(fake_client, NodeNeighborhoodInput(seed="A", max_depth=1, max_nodes=1))
+    assert out.is_truncated is True
+
+
+def test_kg_node_neighborhood_rejects_wildcard_seed():
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        NodeNeighborhoodInput(seed="*")
+    with pytest.raises(pydantic.ValidationError):
+        NodeNeighborhoodInput(seed="   ")

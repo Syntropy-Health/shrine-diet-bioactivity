@@ -35,6 +35,7 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from audit_log import AuditLog, AuditRow, default_audit_log
+from cypher_fragments import seed_match_predicate
 from scope_context import (
     reset_scope_filter,
     set_scope_filter,
@@ -563,11 +564,8 @@ def _build_traverse_cypher(
             f"MATCH (start:`{ws}`:`{sl}`) "
             f"WHERE start.scope IN $scope_filter "
             f"  AND ("
-            f"    toLower(start.entity_id) = toLower($seed) "
-            f"    OR toLower(coalesce(start.common_name, '')) = toLower($seed) "
-            f"    OR any(_a IN coalesce(start.aliases, []) WHERE toLower(_a) = toLower($seed)) "
-            f"    OR (start.pubchem_cid IS NOT NULL AND toString(start.pubchem_cid) = $seed) "
-            f"  ) "
+            + seed_match_predicate("start")
+            + f"  ) "
             f"MATCH {arrow} "
             f"WHERE tgt:`{ws}` AND tgt.scope IN $scope_filter "
             f"  AND r.scope IN $scope_filter "
@@ -597,11 +595,8 @@ def _build_traverse_cypher(
         f"MATCH (start:`{ws}`:`{sl}`) "
         f"WHERE start.scope IN $scope_filter "
         f"  AND ("
-        f"    toLower(start.entity_id) = toLower($seed) "
-        f"    OR toLower(coalesce(start.common_name, '')) = toLower($seed) "
-        f"    OR any(_a IN coalesce(start.aliases, []) WHERE toLower(_a) = toLower($seed)) "
-        f"    OR (start.pubchem_cid IS NOT NULL AND toString(start.pubchem_cid) = $seed) "
-        f"  ) "
+        + seed_match_predicate("start")
+        + f"  ) "
         f"MATCH {chain} "
         f"WHERE r1.scope IN $scope_filter AND r2.scope IN $scope_filter "
         f"  AND mid.scope IN $scope_filter AND tgt.scope IN $scope_filter "
@@ -1054,7 +1049,9 @@ async def get_graphs(
         description=(
             "Seed to expand from: entity_id, common name, alias, or PubChem CID, "
             "case-insensitive — resolved server-side WITHIN scope_filter "
-            "(ScopedNeo4JStorage.get_knowledge_graph). Unresolvable -> empty graph."
+            "(ScopedNeo4JStorage.get_knowledge_graph). Unresolvable -> empty graph. "
+            "'*' = top-degree nodes of the workspace, computed IN scope. "
+            "Node ids in the response are entity_ids."
         ),
     ),
     max_depth: int = Query(3, ge=0, le=5),
@@ -1089,10 +1086,13 @@ def _coerce_graph(result: Any) -> dict[str, Any]:
     dict). The previous handler branched on ``isinstance(result, dict)`` and
     otherwise answered ``{"raw": str(result)}`` — a 200 that every consumer read
     as an EMPTY graph (0 nodes / 0 edges): shrine-diet #6's "returns 0 edges".
-    A dict passes through; a pydantic model is dumped; anything else is a 502,
-    because "nothing measured" must never render as "nothing found".
+    A dict WITH a ``nodes`` key passes through; a pydantic model is dumped;
+    anything else (including a dict without ``nodes``) is a 502, because
+    "nothing measured" must never render as "nothing found".
     """
-    if isinstance(result, dict):
+    if isinstance(result, dict) and "nodes" in result:
+        result.setdefault("edges", [])
+        result.setdefault("is_truncated", False)
         return result
     dump = getattr(result, "model_dump", None)
     if callable(dump):
