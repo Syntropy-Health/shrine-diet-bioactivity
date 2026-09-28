@@ -310,9 +310,17 @@ class _GraphFakeSession:
         self.g.log.append((query, params))
         sf = params.get("scope_filter", [])
         rows: list[dict[str, Any]] = []
+        # Clause detection reads the WHERE part only — never RETURN/ORDER BY —
+        # and a tautology anywhere disqualifies the query. (Scorer finding on
+        # QG round 2: keyed on the whole text, `... OR true` and a case-sensitive
+        # predicate both slipped past because the tokens survived elsewhere.)
+        lowered = query.lower()
+        if " or true" in lowered or " or 1=1" in lowered or "where true" in lowered:
+            raise AssertionError(f"tautological scope clause in query: {query[:120]}")
+        where = query.split(" RETURN ")[0]
         if "{entity_id: $seed}" in query:                                   # resolve_exact
             seed = params["seed"]
-            if seed in self.g.nodes and ("n.scope IN $scope_filter" not in query or self._in_scope(seed, sf)):
+            if seed in self.g.nodes and ("n.scope IN $scope_filter" not in where or self._in_scope(seed, sf)):
                 rows = [{"entity_id": seed}]
         elif "ORDER BY CASE WHEN toLower(n.entity_id)" in query:            # resolve_scan
             seed = params["seed"]
@@ -320,12 +328,13 @@ class _GraphFakeSession:
             for nid, n in self.g.nodes.items():
                 pr = n.get("props", {})
                 hit = (
-                    ("toLower(n.entity_id) = toLower($seed)" in query and _lc(nid) == _lc(seed))
-                    or ("coalesce(n.common_name" in query and _lc(pr.get("common_name", "")) == _lc(seed))
-                    or ("n.aliases" in query and _lc(seed) in [_lc(a) for a in pr.get("aliases", [])])
-                    or ("n.pubchem_cid" in query and pr.get("pubchem_cid") is not None and str(pr["pubchem_cid"]) == seed)
+                    ("toLower(n.entity_id) = toLower($seed)" in where and _lc(nid) == _lc(seed))
+                    or ("n.entity_id = $seed" in where and nid == seed)          # a case-SENSITIVE mutant matches less
+                    or ("coalesce(n.common_name" in where and _lc(pr.get("common_name", "")) == _lc(seed))
+                    or ("n.aliases" in where and _lc(seed) in [_lc(a) for a in pr.get("aliases", [])])
+                    or ("n.pubchem_cid" in where and pr.get("pubchem_cid") is not None and str(pr["pubchem_cid"]) == seed)
                 )
-                if hit and ("n.scope IN $scope_filter" not in query or self._in_scope(nid, sf)):
+                if hit and ("n.scope IN $scope_filter" not in where or self._in_scope(nid, sf)):
                     cands.append(nid)
             cands.sort(key=lambda i: (0 if _lc(i) == _lc(seed) else 1, i))
             rows = [{"entity_id": cands[0]}] if cands else []
@@ -336,11 +345,11 @@ class _GraphFakeSession:
                     if here not in frontier:
                         continue
                     other = e["tgt"] if here == e["src"] else e["src"]
-                    if "a.scope IN $scope_filter" in query and not self._in_scope(here, sf):
+                    if "a.scope IN $scope_filter" in where and not self._in_scope(here, sf):
                         continue
-                    if "r.scope IN $scope_filter" in query and e.get("scope") not in set(sf):
+                    if "r.scope IN $scope_filter" in where and e.get("scope") not in set(sf):
                         continue
-                    if "b.scope IN $scope_filter" in query and not self._in_scope(other, sf):
+                    if "b.scope IN $scope_filter" in where and not self._in_scope(other, sf):
                         continue
                     props = {"scope": e["scope"]} if e.get("scope") is not None else {}
                     rows.append({"here": here, "rid": e["rid"], "rel_type": e["type"],
@@ -350,7 +359,7 @@ class _GraphFakeSession:
                 n = self.g.nodes.get(nid)
                 if n is None:
                     continue
-                if "n.scope IN $scope_filter" in query and not self._in_scope(nid, sf):
+                if "n.scope IN $scope_filter" in where and not self._in_scope(nid, sf):
                     continue
                 rows.append({"entity_id": nid, "labels": [WS] + n.get("labels", []), "props": self.g.props_of(nid)})
         elif "count(n) AS total" in query:                                  # wildcard_count
