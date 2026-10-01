@@ -29,6 +29,7 @@
         lightrag-benchmark lightrag-server lightrag-server-upstream \
         lightrag-bootstrap-scope lightrag-bootstrap-scope-dry-run \
         lightrag-bootstrap-scope-prod lightrag-test-scope lightrag-test-scope-write \
+        lightrag-test-scope-write-live \
         lightrag-canary-test lightrag-test-integration audit-recent \
         neo4j-check neo4j-shell neo4j-stats neo4j-status neo4j-watch neo4j-clear \
         embedding-check lms-models clean \
@@ -258,7 +259,8 @@ lightrag-metrics-save: ## Save KG metrics report to data/kg-reports/
 	cd lightrag && python3 kg_metrics.py --config local --save --json
 
 lightrag-server: ## Start the scoped LightRAG wrapper on port 9621 (Phase A2)
-	cd lightrag && uvicorn scoped_server:app --host 0.0.0.0 --port 9621
+	# Loopback by default: scope is caller-asserted (#113). Override with LIGHTRAG_HOST=0.0.0.0 only on a trusted network.
+	cd lightrag && uvicorn scoped_server:app --host $${LIGHTRAG_HOST:-127.0.0.1} --port 9621
 
 lightrag-server-upstream: ## Start upstream LightRAG (NO tenant filtering — dev only)
 	cd lightrag && lightrag-server
@@ -282,6 +284,19 @@ lightrag-test-scope-write: ## Write-time scope-stamp arms (#103): RED write path
 	# lightrag/ dir shadows under pytest collection (same as the vector-storage
 	# harness). The script self-asserts and exits non-zero on any failure.
 	cd lightrag && python3 test_scope_write_stamp.py
+
+lightrag-test-scope-write-live: ## #113 write-integrity arm on a REAL Neo4j — loopback test DB only (refuses anything else)
+	@[ -n "$$SCOPED_WRITE_TEST_NEO4J_URI" ] || { \
+	  echo "SCOPED_WRITE_TEST_NEO4J_URI unset. Start a throwaway DB, e.g.:"; \
+	  echo "  docker run -d -p 127.0.0.1:17687:7687 -e NEO4J_AUTH=neo4j/<pw> -e NEO4J_PLUGINS='[\"apoc\"]' neo4j:5.26-community"; \
+	  echo "  export SCOPED_WRITE_TEST_NEO4J_URI=bolt://127.0.0.1:17687 SCOPED_WRITE_TEST_NEO4J_PASSWORD=<pw>"; \
+	  exit 2; }
+	@# The in-place lightrag/ dir shadows the installed package under pytest (#106),
+	@# so run from a throwaway symlink dir that is not named lightrag.
+	@h=$$(mktemp -d) && for f in lightrag/*.py lightrag/*.env; do \
+	  [ "$$(basename $$f)" = "__init__.py" ] || ln -s "$$PWD/$$f" "$$h/"; done && \
+	  cd "$$h" && python3 -m pytest -q -p no:cacheprovider test_scope_write_integrity_live.py; \
+	  rc=$$?; rm -rf "$$h"; exit $$rc
 
 lightrag-canary-test: ## Run cross-tenant isolation canary (requires live Neo4j + scoped_server running)
 	cd lightrag && python3 canary_smoke_test.py --config local

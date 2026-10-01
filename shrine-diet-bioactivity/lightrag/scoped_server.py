@@ -12,7 +12,13 @@ every Cypher execution, then delegates to LightRAG's ``aquery()``.
 Boot::
 
     cd shrine-diet-bioactivity/lightrag
-    uvicorn scoped_server:app --host 0.0.0.0 --port 9621
+    uvicorn scoped_server:app --host 127.0.0.1 --port 9621
+
+Bind to loopback. ``scope_filter`` (reads) and the tenant on
+``/documents/custom_kg`` (writes) are CALLER-ASSERTED — nothing here
+authenticates them. Tenant isolation therefore rests on the MCP gateway
+being the only client: in the deployed image ``start_combined.sh`` binds
+this server to 127.0.0.1 and only the gateway's port is exposed (#113).
 
 Or via ``make lightrag-server``.
 
@@ -38,7 +44,9 @@ from audit_log import AuditLog, AuditRow, default_audit_log
 from cypher_fragments import seed_match_predicate
 from scope_context import (
     reset_scope_filter,
+    reset_write_scope,
     set_scope_filter,
+    set_write_scope,
     validate_scope,
 )
 
@@ -1134,6 +1142,12 @@ async def get_popular_labels(
 # ---------------------------------------------------------------------------
 
 
+_CUSTOM_KG_CONFLICT = (
+    "Write refused: the payload collides with rows that belong to another scope "
+    "(an entity name, an endpoint, or a link that already exists outside your tenant)."
+)
+
+
 @app.post("/documents/custom_kg")
 async def ingest_custom_kg(request: IngestCustomKGRequest) -> dict[str, Any]:
     # Scope validation + tenant requirement happen first so a malformed
@@ -1166,9 +1180,44 @@ async def ingest_custom_kg(request: IngestCustomKGRequest) -> dict[str, Any]:
             "relationship_count": len(relationships),
         },
     ) as row:
-        await _rag.ainsert_custom_kg(
-            {"entities": entities, "relationships": relationships}
-        )
+        # Upstream ainsert_custom_kg DROPS the per-row ``scope`` set above
+        # (lightrag-hku 1.5.0 rebuilds every node/edge dict), so the scope
+        # must reach the storage layer through the write-scope context
+        # instead (#113). The payload rewrite above stays as belt-and-braces.
+        from scoped_neo4j_storage import ScopeConflictError
+
+        # Upstream commits chunks, entities, stubs and edges in SEPARATE
+        # transactions, so a refusal inside a later batch would leave earlier
+        # ones committed. Pre-check the whole request read-only first: a
+        # refusal here really writes nothing (QG, all three reviewers).
+        graph = getattr(_rag, "chunk_entity_relation_graph", None)
+        preflight = getattr(graph, "preflight_custom_kg", None)
+        if preflight is not None:
+            conflicts = await preflight(
+                [e["entity_name"] for e in entities],
+                [(r["src_id"], r["tgt_id"]) for r in relationships],
+                tenant_scope,
+            )
+            if conflicts:
+                # Counts only: conflicting rows may belong to ANOTHER tenant.
+                logger.warning("custom_kg refused for %s: %d conflicting row(s)", tenant_scope, conflicts)
+                raise HTTPException(status_code=409, detail=_CUSTOM_KG_CONFLICT + " Nothing was written.")
+
+        write_token = set_write_scope(tenant_scope)
+        try:
+            await _rag.ainsert_custom_kg(
+                {"entities": entities, "relationships": relationships}
+            )
+        except ScopeConflictError as e:
+            # Only reachable if the graph changed between the preflight and the
+            # write: the in-transaction guard refused a later batch.
+            logger.warning("custom_kg refused mid-write for %s: %d %s row(s)", tenant_scope, e.count, e.kind)
+            raise HTTPException(
+                status_code=409,
+                detail=_CUSTOM_KG_CONFLICT + " Part of the payload may already have been written.",
+            ) from None
+        finally:
+            reset_write_scope(write_token)
         row.result_count = len(entities) + len(relationships)
         return {
             "ingested": {

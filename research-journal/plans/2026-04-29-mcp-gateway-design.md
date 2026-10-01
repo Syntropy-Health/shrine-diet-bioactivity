@@ -158,6 +158,48 @@ Steps 1–3 are scoped_server; steps 4–6 are MCP and panel.
 - **Not authenticated** beyond the scoped_server's existing scope filter. Authentication wrapper (per-agent identity, audit attribution) is a separate layer if/when the MCP server is exposed beyond the publication agent.
 - **Not a replacement for `kg_query`.** Layer A's general tool stays — agents that don't know the right traversal use it. Layer B/C are *opinionated* tools, not the only tools.
 
+### 7.1 Trust boundary — scope is caller-asserted (#113, 2026-10-01)
+
+`scoped_server` does **not** authenticate scope. Reads take `scope_filter` from the
+request and `/documents/custom_kg` takes the tenant from `scope_filter`; both are
+validated for SHAPE (`scope_context.validate_scope`), never for ENTITLEMENT.
+Tenant isolation therefore rests on one property: **the MCP gateway is
+scoped_server's only client.** In the deployed image `scripts/start_combined.sh`
+binds scoped_server to `127.0.0.1` and only the gateway's `$PORT` is exposed, and the
+gateway exposes no tool that lets a caller choose a scope and no write tool. Note the
+mechanism: only `kg_node_neighborhood` pins `shared` client-side; the other tools send
+no scope and inherit scoped_server's request-model default `["shared"]` — so changing
+that server-side default would silently widen gateway reads. The dev `make lightrag-server`
+target and `scripts/run_v1_eval.sh` now bind loopback too. Anything that changes either fact — exposing
+9621, adding a gateway tool that forwards a caller scope, a second in-container
+client — must first move tenant identity into an authenticated principal.
+
+Write integrity (same issue): lightrag-hku 1.5.0 `ainsert_custom_kg` drops the
+per-row `scope` and writes through `upsert_nodes_batch`/`upsert_edges_batch`
+(MERGE on `entity_id` alone). `ScopedNeo4JStorage` now stamps every write from the
+write-scope context (`scope_context.set_write_scope`, default `shared`) and, inside each
+write transaction, refuses any write that would change an existing row's scope or hang an
+edge on a node outside `{shared, writer's scope}` (`ScopeConflictError`, count-only
+message). The write itself is conditional, so a concurrent writer cannot slip past the
+check — **provided a uniqueness constraint on `entity_id` exists**; without one, Neo4j's
+MERGE can create duplicates under concurrency regardless of query shape. Adding that
+constraint on Aura is an ops change and is NOT done here. The route runs a read-only
+preflight (`preflight_custom_kg`) so a refused request writes nothing (409).
+
+**Decisions left open — fail-closed today, policy needed:**
+1. *Name claiming.* Nodes are keyed by `entity_id` across scopes. A tenant that names an
+   entity the shared corpus has not ingested yet (directly, or as a relationship endpoint
+   that becomes a stub) owns that name; a later shared ingest of it is refused and the
+   whole batch fails. Options: namespace tenant ids, do not create tenant stubs, or an
+   `(entity_id, scope)` composite key (a read-model change).
+2. *One link per pair.* Upstream keeps a single undirected `DIRECTED` relationship per node
+   pair, so the first writer of a link between two shared entities claims it for every
+   other tenant and for shared ingest. Options: forbid tenant edges between two shared
+   nodes, or give relationships a per-scope identity.
+3. *Existence oracle.* A 409 tells a tenant that some row with that name — or a link
+   between two named entities — exists outside its scope. Unexploitable while the
+   loopback boundary holds; must be closed before any tenant write path is exposed.
+
 ## 8. Trade-off considerations (design-only; not implementation scope)
 
 These four axes shape the design but are explicitly **out of scope for the
