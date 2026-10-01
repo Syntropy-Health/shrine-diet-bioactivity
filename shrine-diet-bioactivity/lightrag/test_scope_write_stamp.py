@@ -51,75 +51,129 @@ if "pytest" in sys.modules and not _IMPORT_OK:  # graceful skip, never a collect
                 allow_module_level=True)
 
 
-def _capture_parent():
-    """Patch the parent Neo4JStorage writes with async stubs that record the
-    data dict they receive. Returns (captured, restore)."""
-    captured: dict[str, object] = {}
+class _RecordingTx:
+    """Records every (query, rows) a write transaction runs; returns no rows,
+    so the #113 conflict guard always passes and the write proceeds."""
 
-    async def _node_stub(self, node_id, node_data):  # noqa: ANN001
-        captured["node_id"] = node_id
-        captured["node_data"] = node_data
+    def __init__(self, log):
+        self.log = log
 
-    async def _edge_stub(self, src, tgt, edge_data):  # noqa: ANN001
-        captured["src"] = src
-        captured["tgt"] = tgt
-        captured["edge_data"] = edge_data
+    async def run(self, query, **params):  # noqa: ANN001
+        self.log.append((query, params.get("rows")))
 
-    orig_node = Neo4JStorage.upsert_node
-    orig_edge = Neo4JStorage.upsert_edge
-    Neo4JStorage.upsert_node = _node_stub  # type: ignore[assignment]
-    Neo4JStorage.upsert_edge = _edge_stub  # type: ignore[assignment]
+        class _R:
+            def __aiter__(self):
+                async def gen():
+                    if False:
+                        yield None
+                return gen()
 
-    def restore():
-        Neo4JStorage.upsert_node = orig_node  # type: ignore[assignment]
-        Neo4JStorage.upsert_edge = orig_edge  # type: ignore[assignment]
+            async def consume(self):
+                return None
 
-    return captured, restore
+        return _R()
+
+
+class _RecordingSession:
+    def __init__(self, log):
+        self.log = log
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return None
+
+    async def execute_write(self, fn):  # noqa: ANN001
+        return await fn(_RecordingTx(self.log))
+
+
+class _RecordingDriver:
+    def __init__(self):
+        self.log = []
+
+    def session(self, **_):
+        return _RecordingSession(self.log)
+
+
+def _store():
+    """A ScopedNeo4JStorage whose writes land in a recording driver. Since #113
+    the subclass no longer delegates to the parent's single-row writes (they
+    route through its own guarded batch path), so the rows are captured at the
+    DRIVER — what the database would actually receive."""
+    store = ScopedNeo4JStorage.__new__(ScopedNeo4JStorage)
+    store._driver = _RecordingDriver()
+    store._DATABASE = "neo4j"
+    store.workspace = "unified_diet_kg"
+    store._get_workspace_label = lambda: "unified_diet_kg"
+    return store
+
+
+def _written_rows(store):
+    """Rows passed to the MERGE (write) statement — the guard runs first."""
+    writes = [rows for q, rows in store._driver.log if "MERGE" in q]
+    assert writes, f"no MERGE was executed: {store._driver.log!r}"
+    return writes[-1]
 
 
 def test_upsert_edge_stamps_default_scope():
-    captured, restore = _capture_parent()
-    try:
-        store = ScopedNeo4JStorage.__new__(ScopedNeo4JStorage)
-        payload = {"description": "curcumin -> PTGS2", "weight": "1.0"}
-        asyncio.run(store.upsert_edge("curcumin", "PTGS2", payload))
-        got = captured["edge_data"]
-        assert got.get("scope") == WRITE_SCOPE_DEFAULT == "shared", got
-        # caller's dict must not be mutated
-        assert "scope" not in payload, "override mutated the caller's dict"
-    finally:
-        restore()
+    store = _store()
+    payload = {"description": "curcumin -> PTGS2", "weight": "1.0"}
+    asyncio.run(store.upsert_edge("curcumin", "PTGS2", payload))
+    got = _written_rows(store)[0]["props"]
+    assert got.get("scope") == WRITE_SCOPE_DEFAULT == "shared", got
+    # caller's dict must not be mutated
+    assert "scope" not in payload, "override mutated the caller's dict"
 
 
 def test_upsert_edge_respects_explicit_tenant_scope():
-    captured, restore = _capture_parent()
-    try:
-        store = ScopedNeo4JStorage.__new__(ScopedNeo4JStorage)
-        asyncio.run(store.upsert_edge("a", "b", {"scope": "tenant:clinic-a"}))
-        assert captured["edge_data"].get("scope") == "tenant:clinic-a", captured["edge_data"]
-    finally:
-        restore()
+    store = _store()
+    asyncio.run(store.upsert_edge("a", "b", {"scope": "tenant:clinic-a"}))
+    assert _written_rows(store)[0]["props"].get("scope") == "tenant:clinic-a"
 
 
 def test_upsert_node_stamps_default_scope():
-    captured, restore = _capture_parent()
-    try:
-        store = ScopedNeo4JStorage.__new__(ScopedNeo4JStorage)
-        asyncio.run(store.upsert_node("curcumin", {"entity_type": "Compound"}))
-        assert captured["node_data"].get("scope") == "shared", captured["node_data"]
-    finally:
-        restore()
+    store = _store()
+    asyncio.run(store.upsert_node("curcumin", {"entity_id": "curcumin", "entity_type": "Compound"}))
+    assert _written_rows(store)[0]["props"].get("scope") == "shared"
 
 
 def test_empty_scope_string_falls_back_to_shared():
     # a falsy scope on the payload (e.g. "") must not leave the row unscoped
-    captured, restore = _capture_parent()
+    store = _store()
+    asyncio.run(store.upsert_edge("a", "b", {"scope": ""}))
+    assert _written_rows(store)[0]["props"].get("scope") == "shared"
+
+
+def test_batch_writes_are_stamped_and_guarded_before_the_merge():
+    """#113: the BATCH entry points (what ainsert_custom_kg calls) stamp scope
+    and run the conflict guard in the same transaction, BEFORE the MERGE."""
+    from scope_context import reset_write_scope, set_write_scope
+
+    store = _store()
+    token = set_write_scope("tenant:clinic-a")
     try:
-        store = ScopedNeo4JStorage.__new__(ScopedNeo4JStorage)
-        asyncio.run(store.upsert_edge("a", "b", {"scope": ""}))
-        assert captured["edge_data"].get("scope") == "shared", captured["edge_data"]
+        asyncio.run(store.upsert_nodes_batch([("n1", {"entity_id": "n1"}), ("n2", {"entity_id": "n2"})]))
+        asyncio.run(store.upsert_edges_batch([("n1", "n2", {"description": "d"})]))
     finally:
-        restore()
+        reset_write_scope(token)
+    queries = [q for q, _ in store._driver.log]
+    assert len(queries) == 4, queries                         # guard + write, twice
+    assert "<> row.props.scope" in queries[0] and "MERGE" not in queries[0]
+    assert "MERGE" in queries[1] and "MERGE" in queries[3]
+    for _q, rows in store._driver.log:
+        assert all(r["props"]["scope"] == "tenant:clinic-a" for r in rows)
+
+
+def test_invalid_write_scope_is_refused_before_any_query():
+    store = _store()
+    try:
+        asyncio.run(store.upsert_node("x", {"entity_id": "x", "scope": "tenant:NOT VALID"}))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("an invalid scope string must be refused")
+    assert store._driver.log == [], "nothing may reach the driver"
 
 
 def test_preflight_still_refuses_unscoped_rows():

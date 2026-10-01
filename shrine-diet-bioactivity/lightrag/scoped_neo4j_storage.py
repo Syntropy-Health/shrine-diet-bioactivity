@@ -28,14 +28,20 @@ Filter semantics (for every read):
     ``AND r.scope IN $scope_filter``
 - Node-degree / node-edges: connected nodes *and* relationships filtered
 
-Writes (``upsert_node``, ``upsert_edge``, ``delete_*``) are inherited
-unchanged — the tenant ingestion API is responsible for stamping
-``scope="tenant:<id>"`` on the payload it submits.
+Writes (``upsert_node(s_batch)``, ``upsert_edge(s_batch)``) are overridden:
+every row is stamped with a scope (explicit row scope, else the context's
+``scope_context.get_write_scope()``, default 'shared') and a write that would
+CHANGE the scope of an existing node or relationship raises
+``ScopeConflictError`` before anything in the batch is written (#113).
+``delete_*`` are inherited unchanged.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from neo4j import exceptions as neo4jExceptions
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from lightrag.kg.neo4j_impl import READ_RETRY, Neo4JStorage
 from lightrag.types import KnowledgeGraph, KnowledgeGraphEdge, KnowledgeGraphNode
@@ -50,13 +56,61 @@ from cypher_fragments import (
     wildcard_edges_query,
     wildcard_top_query,
 )
-from scope_context import DEFAULT_SCOPE, get_scope_filter
+from scope_context import DEFAULT_SCOPE, get_scope_filter, get_write_scope, validate_scope
 
 # The scope stamped on writes that arrive WITHOUT an explicit scope. Open-corpus
 # ingest (LightRAG semantic extraction) has no tenant, so it is shared — matching
 # scope_context.DEFAULT_SCOPE and the 'shared' vector nodes ScopedNeo4JVectorStorage
 # writes. Single source of truth so the two paths cannot drift.
 WRITE_SCOPE_DEFAULT: str = DEFAULT_SCOPE[0]
+
+# How many conflicting rows a refusal reports (enough to act on, bounded).
+_CONFLICT_SAMPLE = 5
+
+# Upstream's write retry minus ``ClientError`` (which also covers constraint
+# and syntax errors — retrying those only delays the failure). A
+# ScopeConflictError is a ValueError, so it is never retried either.
+_WRITE_RETRY = retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type(
+        (
+            neo4jExceptions.ServiceUnavailable,
+            neo4jExceptions.TransientError,
+            neo4jExceptions.WriteServiceUnavailable,
+            neo4jExceptions.SessionExpired,
+            ConnectionResetError,
+            OSError,
+        )
+    ),
+    reraise=True,
+)
+
+
+def _stamped(data: dict[str, str]) -> dict[str, str]:
+    """A copy of ``data`` carrying a validated ``scope``: the row's own if
+    present, else the context write scope. The caller's dict is never mutated."""
+    return {**data, "scope": validate_scope(data.get("scope") or get_write_scope())}
+
+
+async def _refuse_on_conflict(tx: Any, guard: str, rows: list[dict[str, Any]], kind: str) -> None:
+    result = await tx.run(guard, rows=rows)
+    conflicts = [r.data() async for r in result]
+    await result.consume()
+    if conflicts:
+        sample = ", ".join(f"{c['id']} ({c['existing'] or 'unscoped'} -> {c['incoming']})" for c in conflicts)
+        raise ScopeConflictError(
+            f"refusing write: {kind} would change the scope of existing row(s): {sample}"
+        )
+
+
+class ScopeConflictError(ValueError):
+    """A write would change the scope of an existing node or relationship.
+
+    Raised BEFORE anything in the batch is written (shrine-diet #113): upstream
+    MERGEs on ``entity_id`` alone, so without this a tenant payload naming an
+    existing shared entity overwrote the shared row in place.
+    """
 
 
 class ScopedNeo4JStorage(Neo4JStorage):
@@ -79,15 +133,91 @@ class ScopedNeo4JStorage(Neo4JStorage):
     # is built so the caller's dict is never mutated. This does NOT touch the
     # preflight — that fail-closed control stays exactly as-is.
     # ------------------------------------------------------------------
+    # #113: upstream 1.5.0 ``ainsert_custom_kg`` writes through the BATCH
+    # methods, which the single-row overrides above never reached, AND it
+    # rebuilds every row without the payload's ``scope``. Both rows-born-NULL
+    # (preflight crash-loop) and in-place overwrite of a shared row by a tenant
+    # payload were measured on a real Neo4j. So all four write entry points
+    # route through one guarded batch implementation:
+    #   * stamp: explicit row ``scope``, else ``get_write_scope()`` (the tenant
+    #     route sets it; ingest scripts leave the 'shared' default);
+    #   * guard: in the SAME write transaction, refuse if any target row
+    #     already exists under a DIFFERENT scope (a NULL scope counts as
+    #     different — fail-closed, matching the boot preflight);
+    #   * write: the upstream MERGE, unchanged.
+    # A refused batch writes nothing. ``ScopeConflictError`` is a ValueError,
+    # outside the transient-error retry set, so it is never retried.
+    # ------------------------------------------------------------------
     async def upsert_node(self, node_id: str, node_data: dict[str, str]) -> None:
-        scoped = {**node_data, "scope": (node_data.get("scope") or WRITE_SCOPE_DEFAULT)}
-        await super().upsert_node(node_id, scoped)
+        await self.upsert_nodes_batch([(node_id, node_data)])
 
     async def upsert_edge(
         self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
     ) -> None:
-        scoped = {**edge_data, "scope": (edge_data.get("scope") or WRITE_SCOPE_DEFAULT)}
-        await super().upsert_edge(source_node_id, target_node_id, scoped)
+        await self.upsert_edges_batch([(source_node_id, target_node_id, edge_data)])
+
+    @_WRITE_RETRY
+    async def upsert_nodes_batch(self, nodes: list[tuple[str, dict[str, str]]]) -> None:
+        if not nodes:
+            return
+        workspace_label = self._get_workspace_label()
+        rows = []
+        for node_id, node_data in nodes:
+            if "entity_id" not in node_data:
+                raise ValueError("Neo4j: node properties must contain an 'entity_id' field")
+            rows.append({"entity_id": node_id, "props": _stamped(node_data)})
+        guard = (
+            f"UNWIND $rows AS row "
+            f"MATCH (n:`{workspace_label}` {{entity_id: row.entity_id}}) "
+            f"WHERE coalesce(n.scope, '') <> row.props.scope "
+            f"RETURN n.entity_id AS id, n.scope AS existing, row.props.scope AS incoming "
+            f"LIMIT {_CONFLICT_SAMPLE}"
+        )
+        write = (
+            f"UNWIND $rows AS row "
+            f"MERGE (n:`{workspace_label}` {{entity_id: row.entity_id}}) "
+            f"SET n += row.props"
+        )
+
+        async def tx_fn(tx: Any) -> None:
+            await _refuse_on_conflict(tx, guard, rows, "node")
+            result = await tx.run(write, rows=rows)
+            await result.consume()
+
+        async with self._driver.session(database=self._DATABASE) as session:
+            await session.execute_write(tx_fn)
+
+    @_WRITE_RETRY
+    async def upsert_edges_batch(self, edges: list[tuple[str, str, dict[str, str]]]) -> None:
+        if not edges:
+            return
+        workspace_label = self._get_workspace_label()
+        rows = [{"src": src, "tgt": tgt, "props": _stamped(data)} for src, tgt, data in edges]
+        # Upstream MERGEs ONE undirected ``DIRECTED`` relationship per pair, so
+        # an existing relationship in EITHER direction is the one a write lands on.
+        guard = (
+            f"UNWIND $rows AS row "
+            f"MATCH (a:`{workspace_label}` {{entity_id: row.src}})-[r:DIRECTED]-(b:`{workspace_label}` {{entity_id: row.tgt}}) "
+            f"WHERE coalesce(r.scope, '') <> row.props.scope "
+            f"RETURN row.src + ' - ' + row.tgt AS id, r.scope AS existing, row.props.scope AS incoming "
+            f"LIMIT {_CONFLICT_SAMPLE}"
+        )
+        write = (
+            f"UNWIND $rows AS row "
+            f"MATCH (source:`{workspace_label}` {{entity_id: row.src}}) "
+            f"WITH source, row "
+            f"MATCH (target:`{workspace_label}` {{entity_id: row.tgt}}) "
+            f"MERGE (source)-[r:DIRECTED]-(target) "
+            f"SET r += row.props"
+        )
+
+        async def tx_fn(tx: Any) -> None:
+            await _refuse_on_conflict(tx, guard, rows, "relationship")
+            result = await tx.run(write, rows=rows)
+            await result.consume()
+
+        async with self._driver.session(database=self._DATABASE) as session:
+            await session.execute_write(tx_fn)
 
     # ------------------------------------------------------------------
     # Node reads

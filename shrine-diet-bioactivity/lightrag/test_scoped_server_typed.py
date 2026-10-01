@@ -562,3 +562,46 @@ def test_traverse_cypher_embeds_the_shared_seed_predicate(client: TestClient) ->
     assert resp.status_code == 200, resp.text
     cypher = client._fake_session.run.call_args.args[0]  # type: ignore[attr-defined]
     assert seed_match_predicate("start") in cypher
+
+
+# ─── POST /documents/custom_kg — write scope + conflict handling (#113) ────
+
+
+def _custom_kg_body(entity: str = "TENANT-ONLY") -> dict[str, Any]:
+    return {
+        "scope_filter": ["tenant:clinic-a"],
+        "custom_kg": {"entities": [{"entity_name": entity, "entity_type": "Note"}], "relationships": []},
+    }
+
+
+def test_custom_kg_declares_the_tenant_write_scope_to_storage(client: TestClient) -> None:
+    """Upstream drops the per-row scope, so the route must hand the tenant to
+    the storage layer through the write-scope context — and reset it after."""
+    from unittest.mock import AsyncMock
+    from scope_context import get_write_scope
+
+    seen: dict[str, str] = {}
+
+    async def _record(_payload):
+        seen["during"] = get_write_scope()
+
+    client._fake_rag.ainsert_custom_kg = AsyncMock(side_effect=_record)  # type: ignore[attr-defined]
+    resp = client.post("/documents/custom_kg", json=_custom_kg_body())
+    assert resp.status_code == 200, resp.text
+    assert seen == {"during": "tenant:clinic-a"}
+    assert get_write_scope() == "shared", "write scope must not leak past the request"
+
+
+def test_custom_kg_scope_conflict_is_a_409_that_names_nothing(client: TestClient) -> None:
+    from unittest.mock import AsyncMock
+    from scoped_neo4j_storage import ScopeConflictError
+    from scope_context import get_write_scope
+
+    leak = "refusing write: node would change the scope of existing row(s): PATIENT-X (tenant:other-clinic -> tenant:clinic-a)"
+    client._fake_rag.ainsert_custom_kg = AsyncMock(side_effect=ScopeConflictError(leak))  # type: ignore[attr-defined]
+    resp = client.post("/documents/custom_kg", json=_custom_kg_body("PATIENT-X"))
+    assert resp.status_code == 409, resp.text
+    body = resp.text
+    for secret in ("PATIENT-X", "other-clinic", "tenant:"):
+        assert secret not in body, f"{secret!r} leaked in {body!r}"
+    assert get_write_scope() == "shared", "write scope must be reset on the error path too"

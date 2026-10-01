@@ -76,3 +76,32 @@ def reset_scope_filter(token: Token[tuple[str, ...]]) -> None:
 def get_scope_filter() -> list[str]:
     """Return the current scope filter as a list (Cypher param type)."""
     return list(_SCOPE_FILTER_VAR.get())
+
+
+# ---------------------------------------------------------------------------
+# Write scope (shrine-diet #113).
+#
+# Upstream ``LightRAG.ainsert_custom_kg`` (lightrag-hku 1.5.0) rebuilds every
+# node/edge dict without the payload's ``scope``, so a scope stamped on the
+# payload never reaches the storage layer. The tenant ingest route therefore
+# declares the scope HERE, and ``ScopedNeo4JStorage``'s write overrides read
+# it. Default is 'shared' — the open-corpus ingest scripts set nothing.
+# ---------------------------------------------------------------------------
+
+_WRITE_SCOPE_VAR: ContextVar[str] = ContextVar("write_scope", default=DEFAULT_SCOPE[0])
+
+
+def set_write_scope(scope: str) -> Token[str]:
+    """Declare the scope every graph write in this context is stamped with.
+    Validated like a read scope; pair with :func:`reset_write_scope`."""
+    return _WRITE_SCOPE_VAR.set(validate_scope(scope))
+
+
+def reset_write_scope(token: Token[str]) -> None:
+    """Reset the write scope using the token from :func:`set_write_scope`."""
+    _WRITE_SCOPE_VAR.reset(token)
+
+
+def get_write_scope() -> str:
+    """The scope graph writes in the current context are stamped with."""
+    return _WRITE_SCOPE_VAR.get()

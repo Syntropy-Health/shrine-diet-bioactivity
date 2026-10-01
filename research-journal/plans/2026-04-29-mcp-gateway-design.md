@@ -158,6 +158,31 @@ Steps 1–3 are scoped_server; steps 4–6 are MCP and panel.
 - **Not authenticated** beyond the scoped_server's existing scope filter. Authentication wrapper (per-agent identity, audit attribution) is a separate layer if/when the MCP server is exposed beyond the publication agent.
 - **Not a replacement for `kg_query`.** Layer A's general tool stays — agents that don't know the right traversal use it. Layer B/C are *opinionated* tools, not the only tools.
 
+### 7.1 Trust boundary — scope is caller-asserted (#113, 2026-10-01)
+
+`scoped_server` does **not** authenticate scope. Reads take `scope_filter` from the
+request and `/documents/custom_kg` takes the tenant from `scope_filter`; both are
+validated for SHAPE (`scope_context.validate_scope`), never for ENTITLEMENT.
+Tenant isolation therefore rests on one property: **the MCP gateway is
+scoped_server's only client.** In the deployed image `scripts/start_combined.sh`
+binds scoped_server to `127.0.0.1` and only the gateway's `$PORT` is exposed, and the
+gateway exposes no tool that lets a caller choose a scope (every read pins
+`shared`; there is no write tool). Anything that changes either fact — exposing
+9621, adding a gateway tool that forwards a caller scope, a second in-container
+client — must first move tenant identity into an authenticated principal.
+
+Write integrity (same issue): lightrag-hku 1.5.0 `ainsert_custom_kg` drops the
+per-row `scope` and writes through `upsert_nodes_batch`/`upsert_edges_batch`
+(MERGE on `entity_id` alone). `ScopedNeo4JStorage` now stamps every write from the
+write-scope context (`scope_context.set_write_scope`, default `shared`) and refuses,
+in the same transaction, any write that would change an existing row's scope
+(`ScopeConflictError` -> HTTP 409 on the route, with no ids or scopes in the body).
+**Residual, not fixed:** nodes are keyed by `entity_id` across scopes, so a tenant
+cannot hold its own node with the same name as a shared or another tenant's node,
+and a 409 confirms that *some* row with that name exists elsewhere. Removing that
+needs an `(entity_id, scope)` composite key — a read-model change, recorded as a
+decision for later rather than done here.
+
 ## 8. Trade-off considerations (design-only; not implementation scope)
 
 These four axes shape the design but are explicitly **out of scope for the

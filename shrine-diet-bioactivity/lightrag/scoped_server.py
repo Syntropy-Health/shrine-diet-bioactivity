@@ -12,7 +12,13 @@ every Cypher execution, then delegates to LightRAG's ``aquery()``.
 Boot::
 
     cd shrine-diet-bioactivity/lightrag
-    uvicorn scoped_server:app --host 0.0.0.0 --port 9621
+    uvicorn scoped_server:app --host 127.0.0.1 --port 9621
+
+Bind to loopback. ``scope_filter`` (reads) and the tenant on
+``/documents/custom_kg`` (writes) are CALLER-ASSERTED — nothing here
+authenticates them. Tenant isolation therefore rests on the MCP gateway
+being the only client: in the deployed image ``start_combined.sh`` binds
+this server to 127.0.0.1 and only the gateway's port is exposed (#113).
 
 Or via ``make lightrag-server``.
 
@@ -38,7 +44,9 @@ from audit_log import AuditLog, AuditRow, default_audit_log
 from cypher_fragments import seed_match_predicate
 from scope_context import (
     reset_scope_filter,
+    reset_write_scope,
     set_scope_filter,
+    set_write_scope,
     validate_scope,
 )
 
@@ -1166,9 +1174,31 @@ async def ingest_custom_kg(request: IngestCustomKGRequest) -> dict[str, Any]:
             "relationship_count": len(relationships),
         },
     ) as row:
-        await _rag.ainsert_custom_kg(
-            {"entities": entities, "relationships": relationships}
-        )
+        # Upstream ainsert_custom_kg DROPS the per-row ``scope`` set above
+        # (lightrag-hku 1.5.0 rebuilds every node/edge dict), so the scope
+        # must reach the storage layer through the write-scope context
+        # instead (#113). The payload rewrite above stays as belt-and-braces.
+        from scoped_neo4j_storage import ScopeConflictError
+
+        write_token = set_write_scope(tenant_scope)
+        try:
+            await _rag.ainsert_custom_kg(
+                {"entities": entities, "relationships": relationships}
+            )
+        except ScopeConflictError as e:
+            # The storage message names the conflicting ids AND their current
+            # scope — which may be ANOTHER tenant's. Log it; never return it.
+            logger.warning("custom_kg refused for %s: %s", tenant_scope, e)
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Write refused: the payload would change the scope of rows that "
+                    "already exist outside your tenant. Rename the colliding "
+                    "entities or link to the existing ones with relationships only."
+                ),
+            ) from None
+        finally:
+            reset_write_scope(write_token)
         row.result_count = len(entities) + len(relationships)
         return {
             "ingested": {
