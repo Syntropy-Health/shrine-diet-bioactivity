@@ -51,32 +51,38 @@ if "pytest" in sys.modules and not _IMPORT_OK:  # graceful skip, never a collect
                 allow_module_level=True)
 
 
-class _RecordingTx:
-    """Records every (query, rows) a write transaction runs; returns no rows,
-    so the #113 conflict guard always passes and the write proceeds."""
+class _Result:
+    def __init__(self, record):
+        self._record = record
 
-    def __init__(self, log):
-        self.log = log
+    async def single(self):
+        return self._record
+
+    async def consume(self):
+        return None
+
+
+class _RecordingTx:
+    """Records every (query, rows) a write transaction runs. Guard queries
+    report ``conflicts`` (default 0); the write reports ``applied``/``seen``
+    (default: every row applied). Both are settable to drive the refusal
+    branches offline (QG test reviewer: the old recorder could never conflict)."""
+
+    def __init__(self, log, conflicts=0, unapplied=0):
+        self.log, self.conflicts, self.unapplied = log, conflicts, unapplied
 
     async def run(self, query, **params):  # noqa: ANN001
-        self.log.append((query, params.get("rows")))
-
-        class _R:
-            def __aiter__(self):
-                async def gen():
-                    if False:
-                        yield None
-                return gen()
-
-            async def consume(self):
-                return None
-
-        return _R()
+        rows = params.get("rows")
+        self.log.append((query, rows))
+        if "AS conflicts" in query:
+            return _Result({"conflicts": self.conflicts})
+        n = len(rows or [])
+        return _Result({"applied": n - self.unapplied, "seen": n})
 
 
 class _RecordingSession:
-    def __init__(self, log):
-        self.log = log
+    def __init__(self, driver):
+        self.driver = driver
 
     async def __aenter__(self):
         return self
@@ -85,24 +91,24 @@ class _RecordingSession:
         return None
 
     async def execute_write(self, fn):  # noqa: ANN001
-        return await fn(_RecordingTx(self.log))
+        return await fn(_RecordingTx(self.driver.log, self.driver.conflicts, self.driver.unapplied))
 
 
 class _RecordingDriver:
-    def __init__(self):
+    def __init__(self, conflicts=0, unapplied=0):
         self.log = []
+        self.conflicts, self.unapplied = conflicts, unapplied
 
     def session(self, **_):
-        return _RecordingSession(self.log)
+        return _RecordingSession(self)
 
 
-def _store():
+def _store(**driver_kw):
     """A ScopedNeo4JStorage whose writes land in a recording driver. Since #113
-    the subclass no longer delegates to the parent's single-row writes (they
-    route through its own guarded batch path), so the rows are captured at the
-    DRIVER — what the database would actually receive."""
+    the subclass routes every write through its own guarded batch path, so the
+    rows are captured at the DRIVER — what the database would actually receive."""
     store = ScopedNeo4JStorage.__new__(ScopedNeo4JStorage)
-    store._driver = _RecordingDriver()
+    store._driver = _RecordingDriver(**driver_kw)
     store._DATABASE = "neo4j"
     store.workspace = "unified_diet_kg"
     store._get_workspace_label = lambda: "unified_diet_kg"
@@ -110,10 +116,19 @@ def _store():
 
 
 def _written_rows(store):
-    """Rows passed to the MERGE (write) statement — the guard runs first."""
     writes = [rows for q, rows in store._driver.log if "MERGE" in q]
     assert writes, f"no MERGE was executed: {store._driver.log!r}"
     return writes[-1]
+
+
+def _raises_conflict(coro) -> bool:
+    from scoped_neo4j_storage import ScopeConflictError
+
+    try:
+        asyncio.run(coro)
+    except ScopeConflictError:
+        return True
+    return False
 
 
 def test_upsert_edge_stamps_default_scope():
@@ -122,7 +137,6 @@ def test_upsert_edge_stamps_default_scope():
     asyncio.run(store.upsert_edge("curcumin", "PTGS2", payload))
     got = _written_rows(store)[0]["props"]
     assert got.get("scope") == WRITE_SCOPE_DEFAULT == "shared", got
-    # caller's dict must not be mutated
     assert "scope" not in payload, "override mutated the caller's dict"
 
 
@@ -139,30 +153,61 @@ def test_upsert_node_stamps_default_scope():
 
 
 def test_empty_scope_string_falls_back_to_shared():
-    # a falsy scope on the payload (e.g. "") must not leave the row unscoped
     store = _store()
     asyncio.run(store.upsert_edge("a", "b", {"scope": ""}))
     assert _written_rows(store)[0]["props"].get("scope") == "shared"
 
 
-def test_batch_writes_are_stamped_and_guarded_before_the_merge():
-    """#113: the BATCH entry points (what ainsert_custom_kg calls) stamp scope
-    and run the conflict guard in the same transaction, BEFORE the MERGE."""
+def test_context_write_scope_stamps_both_single_row_entry_points():
+    """The single-row methods (operate.py semantic ingest) must go through the
+    same stamped, conditional batch write as ainsert_custom_kg."""
     from scope_context import reset_write_scope, set_write_scope
 
     store = _store()
     token = set_write_scope("tenant:clinic-a")
     try:
-        asyncio.run(store.upsert_nodes_batch([("n1", {"entity_id": "n1"}), ("n2", {"entity_id": "n2"})]))
-        asyncio.run(store.upsert_edges_batch([("n1", "n2", {"description": "d"})]))
+        asyncio.run(store.upsert_node("n1", {"entity_id": "n1"}))
+        asyncio.run(store.upsert_edge("n1", "n2", {"description": "d"}))
     finally:
         reset_write_scope(token)
-    queries = [q for q, _ in store._driver.log]
-    assert len(queries) == 4, queries                         # guard + write, twice
-    assert "<> row.props.scope" in queries[0] and "MERGE" not in queries[0]
-    assert "MERGE" in queries[1] and "MERGE" in queries[3]
-    for _q, rows in store._driver.log:
-        assert all(r["props"]["scope"] == "tenant:clinic-a" for r in rows)
+    merges = [(q, rows) for q, rows in store._driver.log if "MERGE" in q]
+    assert len(merges) == 2
+    assert all("ON CREATE SET" in q and "applied" in q for q, _ in merges), "write must be the conditional MERGE"
+    assert all(r["props"]["scope"] == "tenant:clinic-a" for _, rows in merges for r in rows)
+    edge_idx = next(i for i, (q, _) in enumerate(store._driver.log) if "-[r:DIRECTED]-" in q)
+    assert "AS conflicts" in store._driver.log[edge_idx - 1][0], "edge endpoint guard must run before the edge MERGE"
+
+
+def test_endpoint_guard_conflict_refuses_before_any_merge():
+    store = _store(conflicts=1)
+    assert _raises_conflict(store.upsert_edges_batch([("a", "b", {})]))
+    assert not [q for q, _ in store._driver.log if "MERGE" in q], "nothing may be merged after a guard refusal"
+
+
+def test_unapplied_rows_in_the_conditional_write_raise():
+    """The in-write check: a row whose stored scope differs is not applied, and
+    the transaction must raise (rolling back) rather than report success."""
+    assert _raises_conflict(_store(unapplied=1).upsert_nodes_batch([("x", {"entity_id": "x"})]))
+    assert _raises_conflict(_store(unapplied=1).upsert_edges_batch([("a", "b", {})]))
+
+
+def test_mixed_scopes_for_one_row_inside_a_batch_are_refused_before_the_database():
+    store = _store()
+    assert _raises_conflict(store.upsert_nodes_batch([
+        ("D", {"entity_id": "D", "scope": "tenant:clinic-a"}), ("D", {"entity_id": "D", "scope": "shared"})]))
+    assert _raises_conflict(store.upsert_edges_batch([
+        ("A", "B", {"scope": "tenant:clinic-a"}), ("B", "A", {"scope": "shared"})]))
+    assert store._driver.log == [], "the batch must be refused before any query"
+    # same id, SAME scope twice is fine (last-wins on properties, as upstream)
+    asyncio.run(_store().upsert_nodes_batch([("D", {"entity_id": "D"}), ("D", {"entity_id": "D"})]))
+
+
+def test_conflict_message_carries_counts_never_identifiers():
+    from scoped_neo4j_storage import ScopeConflictError
+
+    err = ScopeConflictError("node", 2)
+    assert str(err) == "refusing write: 2 node row(s) conflict with an existing row in another scope"
+    assert (err.kind, err.count) == ("node", 2)
 
 
 def test_invalid_write_scope_is_refused_before_any_query():

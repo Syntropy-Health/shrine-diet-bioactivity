@@ -1142,6 +1142,12 @@ async def get_popular_labels(
 # ---------------------------------------------------------------------------
 
 
+_CUSTOM_KG_CONFLICT = (
+    "Write refused: the payload collides with rows that belong to another scope "
+    "(an entity name, an endpoint, or a link that already exists outside your tenant)."
+)
+
+
 @app.post("/documents/custom_kg")
 async def ingest_custom_kg(request: IngestCustomKGRequest) -> dict[str, Any]:
     # Scope validation + tenant requirement happen first so a malformed
@@ -1180,22 +1186,35 @@ async def ingest_custom_kg(request: IngestCustomKGRequest) -> dict[str, Any]:
         # instead (#113). The payload rewrite above stays as belt-and-braces.
         from scoped_neo4j_storage import ScopeConflictError
 
+        # Upstream commits chunks, entities, stubs and edges in SEPARATE
+        # transactions, so a refusal inside a later batch would leave earlier
+        # ones committed. Pre-check the whole request read-only first: a
+        # refusal here really writes nothing (QG, all three reviewers).
+        graph = getattr(_rag, "chunk_entity_relation_graph", None)
+        preflight = getattr(graph, "preflight_custom_kg", None)
+        if preflight is not None:
+            conflicts = await preflight(
+                [e["entity_name"] for e in entities],
+                [(r["src_id"], r["tgt_id"]) for r in relationships],
+                tenant_scope,
+            )
+            if conflicts:
+                # Counts only: conflicting rows may belong to ANOTHER tenant.
+                logger.warning("custom_kg refused for %s: %d conflicting row(s)", tenant_scope, conflicts)
+                raise HTTPException(status_code=409, detail=_CUSTOM_KG_CONFLICT + " Nothing was written.")
+
         write_token = set_write_scope(tenant_scope)
         try:
             await _rag.ainsert_custom_kg(
                 {"entities": entities, "relationships": relationships}
             )
         except ScopeConflictError as e:
-            # The storage message names the conflicting ids AND their current
-            # scope — which may be ANOTHER tenant's. Log it; never return it.
-            logger.warning("custom_kg refused for %s: %s", tenant_scope, e)
+            # Only reachable if the graph changed between the preflight and the
+            # write: the in-transaction guard refused a later batch.
+            logger.warning("custom_kg refused mid-write for %s: %d %s row(s)", tenant_scope, e.count, e.kind)
             raise HTTPException(
                 status_code=409,
-                detail=(
-                    "Write refused: the payload would change the scope of rows that "
-                    "already exist outside your tenant. Rename the colliding "
-                    "entities or link to the existing ones with relationships only."
-                ),
+                detail=_CUSTOM_KG_CONFLICT + " Part of the payload may already have been written.",
             ) from None
         finally:
             reset_write_scope(write_token)

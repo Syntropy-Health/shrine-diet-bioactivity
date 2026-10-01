@@ -64,9 +64,6 @@ from scope_context import DEFAULT_SCOPE, get_scope_filter, get_write_scope, vali
 # writes. Single source of truth so the two paths cannot drift.
 WRITE_SCOPE_DEFAULT: str = DEFAULT_SCOPE[0]
 
-# How many conflicting rows a refusal reports (enough to act on, bounded).
-_CONFLICT_SAMPLE = 5
-
 # Upstream's write retry minus ``ClientError`` (which also covers constraint
 # and syntax errors — retrying those only delays the failure). A
 # ScopeConflictError is a ValueError, so it is never retried either.
@@ -87,30 +84,48 @@ _WRITE_RETRY = retry(
 )
 
 
+class ScopeConflictError(ValueError):
+    """A write would change the scope of an existing row, or touch a row that
+    belongs to a scope outside the writer's.
+
+    The MESSAGE carries counts only: it propagates into upstream's ERROR log
+    (``ainsert_custom_kg`` logs every exception) and conflicting rows may belong
+    to ANOTHER tenant, whose entity names are free text (QG, security P3).
+    """
+
+    def __init__(self, kind: str, count: int) -> None:
+        self.kind = kind
+        self.count = count
+        super().__init__(
+            f"refusing write: {count} {kind} row(s) conflict with an existing row in another scope"
+        )
+
+
 def _stamped(data: dict[str, str]) -> dict[str, str]:
     """A copy of ``data`` carrying a validated ``scope``: the row's own if
     present, else the context write scope. The caller's dict is never mutated."""
     return {**data, "scope": validate_scope(data.get("scope") or get_write_scope())}
 
 
-async def _refuse_on_conflict(tx: Any, guard: str, rows: list[dict[str, Any]], kind: str) -> None:
-    result = await tx.run(guard, rows=rows)
-    conflicts = [r.data() async for r in result]
+def _refuse_mixed_scopes(keys_and_scopes: list[tuple[Any, str]], kind: str) -> None:
+    """Reject a batch naming the same row twice with DIFFERENT scopes: the
+    database guard only sees rows that existed before the batch, so inside one
+    batch the last write would silently win (QG, reviewer-code P3)."""
+    seen: dict[Any, str] = {}
+    clashes = 0
+    for key, scope in keys_and_scopes:
+        if key in seen and seen[key] != scope:
+            clashes += 1
+        seen.setdefault(key, scope)
+    if clashes:
+        raise ScopeConflictError(kind, clashes)
+
+
+async def _count_conflicts(tx: Any, guard: str, **params: Any) -> int:
+    result = await tx.run(guard, **params)
+    record = await result.single()
     await result.consume()
-    if conflicts:
-        sample = ", ".join(f"{c['id']} ({c['existing'] or 'unscoped'} -> {c['incoming']})" for c in conflicts)
-        raise ScopeConflictError(
-            f"refusing write: {kind} would change the scope of existing row(s): {sample}"
-        )
-
-
-class ScopeConflictError(ValueError):
-    """A write would change the scope of an existing node or relationship.
-
-    Raised BEFORE anything in the batch is written (shrine-diet #113): upstream
-    MERGEs on ``entity_id`` alone, so without this a tenant payload naming an
-    existing shared entity overwrote the shared row in place.
-    """
+    return int(record["conflicts"]) if record else 0
 
 
 class ScopedNeo4JStorage(Neo4JStorage):
@@ -145,8 +160,9 @@ class ScopedNeo4JStorage(Neo4JStorage):
     #     already exists under a DIFFERENT scope (a NULL scope counts as
     #     different — fail-closed, matching the boot preflight);
     #   * write: the upstream MERGE, unchanged.
-    # A refused batch writes nothing. ``ScopeConflictError`` is a ValueError,
-    # outside the transient-error retry set, so it is never retried.
+    # A refused TRANSACTION writes nothing; request-level all-or-nothing is
+    # the route's preflight (``preflight_custom_kg``). ``ScopeConflictError`` is
+    # a ValueError, outside the transient-error retry set, so never retried.
     # ------------------------------------------------------------------
     async def upsert_node(self, node_id: str, node_data: dict[str, str]) -> None:
         await self.upsert_nodes_batch([(node_id, node_data)])
@@ -155,6 +171,16 @@ class ScopedNeo4JStorage(Neo4JStorage):
         self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
     ) -> None:
         await self.upsert_edges_batch([(source_node_id, target_node_id, edge_data)])
+
+    # The scope check lives IN the write: ``ON CREATE SET`` the scope, apply
+    # properties only where the stored scope equals the incoming one, and
+    # refuse — rolling the transaction back — if any row was not applied. A
+    # separate read-then-write guard would race a concurrent writer (QG,
+    # code P2) and would be redundant with this. It holds against concurrency
+    # **provided a uniqueness constraint on entity_id exists**; without one,
+    # Neo4j's MERGE can itself create duplicates, which no query shape
+    # prevents. A NULL stored scope never equals anything, so legacy unscoped
+    # rows are refused, not overwritten (fail-closed, like the boot preflight).
 
     @_WRITE_RETRY
     async def upsert_nodes_batch(self, nodes: list[tuple[str, dict[str, str]]]) -> None:
@@ -166,23 +192,22 @@ class ScopedNeo4JStorage(Neo4JStorage):
             if "entity_id" not in node_data:
                 raise ValueError("Neo4j: node properties must contain an 'entity_id' field")
             rows.append({"entity_id": node_id, "props": _stamped(node_data)})
-        guard = (
-            f"UNWIND $rows AS row "
-            f"MATCH (n:`{workspace_label}` {{entity_id: row.entity_id}}) "
-            f"WHERE coalesce(n.scope, '') <> row.props.scope "
-            f"RETURN n.entity_id AS id, n.scope AS existing, row.props.scope AS incoming "
-            f"LIMIT {_CONFLICT_SAMPLE}"
-        )
+        _refuse_mixed_scopes([(r["entity_id"], r["props"]["scope"]) for r in rows], "node")
         write = (
             f"UNWIND $rows AS row "
             f"MERGE (n:`{workspace_label}` {{entity_id: row.entity_id}}) "
-            f"SET n += row.props"
+            f"ON CREATE SET n.scope = row.props.scope "
+            f"WITH n, row, (n.scope = row.props.scope) AS ok "
+            f"FOREACH (_ IN CASE WHEN ok THEN [1] ELSE [] END | SET n += row.props) "
+            f"RETURN sum(CASE WHEN ok THEN 1 ELSE 0 END) AS applied, count(*) AS seen"
         )
 
         async def tx_fn(tx: Any) -> None:
-            await _refuse_on_conflict(tx, guard, rows, "node")
             result = await tx.run(write, rows=rows)
+            record = await result.single()
             await result.consume()
+            if record and record["applied"] != record["seen"]:
+                raise ScopeConflictError("node", record["seen"] - record["applied"])
 
         async with self._driver.session(database=self._DATABASE) as session:
             await session.execute_write(tx_fn)
@@ -193,14 +218,23 @@ class ScopedNeo4JStorage(Neo4JStorage):
             return
         workspace_label = self._get_workspace_label()
         rows = [{"src": src, "tgt": tgt, "props": _stamped(data)} for src, tgt, data in edges]
-        # Upstream MERGEs ONE undirected ``DIRECTED`` relationship per pair, so
-        # an existing relationship in EITHER direction is the one a write lands on.
+        _refuse_mixed_scopes(
+            [(frozenset((r["src"], r["tgt"])), r["props"]["scope"]) for r in rows], "relationship"
+        )
+        # Endpoint guard — the one check the conditional write cannot make: a
+        # row may only touch nodes in {shared, the row's scope}. A tenant must
+        # not hang an edge on another tenant's node (the MERGE would happily
+        # CREATE that edge), and a shared edge must not reference a tenant node
+        # (QG, security P2). Existing-edge scope is enforced by the write below;
+        # upstream MERGEs ONE undirected ``DIRECTED`` relationship per pair, and
+        # the write's undirected MERGE lands on it from either direction.
         guard = (
             f"UNWIND $rows AS row "
-            f"MATCH (a:`{workspace_label}` {{entity_id: row.src}})-[r:DIRECTED]-(b:`{workspace_label}` {{entity_id: row.tgt}}) "
-            f"WHERE coalesce(r.scope, '') <> row.props.scope "
-            f"RETURN row.src + ' - ' + row.tgt AS id, r.scope AS existing, row.props.scope AS incoming "
-            f"LIMIT {_CONFLICT_SAMPLE}"
+            f"MATCH (a:`{workspace_label}` {{entity_id: row.src}}) "
+            f"MATCH (b:`{workspace_label}` {{entity_id: row.tgt}}) "
+            f"WHERE NOT coalesce(a.scope, '') IN ['shared', row.props.scope] "
+            f"   OR NOT coalesce(b.scope, '') IN ['shared', row.props.scope] "
+            f"RETURN count(*) AS conflicts"
         )
         write = (
             f"UNWIND $rows AS row "
@@ -208,16 +242,89 @@ class ScopedNeo4JStorage(Neo4JStorage):
             f"WITH source, row "
             f"MATCH (target:`{workspace_label}` {{entity_id: row.tgt}}) "
             f"MERGE (source)-[r:DIRECTED]-(target) "
-            f"SET r += row.props"
+            f"ON CREATE SET r.scope = row.props.scope "
+            f"WITH r, row, (r.scope = row.props.scope) AS ok "
+            f"FOREACH (_ IN CASE WHEN ok THEN [1] ELSE [] END | SET r += row.props) "
+            f"RETURN sum(CASE WHEN ok THEN 1 ELSE 0 END) AS applied, count(*) AS seen"
         )
 
         async def tx_fn(tx: Any) -> None:
-            await _refuse_on_conflict(tx, guard, rows, "relationship")
+            conflicts = await _count_conflicts(tx, guard, rows=rows)
+            if conflicts:
+                raise ScopeConflictError("relationship", conflicts)
             result = await tx.run(write, rows=rows)
+            record = await result.single()
             await result.consume()
+            if record and record["applied"] != record["seen"]:
+                raise ScopeConflictError("relationship", record["seen"] - record["applied"])
 
         async with self._driver.session(database=self._DATABASE) as session:
             await session.execute_write(tx_fn)
+
+    @READ_RETRY
+    async def has_nodes_batch(self, node_ids: list[str]) -> set[str]:
+        """Existence as seen by the WRITER: only nodes in {shared, write scope}.
+
+        Upstream's version is unscoped, so ``ainsert_custom_kg`` treated another
+        tenant's node as an existing endpoint and hung the new edge on it
+        silently. Filtered, that endpoint is "missing", upstream creates a stub
+        for it, and the node guard refuses the stub (QG, code P3 / security P2).
+        """
+        if not node_ids:
+            return set()
+        workspace_label = self._get_workspace_label()
+        allowed = sorted({"shared", get_write_scope()})
+        async with self._driver.session(
+            database=self._DATABASE, default_access_mode="READ"
+        ) as session:
+            result = await session.run(
+                f"UNWIND $ids AS id MATCH (n:`{workspace_label}` {{entity_id: id}}) "
+                f"WHERE n.scope IN $allowed RETURN DISTINCT n.entity_id AS entity_id",
+                ids=list(node_ids), allowed=allowed,
+            )
+            found = {str(r["entity_id"]) async for r in result}
+            await result.consume()
+        return found
+
+    async def preflight_custom_kg(
+        self,
+        entity_ids: list[str],
+        edge_pairs: list[tuple[str, str]],
+        scope: str,
+    ) -> int:
+        """Count rows a ``custom_kg`` write under ``scope`` would be refused for,
+        WITHOUT writing. The route calls this before ``ainsert_custom_kg`` so a
+        refusal really writes nothing: upstream commits chunks, entities, stubs
+        and edges in separate transactions, so an in-transaction refusal of a
+        LATER batch left earlier ones committed (QG, all three reviewers).
+        In-transaction guards still run; this is the clean-refusal fast path.
+        """
+        validate_scope(scope)
+        workspace_label = self._get_workspace_label()
+        endpoints = sorted({x for pair in edge_pairs for x in pair} - set(entity_ids))
+        query = (
+            f"CALL () {{ "
+            f"  UNWIND $entities AS id MATCH (n:`{workspace_label}` {{entity_id: id}}) "
+            f"  WHERE coalesce(n.scope, '') <> $scope RETURN count(n) AS c "
+            f"  UNION ALL "
+            f"  UNWIND $endpoints AS id MATCH (n:`{workspace_label}` {{entity_id: id}}) "
+            f"  WHERE NOT coalesce(n.scope, '') IN ['shared', $scope] RETURN count(n) AS c "
+            f"  UNION ALL "
+            f"  UNWIND $pairs AS p "
+            f"  MATCH (a:`{workspace_label}` {{entity_id: p[0]}})-[r:DIRECTED]-(b:`{workspace_label}` {{entity_id: p[1]}}) "
+            f"  WHERE coalesce(r.scope, '') <> $scope RETURN count(DISTINCT p) AS c "
+            f"}} RETURN sum(c) AS conflicts"
+        )
+        async with self._driver.session(
+            database=self._DATABASE, default_access_mode="READ"
+        ) as session:
+            result = await session.run(
+                query, entities=list(entity_ids), endpoints=endpoints,
+                pairs=[list(p) for p in edge_pairs], scope=scope,
+            )
+            record = await result.single()
+            await result.consume()
+        return int(record["conflicts"]) if record else 0
 
     # ------------------------------------------------------------------
     # Node reads

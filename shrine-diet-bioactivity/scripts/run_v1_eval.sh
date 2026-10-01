@@ -64,7 +64,7 @@ trap cleanup EXIT INT TERM
 echo "Starting LightRAG scoped_server on :${LIGHTRAG_PORT} (log: $SERVER_LOG)..." >&2
 (
   cd "$ROOT/lightrag" && \
-  exec uvicorn scoped_server:app --host 0.0.0.0 --port "$LIGHTRAG_PORT"
+  exec uvicorn scoped_server:app --host 127.0.0.1 --port "$LIGHTRAG_PORT"  # loopback: the eval client uses localhost; scope is caller-asserted (#113)
 ) >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 echo "Server pid=$SERVER_PID" >&2
