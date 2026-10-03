@@ -77,7 +77,7 @@ STRUCTURED DATA (zero LLM cost):
                                           │ — tenant scoping, audit log │
                                           └──────────────┬──────────────┘
                                                          │
-  LLM Agent ──► kg-mcp Python gateway (mcp/) ──► /query, /graphs, custom_kg
+  LLM Agent ──► kg-mcp Python gateway (mcp/) ──► /query, /graphs, /traverse (read-only)
        │           (FastMCP, 10 tools, streamable-HTTP)
        └─────► TypeScript thin-adapter MCP ──► scoped FastAPI wrapper
                 (shrine-diet-bioactivity/src/, 5 tools)

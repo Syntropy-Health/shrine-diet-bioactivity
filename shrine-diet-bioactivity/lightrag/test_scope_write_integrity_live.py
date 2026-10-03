@@ -234,31 +234,6 @@ def test_one_long_lived_instance_stamps_each_ingest_with_its_own_scope(ws) -> No
         ("tenant:clinic-a", "tenant:clinic-b", "shared")
 
 
-def test_preflight_counts_every_conflict_and_writes_nothing(ws) -> None:
-    """The route's request-level guard: entity redefinition + a link over an
-    existing shared edge + an endpoint in another tenant = 3, nothing written."""
-    _cypher(f"CREATE (:`{ws}` {{entity_id:'B-PRIVATE', scope:'tenant:clinic-b'}})")
-    before = _cypher(f"MATCH (n:`{ws}`) OPTIONAL MATCH (n)-[r]-() RETURN count(DISTINCT n) AS n, count(DISTINCT r) AS r")
-
-    async def run():
-        rag = LightRAG(working_dir=tempfile.mkdtemp(), workspace=ws, graph_storage="ScopedNeo4JStorage",
-                       embedding_func=EmbeddingFunc(embedding_dim=8, max_token_size=512, func=_embed),
-                       llm_model_func=_llm)
-        await rag.initialize_storages()
-        try:
-            graph = rag.chunk_entity_relation_graph
-            bad = await graph.preflight_custom_kg(
-                ["CURCUMIN", "NEW-A"], [("NFKB1", "CURCUMIN"), ("NEW-A", "B-PRIVATE")], TENANT)
-            ok = await graph.preflight_custom_kg(["NEW-A"], [("NEW-A", "CURCUMIN")], TENANT)
-            return bad, ok
-        finally:
-            await rag.finalize_storages()
-    bad, ok = asyncio.run(run())
-    assert (bad, ok) == (3, 0)
-    after = _cypher(f"MATCH (n:`{ws}`) OPTIONAL MATCH (n)-[r]-() RETURN count(DISTINCT n) AS n, count(DISTINCT r) AS r")
-    assert after == before
-
-
 def test_concurrent_writers_of_one_new_id_cannot_both_win_under_a_uniqueness_constraint(ws) -> None:
     """The guard->write race (code reviewer, measured 29/30 duplicates before):
     with the conditional write and a uniqueness constraint, exactly ONE scope

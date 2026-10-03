@@ -145,13 +145,12 @@ def _popular_labels_as_tenant(
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _ingest_shared_as_tenant(
+def _attempt_custom_kg_write(
     server_url: str, tenant_id: str, sentinel_id: str
 ) -> int:
-    """Try to ingest a custom_kg row as ``tenant:<id>`` but with a
-    ``shared`` scope_filter (missing the tenant entry).  The server must
-    refuse with 4xx — this proves tenant callers can't inject into
-    shared.  Returns the HTTP status code actually received.
+    """POST a custom_kg write to the scoped server. The server is read-only
+    ([PRINCIPAL-RULED 2026-10-03]), so the route must not exist and this must
+    404. Returns the HTTP status code actually received.
     """
     body = json.dumps(
         {
@@ -250,21 +249,22 @@ def main() -> int:
         print(f"[canary] /graph/label/popular tenant:{CANARY_TENANT_B} clean ✓")
 
         # ------------------------------------------------------------------
-        # Gate 4 — /documents/custom_kg with shared-only scope must 4xx
-        # (proves tenant callers cannot inject into shared)
+        # Gate 4 — the server has NO write route: /documents/custom_kg must 404
+        # ([PRINCIPAL-RULED 2026-10-03] KG is read-only shared data). A 401/403/409
+        # would mean a write route exists again, even if it refused this payload.
         # ------------------------------------------------------------------
-        ingest_status = _ingest_shared_as_tenant(
+        ingest_status = _attempt_custom_kg_write(
             args.server_url, CANARY_TENANT_B, f"{sentinel_id}-inject"
         )
-        if ingest_status < 400:
+        if ingest_status != 404:
             print(
-                f"[canary] FAIL — /documents/custom_kg allowed shared-write "
-                f"from tenant context (status={ingest_status})",
+                f"[canary] FAIL — /documents/custom_kg is reachable "
+                f"(status={ingest_status}, expected 404 — the server is read-only)",
                 file=sys.stderr,
             )
             return 1
         print(
-            f"[canary] /documents/custom_kg rejects shared-write "
+            f"[canary] /documents/custom_kg absent "
             f"(status={ingest_status}) ✓"
         )
 

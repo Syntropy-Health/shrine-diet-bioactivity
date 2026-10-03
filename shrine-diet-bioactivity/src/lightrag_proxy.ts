@@ -1,6 +1,6 @@
 /**
  * Typed HTTP client for the scoped LightRAG wrapper
- * (`lightrag/scoped_server.py`). All 5 MCP thin-adapter tools fan out
+ * (`lightrag/scoped_server.py`). All MCP thin-adapter tools (read-only) fan out
  * through this module — the MCP server itself owns tenancy + audit and
  * keeps zero retrieval logic of its own.
  *
@@ -8,7 +8,8 @@
  * - `POST /query`           — body: QueryRequest   → QueryResponse
  * - `GET  /graphs`          — query params         → SubgraphResponse
  * - `GET  /graph/label/popular` — query params     → string[]
- * - `POST /documents/custom_kg` — body: IngestReq  → IngestResponse
+ *
+ * No write route: the server is read-only ([PRINCIPAL-RULED 2026-10-03]).
  */
 
 import { z } from 'zod';
@@ -40,15 +41,6 @@ export type SubgraphResponse = z.infer<typeof subgraphResponseSchema>;
 
 export const popularLabelsResponseSchema = z.array(z.string());
 
-export const ingestResponseSchema = z.object({
-  ingested: z.object({
-    entities: z.number().int().nonnegative(),
-    relationships: z.number().int().nonnegative(),
-  }),
-  scope: z.string(),
-});
-export type IngestResponse = z.infer<typeof ingestResponseSchema>;
-
 // ---------------------------------------------------------------------------
 // Request types
 // ---------------------------------------------------------------------------
@@ -72,31 +64,6 @@ export interface GetSubgraphRequest {
 export interface ListPopularLabelsRequest {
   limit?: number;
   scope_filter: string[];
-}
-
-export interface CustomKGEntity {
-  entity_name: string;
-  entity_type: string;
-  description?: string;
-  source_id?: string;
-}
-
-export interface CustomKGRelationship {
-  src_id: string;
-  tgt_id: string;
-  description?: string;
-  keywords?: string;
-  weight?: number;
-  source_id?: string;
-}
-
-export interface IngestCustomKGRequest {
-  scope_filter: string[];
-  custom_kg: {
-    entities: CustomKGEntity[];
-    relationships: CustomKGRelationship[];
-  };
-  source_label?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,15 +134,6 @@ export class LightRagClient {
       `/graph/label/popular?${params.toString()}`,
     );
     return popularLabelsResponseSchema.parse(body);
-  }
-
-  async ingestCustomKG(req: IngestCustomKGRequest): Promise<IngestResponse> {
-    const body = await this.postJson('/documents/custom_kg', {
-      scope_filter: req.scope_filter,
-      custom_kg: req.custom_kg,
-      source_label: req.source_label,
-    });
-    return ingestResponseSchema.parse(body);
   }
 
   // -------------------------------------------------------------------------

@@ -156,57 +156,6 @@ describe('LightRagClient.listPopularLabels', () => {
   });
 });
 
-describe('LightRagClient.ingestCustomKG', () => {
-  it('POSTs /documents/custom_kg with scope_filter + payload', async () => {
-    const stub = makeFetch();
-    stub.setResponse({
-      ingested: { entities: 1, relationships: 0 },
-      scope: 'tenant:clinic-a',
-    });
-    const client = new LightRagClient({
-      baseUrl: 'http://localhost:9621',
-      fetchImpl: stub.fetch,
-    });
-    const result = await client.ingestCustomKG({
-      scope_filter: ['shared', 'tenant:clinic-a'],
-      custom_kg: {
-        entities: [
-          {
-            entity_name: 'LocalHerb',
-            entity_type: 'Herb',
-            description: 'x',
-          },
-        ],
-        relationships: [],
-      },
-      source_label: 'clinic-a-intake',
-    });
-    expect(result.ingested.entities).toBe(1);
-    expect(result.scope).toBe('tenant:clinic-a');
-    const req = stub.getLastRequest()!;
-    expect(req.url).toBe('http://localhost:9621/documents/custom_kg');
-    expect(req.init?.method).toBe('POST');
-    const body = JSON.parse(req.init!.body as string);
-    expect(body.scope_filter).toEqual(['shared', 'tenant:clinic-a']);
-    expect(body.custom_kg.entities[0].entity_name).toBe('LocalHerb');
-  });
-
-  it('propagates 400 on shared-write attempt', async () => {
-    const stub = makeFetch();
-    stub.setResponse({ detail: 'tenant required' }, 400);
-    const client = new LightRagClient({
-      baseUrl: 'http://localhost:9621',
-      fetchImpl: stub.fetch,
-    });
-    await expect(
-      client.ingestCustomKG({
-        scope_filter: ['shared'],
-        custom_kg: { entities: [], relationships: [] },
-      }),
-    ).rejects.toBeInstanceOf(LightRagProxyError);
-  });
-});
-
 describe('LightRagClient baseUrl normalization', () => {
   it('accepts baseUrl with trailing slash', async () => {
     const stub = makeFetch();

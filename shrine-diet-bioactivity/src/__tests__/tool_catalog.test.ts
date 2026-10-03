@@ -24,7 +24,7 @@ function fakeDeps() {
 }
 
 describe('MCP tool catalog', () => {
-  it('registers exactly 5 thin-adapter tools + get-health', () => {
+  it('registers exactly 4 read-only thin-adapter tools + get-health', () => {
     const { client, audit, tmpDir } = fakeDeps();
     const defs = buildToolDefs({ client, audit });
     const names = defs.map((d) => d.name).sort();
@@ -33,11 +33,12 @@ describe('MCP tool catalog', () => {
         'get-entity',
         'get-health',
         'get-subgraph',
-        'ingest-knowledge',
         'list-labels',
         'semantic-search',
       ].sort(),
     );
+    // [PRINCIPAL-RULED 2026-10-03] the KG is read-only: no tool may be a writer.
+    expect(defs.filter((d) => d.readOnlyHint !== true).map((d) => d.name)).toEqual([]);
     rmSync(tmpDir, { recursive: true, force: true });
   });
 

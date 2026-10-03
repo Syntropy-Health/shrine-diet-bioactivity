@@ -22,8 +22,10 @@ For wiring a client, see [`docs/integration-guide.md`](./docs/integration-guide.
 | 2 | `get-entity` | `GET /graphs?max_depth=0` | Single entity by id with full property bag |
 | 3 | `get-subgraph` | `GET /graphs?max_depth=N` | Connected neighborhood, scope-filtered |
 | 4 | `list-labels` | `GET /graph/label/popular` | Ontology shape visible in caller scope |
-| 5 | `ingest-knowledge` | `POST /documents/custom_kg` | Tenant-private write; server forces `scope=tenant:<id>` |
 | — | `get-health` | — | Server status |
+
+All tools are read-only; there is no write tool ([PRINCIPAL-RULED 2026-10-03] the KG
+is shared data written only by the offline ETL).
 
 Every call is scope-filtered (`['shared', 'tenant:<id>']`) via
 `ScopedNeo4JStorage` + a per-request `ContextVar` and emits one audit
@@ -33,7 +35,7 @@ row in `audit/mcp_audit.db`.
 
 ```
   MCP client (agent, IDE, CLI)
-         │  MCP stdio, 5 tools + health
+         │  MCP stdio, 4 tools + health
          ▼
   shrine-diet-bioactivity (Node/TS)
          │  HTTP

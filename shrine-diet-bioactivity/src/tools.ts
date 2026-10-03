@@ -6,13 +6,15 @@
  * culinary reasoning lives in the agent layer — see
  * ``docs/clinical-integration-notes.md``.
  *
- * The 5 primitives are:
+ * The 4 primitives are (read-only):
  *
  *   1. ``semantic-search``   — POST /query, 5 modes, scope-filtered
  *   2. ``get-entity``        — GET /graphs?label&max_depth=0
  *   3. ``get-subgraph``      — GET /graphs?label&max_depth=N&max_nodes=M
  *   4. ``list-labels``       — GET /graph/label/popular?limit=N
- *   5. ``ingest-knowledge``  — POST /documents/custom_kg (tenant-scoped)
+ *
+ * There is no write tool: [PRINCIPAL-RULED 2026-10-03] the KG is read-only
+ * shared data, so the former ``ingest-knowledge`` tenant write tool was removed.
  *
  * Plus ``get-health`` — server-only, no data.
  *
@@ -109,28 +111,6 @@ const GetSubgraphSchema = {
 
 const ListLabelsSchema = {
   limit: z.number().int().min(1).max(1000).optional().default(300),
-};
-
-const CustomKGEntitySchema = z.object({
-  entity_name: z.string().min(1),
-  entity_type: z.string().min(1),
-  description: z.string().optional().default(''),
-  source_id: z.string().optional(),
-});
-
-const CustomKGRelationshipSchema = z.object({
-  src_id: z.string().min(1),
-  tgt_id: z.string().min(1),
-  description: z.string().optional().default(''),
-  keywords: z.string().optional().default(''),
-  weight: z.number().optional().default(1.0),
-  source_id: z.string().optional(),
-});
-
-const IngestKnowledgeSchema = {
-  entities: z.array(CustomKGEntitySchema).default([]),
-  relationships: z.array(CustomKGRelationshipSchema).default([]),
-  source_label: z.string().optional(),
 };
 
 // ---------------------------------------------------------------------------
@@ -309,56 +289,6 @@ export function buildToolDefs(deps: ToolDeps): ToolDef<Record<string, unknown>>[
     },
   };
 
-  const ingestKnowledge: ToolDef<{
-    entities: Array<z.infer<typeof CustomKGEntitySchema>>;
-    relationships: Array<z.infer<typeof CustomKGRelationshipSchema>>;
-    source_label?: string;
-  }> = {
-    name: 'ingest-knowledge',
-    description:
-      'Write tenant-private entities and relationships into the knowledge graph. The server forces scope = tenant:<id> on every row; shared writes go through the offline ETL and are not available here. Requires a tenant_id in _meta.',
-    schema: IngestKnowledgeSchema,
-    title: 'Ingest tenant knowledge',
-    readOnlyHint: false,
-    handler: async (args, meta) => {
-      try {
-        const { scopeFilter, tenantId } = tenantScope(meta);
-        if (tenantId === null) {
-          return errorResult(
-            new Error(
-              'ingest-knowledge requires a tenant_id in _meta; shared writes are not available via MCP',
-            ),
-          );
-        }
-        return await audit.record(
-          {
-            tool: 'ingest-knowledge',
-            scope_filter: scopeFilter,
-            tenant_id: tenantId,
-            query_body: {
-              entity_count: args.entities.length,
-              relationship_count: args.relationships.length,
-              source_label: args.source_label,
-            },
-          },
-          async () => {
-            const result = await client.ingestCustomKG({
-              scope_filter: scopeFilter,
-              custom_kg: {
-                entities: args.entities,
-                relationships: args.relationships,
-              },
-              source_label: args.source_label,
-            });
-            return textResult(result);
-          },
-        );
-      } catch (err) {
-        return errorResult(err);
-      }
-    },
-  };
-
   const getHealth: ToolDef<Record<string, never>> = {
     name: 'get-health',
     description:
@@ -380,7 +310,6 @@ export function buildToolDefs(deps: ToolDeps): ToolDef<Record<string, unknown>>[
     getEntity as unknown as ToolDef<Record<string, unknown>>,
     getSubgraph as unknown as ToolDef<Record<string, unknown>>,
     listLabels as unknown as ToolDef<Record<string, unknown>>,
-    ingestKnowledge as unknown as ToolDef<Record<string, unknown>>,
     getHealth as unknown as ToolDef<Record<string, unknown>>,
   ];
 }

@@ -154,14 +154,13 @@ class ScopedNeo4JStorage(Neo4JStorage):
     # (preflight crash-loop) and in-place overwrite of a shared row by a tenant
     # payload were measured on a real Neo4j. So all four write entry points
     # route through one guarded batch implementation:
-    #   * stamp: explicit row ``scope``, else ``get_write_scope()`` (the tenant
-    #     route sets it; ingest scripts leave the 'shared' default);
+    #   * stamp: explicit row ``scope``, else ``get_write_scope()`` (ingest
+    #     scripts leave the 'shared' default; tests set a tenant explicitly);
     #   * guard: in the SAME write transaction, refuse if any target row
     #     already exists under a DIFFERENT scope (a NULL scope counts as
     #     different — fail-closed, matching the boot preflight);
     #   * write: the upstream MERGE, unchanged.
-    # A refused TRANSACTION writes nothing; request-level all-or-nothing is
-    # the route's preflight (``preflight_custom_kg``). ``ScopeConflictError`` is
+    # A refused TRANSACTION writes nothing. ``ScopeConflictError`` is
     # a ValueError, outside the transient-error retry set, so never retried.
     # ------------------------------------------------------------------
     async def upsert_node(self, node_id: str, node_data: dict[str, str]) -> None:
@@ -285,46 +284,6 @@ class ScopedNeo4JStorage(Neo4JStorage):
             found = {str(r["entity_id"]) async for r in result}
             await result.consume()
         return found
-
-    async def preflight_custom_kg(
-        self,
-        entity_ids: list[str],
-        edge_pairs: list[tuple[str, str]],
-        scope: str,
-    ) -> int:
-        """Count rows a ``custom_kg`` write under ``scope`` would be refused for,
-        WITHOUT writing. The route calls this before ``ainsert_custom_kg`` so a
-        refusal really writes nothing: upstream commits chunks, entities, stubs
-        and edges in separate transactions, so an in-transaction refusal of a
-        LATER batch left earlier ones committed (QG, all three reviewers).
-        In-transaction guards still run; this is the clean-refusal fast path.
-        """
-        validate_scope(scope)
-        workspace_label = self._get_workspace_label()
-        endpoints = sorted({x for pair in edge_pairs for x in pair} - set(entity_ids))
-        query = (
-            f"CALL () {{ "
-            f"  UNWIND $entities AS id MATCH (n:`{workspace_label}` {{entity_id: id}}) "
-            f"  WHERE coalesce(n.scope, '') <> $scope RETURN count(n) AS c "
-            f"  UNION ALL "
-            f"  UNWIND $endpoints AS id MATCH (n:`{workspace_label}` {{entity_id: id}}) "
-            f"  WHERE NOT coalesce(n.scope, '') IN ['shared', $scope] RETURN count(n) AS c "
-            f"  UNION ALL "
-            f"  UNWIND $pairs AS p "
-            f"  MATCH (a:`{workspace_label}` {{entity_id: p[0]}})-[r:DIRECTED]-(b:`{workspace_label}` {{entity_id: p[1]}}) "
-            f"  WHERE coalesce(r.scope, '') <> $scope RETURN count(DISTINCT p) AS c "
-            f"}} RETURN sum(c) AS conflicts"
-        )
-        async with self._driver.session(
-            database=self._DATABASE, default_access_mode="READ"
-        ) as session:
-            result = await session.run(
-                query, entities=list(entity_ids), endpoints=endpoints,
-                pairs=[list(p) for p in edge_pairs], scope=scope,
-            )
-            record = await result.single()
-            await result.consume()
-        return int(record["conflicts"]) if record else 0
 
     # ------------------------------------------------------------------
     # Node reads
