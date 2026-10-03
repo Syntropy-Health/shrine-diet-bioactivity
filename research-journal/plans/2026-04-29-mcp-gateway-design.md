@@ -12,9 +12,9 @@ _Authored 2026-04-29. Companion to Task #12. Tracks the MCP server that the publ
 | `POST /query` | LightRAG `aquery` — natural-language Q&A in 5 modes (local/global/hybrid/naive/mix) | LightRAG → vector + graph |
 | `GET /graphs?label=` | Expand subgraph from a labeled node, depth- and node-bounded | `rag.get_knowledge_graph` |
 | `GET /graph/label/popular` | Top-N entity labels in the workspace | popular-labels chunk |
-| `POST /documents/custom_kg` | Tenant-scoped writes | `rag.ainsert_custom_kg` |
+| ~~`POST /documents/custom_kg`~~ | REMOVED 2026-10-03 — KG is read-only (§7.1) | — |
 
-Every endpoint enforces the `scope_filter` contract (D3): defaults to `["shared"]` for `/query`; required for the read-`/graphs`/popular-labels and write-`/custom_kg` paths.
+Every endpoint enforces the `scope_filter` contract (D3): defaults to `["shared"]` for `/query`; required for the `/graphs` and popular-labels paths. There is no write path (§7.1).
 
 ## 2. Sufficiency for general KG query
 
@@ -154,19 +154,19 @@ Steps 1–3 are scoped_server; steps 4–6 are MCP and panel.
 
 ## 7. What the MCP server is NOT
 
-- **Not a writer** to the publication-scope graph. Writes go through the existing `/documents/custom_kg` endpoint (tenant-scoped only). The MCP shim does not expose write tools.
+- **Not a writer** to the publication-scope graph. The KG is read-only shared data (§7.1): only the offline ETL writes it, and neither the MCP shim nor scoped_server exposes a write path.
 - **Not authenticated** beyond the scoped_server's existing scope filter. Authentication wrapper (per-agent identity, audit attribution) is a separate layer if/when the MCP server is exposed beyond the publication agent.
 - **Not a replacement for `kg_query`.** Layer A's general tool stays — agents that don't know the right traversal use it. Layer B/C are *opinionated* tools, not the only tools.
 
 ### 7.1 Trust boundary — scope is caller-asserted (#113, 2026-10-01)
 
 `scoped_server` does **not** authenticate scope. Reads take `scope_filter` from the
-request and `/documents/custom_kg` takes the tenant from `scope_filter`; both are
-validated for SHAPE (`scope_context.validate_scope`), never for ENTITLEMENT.
+request; it is validated for SHAPE (`scope_context.validate_scope`), never for ENTITLEMENT.
 Tenant isolation therefore rests on one property: **the MCP gateway is
 scoped_server's only client.** In the deployed image `scripts/start_combined.sh`
 binds scoped_server to `127.0.0.1` and only the gateway's `$PORT` is exposed, and the
-gateway exposes no tool that lets a caller choose a scope and no write tool. Note the
+gateway exposes no tool that lets a caller choose a scope and no write tool. Since
+2026-10-03 the server itself has no write route either (below). Note the
 mechanism: only `kg_node_neighborhood` pins `shared` client-side; the other tools send
 no scope and inherit scoped_server's request-model default `["shared"]` — so changing
 that server-side default would silently widen gateway reads. The dev `make lightrag-server`
@@ -174,31 +174,27 @@ target and `scripts/run_v1_eval.sh` now bind loopback too. Anything that changes
 9621, adding a gateway tool that forwards a caller scope, a second in-container
 client — must first move tenant identity into an authenticated principal.
 
-Write integrity (same issue): lightrag-hku 1.5.0 `ainsert_custom_kg` drops the
+**[PRINCIPAL-RULED 2026-10-03] The KG is read-only shared data — no tenant writes.**
+The tenant write route `POST /documents/custom_kg` and the TypeScript adapter's
+`ingest-knowledge` tool were removed, together with the route's read-only preflight
+(`preflight_custom_kg`). Shared rows are written only by the offline ETL
+(`ingest_unified.py`, `ingest_hdi.py`) calling `ainsert_custom_kg` in-process. Tenant
+writes can come back only through a new design that authenticates the tenant first.
+
+Write integrity (same issue, still in force for the ETL): lightrag-hku 1.5.0 `ainsert_custom_kg` drops the
 per-row `scope` and writes through `upsert_nodes_batch`/`upsert_edges_batch`
 (MERGE on `entity_id` alone). `ScopedNeo4JStorage` now stamps every write from the
 write-scope context (`scope_context.set_write_scope`, default `shared`) and, inside each
 write transaction, refuses any write that would change an existing row's scope or hang an
 edge on a node outside `{shared, writer's scope}` (`ScopeConflictError`, count-only
 message). The write itself is conditional, so a concurrent writer cannot slip past the
-check — **provided a uniqueness constraint on `entity_id` exists**; without one, Neo4j's
-MERGE can create duplicates under concurrency regardless of query shape. Adding that
-constraint on Aura is an ops change and is NOT done here. The route runs a read-only
-preflight (`preflight_custom_kg`) so a refused request writes nothing (409).
+check, given the uniqueness constraint on `entity_id` — applied on Aura 2026-10-01 as
+`uniq_entity_id_unified_diet_kg` [PRINCIPAL-RULED, CTO #13159].
 
-**Decisions left open — fail-closed today, policy needed:**
-1. *Name claiming.* Nodes are keyed by `entity_id` across scopes. A tenant that names an
-   entity the shared corpus has not ingested yet (directly, or as a relationship endpoint
-   that becomes a stub) owns that name; a later shared ingest of it is refused and the
-   whole batch fails. Options: namespace tenant ids, do not create tenant stubs, or an
-   `(entity_id, scope)` composite key (a read-model change).
-2. *One link per pair.* Upstream keeps a single undirected `DIRECTED` relationship per node
-   pair, so the first writer of a link between two shared entities claims it for every
-   other tenant and for shared ingest. Options: forbid tenant edges between two shared
-   nodes, or give relationships a per-scope identity.
-3. *Existence oracle.* A 409 tells a tenant that some row with that name — or a link
-   between two named entities — exists outside its scope. Unexploitable while the
-   loopback boundary holds; must be closed before any tenant write path is exposed.
+**Former open decisions — MOOT (2026-10-03).** Name claiming, one link per node
+pair, and the 409 existence oracle all arose only from tenant writes. With the KG
+read-only they no longer apply. If a tenant write path is ever proposed, re-open all
+three before building it (see git history of this section for the original analysis).
 
 ## 8. Trade-off considerations (design-only; not implementation scope)
 

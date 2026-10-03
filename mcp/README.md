@@ -340,7 +340,7 @@ mcp/
 ## Boundary contract
 
 This package never:
-- writes to the KG (use scoped_server's `/documents/custom_kg` for tenant-scoped writes)
+- writes to the KG (the KG is read-only shared data, [PRINCIPAL-RULED 2026-10-03]; only the offline ETL writes it)
 - holds Aura credentials directly (delegates to scoped_server)
 - runs Cypher on its own (Layer B/C tools delegate to typed scoped_server endpoints)
 

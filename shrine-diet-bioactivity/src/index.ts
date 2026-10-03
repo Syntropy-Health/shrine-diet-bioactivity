@@ -2,7 +2,7 @@
 
 /**
  * shrine-diet-bioactivity — thin-adapter MCP over the scoped LightRAG
- * wrapper.  All 5 tools are domain-agnostic pass-throughs; clinical /
+ * wrapper.  All 5 tools are read-only, domain-agnostic pass-throughs; clinical /
  * culinary reasoning lives in the agent layer.
  *
  * Catalog:
@@ -10,7 +10,6 @@
  *   get-entity          GET  /graphs?max_depth=0
  *   get-subgraph        GET  /graphs?max_depth=N
  *   list-labels         GET  /graph/label/popular
- *   ingest-knowledge    POST /documents/custom_kg (tenant-scoped)
  *   get-health          server-only
  *
  * Env:
@@ -25,7 +24,7 @@ import { AuditLog } from './audit_log.js';
 import { LightRagClient } from './lightrag_proxy.js';
 import { buildToolDefs } from './tools.js';
 
-const SERVER_DESCRIPTION = `LightRAG-backed knowledge graph MCP. Exposes 5 domain-agnostic primitives for retrieval and tenant-private ingestion. Every call is scope-filtered (shared + caller tenant) and audit-logged.
+const SERVER_DESCRIPTION = `LightRAG-backed knowledge graph MCP. Exposes 5 read-only, domain-agnostic tools for retrieval; there is no write tool. Every call is scope-filtered (shared + caller tenant) and audit-logged.
 
 Retrieval modes available in semantic-search:
 - local   — entity-focused context
@@ -39,7 +38,6 @@ Tools:
 - get-entity         — single node by id
 - get-subgraph       — connected neighborhood, N hops
 - list-labels        — popular entity labels visible in scope
-- ingest-knowledge   — tenant-private custom_kg write (requires _meta.tenant_id)
 - get-health         — server status`;
 
 class ShrineDietBioactivityMcp {

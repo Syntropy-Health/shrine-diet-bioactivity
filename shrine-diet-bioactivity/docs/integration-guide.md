@@ -30,7 +30,7 @@ scoped LightRAG wrapper (`lightrag/scoped_server.py`). It owns only:
 It carries **zero retrieval logic** of its own. No SQLite. No Cypher.
 Whatever upgrades LightRAG ships, the MCP inherits for free.
 
-**Tool catalog — 5 primitives + health:**
+**Tool catalog — 4 read-only primitives + health:**
 
 | # | Tool | LightRAG route | Purpose |
 |---|---|---|---|
@@ -38,8 +38,12 @@ Whatever upgrades LightRAG ships, the MCP inherits for free.
 | 2 | `get-entity` | `GET /graphs?max_depth=0` | Single entity by id, full property bag |
 | 3 | `get-subgraph` | `GET /graphs?max_depth=N` | Connected neighborhood, scope-filtered |
 | 4 | `list-labels` | `GET /graph/label/popular` | Ontology shape visible in caller scope |
-| 5 | `ingest-knowledge` | `POST /documents/custom_kg` | Tenant-private write; server forces `scope=tenant:<id>` on every row |
 | — | `get-health` | — | Server status, no data |
+
+There is no write tool. [PRINCIPAL-RULED 2026-10-03] the KG is read-only shared
+data; shared rows are written only by the offline ETL (`ingest_unified.py`,
+`ingest_hdi.py`). The former `ingest-knowledge` tool and the scoped server's
+`POST /documents/custom_kg` route were removed.
 
 Design rationale: the old 15-tool catalog baked clinical and culinary
 verbs (`find-functional-foods`, `search-by-bioactivity`,

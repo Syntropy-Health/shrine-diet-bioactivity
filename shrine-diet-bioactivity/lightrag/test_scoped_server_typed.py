@@ -564,89 +564,28 @@ def test_traverse_cypher_embeds_the_shared_seed_predicate(client: TestClient) ->
     assert seed_match_predicate("start") in cypher
 
 
-# ─── POST /documents/custom_kg — write scope + conflict handling (#113) ────
+# ─── The server is read-only: no tenant write route ([PRINCIPAL-RULED 2026-10-03]) ────
 
 
-def _custom_kg_body(entity: str = "TENANT-ONLY", link_to: str | None = None) -> dict[str, Any]:
-    rels = [{"src_id": entity, "tgt_id": link_to}] if link_to else []
-    return {
-        "scope_filter": ["tenant:clinic-a"],
-        "custom_kg": {"entities": [{"entity_name": entity, "entity_type": "Note"}], "relationships": rels},
-    }
-
-
-def _wire(client: TestClient, *, preflight_conflicts: int = 0, ingest=None):
-    from unittest.mock import AsyncMock
-
-    rag = client._fake_rag  # type: ignore[attr-defined]
-    rag.chunk_entity_relation_graph.preflight_custom_kg = AsyncMock(return_value=preflight_conflicts)
-    rag.ainsert_custom_kg = ingest if ingest is not None else AsyncMock()
-    return rag
-
-
-def test_custom_kg_declares_the_tenant_write_scope_and_preflights_the_whole_request(client: TestClient) -> None:
-    from unittest.mock import AsyncMock
-    from scope_context import get_write_scope
-
-    seen: dict[str, str] = {}
-
-    async def _record(_payload):
-        seen["during"] = get_write_scope()
-
-    rag = _wire(client, ingest=AsyncMock(side_effect=_record))
-    resp = client.post("/documents/custom_kg", json=_custom_kg_body(link_to="CURCUMIN"))
-    assert resp.status_code == 200, resp.text
-    assert seen == {"during": "tenant:clinic-a"}
-    rag.chunk_entity_relation_graph.preflight_custom_kg.assert_awaited_once_with(
-        ["TENANT-ONLY"], [("TENANT-ONLY", "CURCUMIN")], "tenant:clinic-a")
-
-
-def test_custom_kg_preflight_conflict_is_a_409_and_nothing_is_ingested(client: TestClient) -> None:
-    rag = _wire(client, preflight_conflicts=2)
-    resp = client.post("/documents/custom_kg", json=_custom_kg_body("PATIENT-X"))
-    assert resp.status_code == 409, resp.text
-    assert "Nothing was written" in resp.text
-    rag.ainsert_custom_kg.assert_not_awaited()
-    for secret in ("PATIENT-X", "tenant:"):
-        assert secret not in resp.text
-
-
-def test_custom_kg_mid_write_conflict_is_a_409_that_admits_a_partial_write(client: TestClient) -> None:
-    from unittest.mock import AsyncMock
-    from scoped_neo4j_storage import ScopeConflictError
-
-    _wire(client, ingest=AsyncMock(side_effect=ScopeConflictError("relationship", 1)))
-    resp = client.post("/documents/custom_kg", json=_custom_kg_body("PATIENT-X"))
-    assert resp.status_code == 409, resp.text
-    assert "may already have been written" in resp.text
-    assert "PATIENT-X" not in resp.text and "tenant:" not in resp.text
-
-
-def test_custom_kg_resets_the_write_scope_on_success_and_on_refusal() -> None:
-    """Falsifiable version (QG test reviewer): TestClient runs the app in another
-    task, so a ContextVar checked from the test thread can never see a leak.
-    Call the endpoint coroutine in ONE context and read the var afterwards."""
-    import asyncio
-    from unittest.mock import AsyncMock, MagicMock
-
+def test_custom_kg_write_route_does_not_exist(client: TestClient) -> None:
+    """The KG is shared, read-only data. A write route that comes back (even one
+    that would refuse) is a tenant write surface, so the path must 404 and no
+    registered route may accept a write on it."""
+    resp = client.post(
+        "/documents/custom_kg",
+        json={"scope_filter": ["tenant:clinic-a"], "custom_kg": {"entities": [], "relationships": []}},
+    )
+    assert resp.status_code == 404, resp.text
     import scoped_server as ss
-    from scoped_neo4j_storage import ScopeConflictError
-    from scope_context import get_write_scope
 
-    async def run(ingest):
-        rag = MagicMock()
-        rag.chunk_entity_relation_graph.preflight_custom_kg = AsyncMock(return_value=0)
-        rag.ainsert_custom_kg = ingest
-        old = ss._rag
-        ss._rag = rag
-        try:
-            try:
-                await ss.ingest_custom_kg(ss.IngestCustomKGRequest(**_custom_kg_body()))
-            except Exception:
-                pass
-            return get_write_scope()
-        finally:
-            ss._rag = old
-
-    assert asyncio.run(run(AsyncMock())) == "shared"
-    assert asyncio.run(run(AsyncMock(side_effect=ScopeConflictError("node", 1)))) == "shared"
+    write_paths = [
+        getattr(r, "path", "")
+        for r in ss.app.routes
+        if set(getattr(r, "methods", None) or ()) & {"POST", "PUT", "PATCH", "DELETE"}
+        and "documents" in getattr(r, "path", "")
+    ]
+    assert write_paths == []
+    # Presence control: the read surface is still registered, so the 404 above
+    # is the write route being gone, not the app failing to build.
+    read_paths = {getattr(r, "path", "") for r in ss.app.routes}
+    assert {"/query", "/graphs", "/traverse", "/health"} <= read_paths
