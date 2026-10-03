@@ -37,7 +37,7 @@
   ],
   "author": "Syntropy Health",
   "license": "ISC",
-  "description": "Thin-adapter MCP over the scoped LightRAG wrapper — 5 domain-agnostic tools for scope-filtered semantic search, graph traversal, and tenant-private knowledge ingestion.",
+  "description": "Thin-adapter MCP over the scoped LightRAG wrapper — 4 read-only domain-agnostic tools + health for scope-filtered semantic search and graph traversal.",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "better-sqlite3": "^13.0.0",

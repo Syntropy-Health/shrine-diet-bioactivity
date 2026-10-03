@@ -35,7 +35,7 @@ row in `audit/mcp_audit.db`.
 
 ```
   MCP client (agent, IDE, CLI)
-         │  MCP stdio, 5 tools + health
+         │  MCP stdio, 4 tools + health
          ▼
   shrine-diet-bioactivity (Node/TS)
          │  HTTP

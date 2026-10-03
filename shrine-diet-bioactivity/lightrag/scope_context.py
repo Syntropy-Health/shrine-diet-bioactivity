@@ -83,9 +83,13 @@ def get_scope_filter() -> list[str]:
 #
 # Upstream ``LightRAG.ainsert_custom_kg`` (lightrag-hku 1.5.0) rebuilds every
 # node/edge dict without the payload's ``scope``, so a scope stamped on the
-# payload never reaches the storage layer. The tenant ingest route therefore
-# declares the scope HERE, and ``ScopedNeo4JStorage``'s write overrides read
-# it. Default is 'shared' — the open-corpus ingest scripts set nothing.
+# payload never reaches the storage layer, so ``ScopedNeo4JStorage``'s write
+# overrides read the scope from HERE. Default is 'shared', and in production it
+# stays 'shared': the offline ETL sets nothing, and since 2026-10-03 there is no
+# tenant write route ([PRINCIPAL-RULED] the KG is read-only shared data).
+# ``set_write_scope`` is kept as a TEST SEAM to drive the #113 cross-scope guard;
+# a new non-test caller would re-introduce tenant writes and needs the
+# authenticated-tenant design first (memo §7.1).
 # ---------------------------------------------------------------------------
 
 _WRITE_SCOPE_VAR: ContextVar[str] = ContextVar("write_scope", default=DEFAULT_SCOPE[0])

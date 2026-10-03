@@ -195,9 +195,10 @@ tenant clinic-northvale sees:   shared ∪ tenant:clinic-northvale
 anonymous / missing tenant:     shared only
 ```
 
-Tenant writes land **exclusively** on `tenant:<id>` — the ingestion API
-refuses to tag writes as `shared` (that's reserved for the shared ETL
-pipelines in `lightrag/ingest_unified.py`).
+There is no tenant write path: [PRINCIPAL-RULED 2026-10-03] the KG is read-only
+shared data. Every row is written `shared` by the offline ETL
+(`lightrag/ingest_unified.py`, `lightrag/ingest_hdi.py`). Tenant scopes in a
+`scope_filter` are still accepted on reads; nothing writes new tenant rows.
 
 ## 7. Enforcement, observability, and the tool catalog — what's live vs planned
 
@@ -207,7 +208,7 @@ pipelines in `lightrag/ingest_unified.py`).
 - `semantic-search` extracts `tenant_id` from `_meta`, validates, and forwards `scope_filter` to `POST /query` on LightRAG.
 - `slugifyClerkOrgId` + `slugifyClerkOrgIdSafe` — shipped in `src/clerkOrgMapping.ts`, 11 test cases.
 - `lightrag/scope_context.py` — per-request `ContextVar[tuple[str, ...]]` with `("shared",)` default + slug validator.
-- `lightrag/scoped_neo4j_storage.py` — `ScopedNeo4JStorage(Neo4JStorage)` subclass overrides 9 read methods to inject `WHERE n.scope IN $scope_filter` (plus matching predicates on edge / endpoint scope). Writes pass through unchanged.
+- `lightrag/scoped_neo4j_storage.py` — `ScopedNeo4JStorage(Neo4JStorage)` subclass overrides 9 read methods to inject `WHERE n.scope IN $scope_filter` (plus matching predicates on edge / endpoint scope). Writes (offline ETL only) are stamped `shared` and refused if they would change an existing row's scope (#113).
 - `lightrag/bootstrap_scope.py` — idempotent one-shot migration: tags every legacy node + relationship with `scope="shared"`, creates scope property indexes, fails closed on residual `NULL`. Run via `make lightrag-bootstrap-scope` (add `-dry-run` to preview).
 - 21 Python + 11 TS unit tests.
 
@@ -270,9 +271,14 @@ Agent-layer composition patterns for clinical verbs
 `get-contraindications`, `get-clinical-context`) live in
 [`clinical-integration-notes.md`](./clinical-integration-notes.md).
 
-## 8. Tenant-only entity types
+## 8. Tenant-only entity types (deferred — no write path)
 
-The ingestion API (Phase 4 of the master PRD) accepts four tenant-scoped
+> **Not live.** [PRINCIPAL-RULED 2026-10-03] the KG is read-only shared data, so no
+> API accepts these types. They are kept as the schema a future, authenticated
+> tenant-write design would start from (see memo §7.1 in
+> `research-journal/plans/2026-04-29-mcp-gateway-design.md`).
+
+The planned tenant ingestion (Phase 4 of the master PRD) defined four tenant-scoped
 entity types that are **not** part of the shared ETL:
 
 | Entity | Meaning |
