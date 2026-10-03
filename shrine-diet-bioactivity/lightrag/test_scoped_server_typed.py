@@ -566,11 +566,29 @@ def test_traverse_cypher_embeds_the_shared_seed_predicate(client: TestClient) ->
 
 # ─── The server is read-only: no tenant write route ([PRINCIPAL-RULED 2026-10-03]) ────
 
+# Every route the server registers, exactly. Reads are served over POST
+# (/query, /traverse, /hdi_check, /bilingual_term), so a method filter cannot
+# separate reads from writes; only an exact allowlist can. A new route of any
+# kind — a write under another path, an upstream LightRAG router, a Mount —
+# must be added here on purpose, where review sees it (QG F1).
+_EXPECTED_ROUTES = {
+    ("Route", "/openapi.json", frozenset({"GET", "HEAD"})),
+    ("Route", "/docs", frozenset({"GET", "HEAD"})),
+    ("Route", "/docs/oauth2-redirect", frozenset({"GET", "HEAD"})),
+    ("Route", "/redoc", frozenset({"GET", "HEAD"})),
+    ("APIRoute", "/health", frozenset({"GET"})),
+    ("APIRoute", "/traverse", frozenset({"POST"})),
+    ("APIRoute", "/hdi_check", frozenset({"POST"})),
+    ("APIRoute", "/bilingual_term", frozenset({"POST"})),
+    ("APIRoute", "/query", frozenset({"POST"})),
+    ("APIRoute", "/graphs", frozenset({"GET"})),
+    ("APIRoute", "/graph/label/popular", frozenset({"GET"})),
+}
+
 
 def test_custom_kg_write_route_does_not_exist(client: TestClient) -> None:
-    """The KG is shared, read-only data. A write route that comes back (even one
-    that would refuse) is a tenant write surface, so the path must 404 and no
-    registered route may accept a write on it."""
+    """The KG is shared, read-only data. The former tenant write route must 404,
+    and the server must register exactly the read surface — nothing else."""
     resp = client.post(
         "/documents/custom_kg",
         json={"scope_filter": ["tenant:clinic-a"], "custom_kg": {"entities": [], "relationships": []}},
@@ -578,14 +596,8 @@ def test_custom_kg_write_route_does_not_exist(client: TestClient) -> None:
     assert resp.status_code == 404, resp.text
     import scoped_server as ss
 
-    write_paths = [
-        getattr(r, "path", "")
+    registered = {
+        (type(r).__name__, getattr(r, "path", ""), frozenset(getattr(r, "methods", None) or ()))
         for r in ss.app.routes
-        if set(getattr(r, "methods", None) or ()) & {"POST", "PUT", "PATCH", "DELETE"}
-        and "documents" in getattr(r, "path", "")
-    ]
-    assert write_paths == []
-    # Presence control: the read surface is still registered, so the 404 above
-    # is the write route being gone, not the app failing to build.
-    read_paths = {getattr(r, "path", "") for r in ss.app.routes}
-    assert {"/query", "/graphs", "/traverse", "/health"} <= read_paths
+    }
+    assert registered == _EXPECTED_ROUTES
