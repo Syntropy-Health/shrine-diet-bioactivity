@@ -74,7 +74,7 @@ infisical_secret = modal.Secret.from_name("kg-mcp-infisical")
 # ─── Infisical fetch helper ───────────────────────────────────────────────
 
 
-INFISICAL_WORKSPACE = "687cab01-ccc1-4789-99a9-1214bd268f2b"
+INFISICAL_WORKSPACE = "589d1e3b-5798-48ea-97c0-2d58086a375b"  # SyntropyHealth App (687cab01 merged in + retired, 2026-10)
 INFISICAL_ENV = "prod"
 INFISICAL_PATH = "/research/shrine-diet-bioactivity"
 REQUIRED_KEYS = (
