@@ -22,7 +22,7 @@ Usage::
     cd shrine-diet-bioactivity/lightrag
     KG_VECTOR_BACKEND=milvus \\
     WORKSPACE=unified_diet_kg \\
-    infisical run --env=prod --path=/mcp/kg/ -- \\
+    infisical run --projectId=589d1e3b-5798-48ea-97c0-2d58086a375b --env=prod --path=/mcp/kg/ -- \\
         python ../scripts/migrate_nano_to_milvus.py \\
             --working-dir ./rag_storage_clinical_embed \\
             --dry-run            # preview counts without writing
