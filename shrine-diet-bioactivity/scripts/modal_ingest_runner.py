@@ -11,7 +11,7 @@ Setup (one-time):
     # credentials from Infisical at runtime, so secrets never live on
     # disk anywhere in the runner image.
     modal secret create kg-mcp-infisical \\
-        INFISICAL_TOKEN=ak-gs3IFfLQcx7Eyo0toi36wQ
+        INFISICAL_TOKEN=<infisical-machine-identity-token>
 
     # Upload the herbal_botanicals.db (≈ 6.3 GB) to the Modal volume.
     # Runs once; subsequent ingestion invocations reuse the volume.
