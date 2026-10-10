@@ -151,7 +151,7 @@ env), not the source of truth.** Updating Infisical alone leaves the old value
 working, which reports as a completed rotation while the credential stays live.
 
 **Location: project `589d1e3b-…`, `prod`, `/research/shrine-diet-bioactivity`** — now the
-only project. **All of this app's secrets live in `589d1e3b`**: the former `687cab01`
+only project. **All of this app's Infisical-stored secrets live in `589d1e3b`**: the former `687cab01`
 project was merged into it and is being retired (CTO #13889, devex #13893, 2026-10).
 The Neo4j and Zilliz values were verified byte-identical across both projects by hash
 before the readers moved. Do not point anything at `687cab01` again.
