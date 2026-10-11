@@ -87,6 +87,9 @@ def _load_config() -> str:
 _VECTOR_BACKEND_MAP = {
     "nano": "NanoVectorDBStorage",
     "milvus": "MilvusVectorDBStorage",
+    # Aura native vector index — where the gemini-embedding-001/1024 vectors live
+    # (#104). ScopedNeo4JVectorStorage is registered in _build_scoped_rag.
+    "neo4j": "ScopedNeo4JVectorStorage",
 }
 
 
@@ -173,6 +176,93 @@ def _apply_zilliz_env_shim(env) -> None:
 # ---------------------------------------------------------------------------
 # LightRAG factory — registers ScopedNeo4JStorage and returns a booted rag
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Query-side embedder + embedding-space check (#104)
+# ---------------------------------------------------------------------------
+
+# Bindings whose embedder is built by embedder_adapters (Gemini). openai/ollama keep
+# the native paths in _build_scoped_rag; 'local' is deliberately included so the
+# router guard can refuse it against the production workspace instead of silently
+# falling through to the OpenRouter embedder.
+_GEMINI_ADAPTER_BINDINGS = frozenset({"vertex", "aistudio", "local"})
+
+# Why semantic /query is disabled, or None. Set at startup by the read-only
+# WorkspaceMeta check; typed routes never consult it.
+_SEMANTIC_DISABLED_REASON: str | None = None
+
+
+def _adapter_embedding_func(binding: str, workspace: str, model: str, dim: int) -> Any:
+    """Return a LightRAG EmbeddingFunc from embedder_adapters, or None for bindings
+    that stay on the native path. ``model``/``dim`` are passed verbatim so the
+    embedder and the WorkspaceMeta check use the same resolved values."""
+    binding = (binding or "").strip().lower()
+    if binding not in _GEMINI_ADAPTER_BINDINGS:
+        return None
+    import embedder_adapters as ea
+
+    ea.assert_binding_allowed_for_workspace(binding, workspace)
+    adapter = ea.make_embedder(binding, model=model, dim=dim)
+    return ea.to_embedding_func(adapter)
+
+
+def _workspace_embedding_problem(rec: Any, model: str, dim: int) -> str | None:
+    """None when WorkspaceMeta matches the query embedder, else a short reason.
+
+    An ABSENT node is a problem too: it means the Aura vectors were never built for
+    this workspace, so a semantic query would search an empty or foreign space.
+    """
+    if rec is None:
+        return f"no WorkspaceMeta for this workspace; query embedder is {model}/{dim}"
+    got_model, got_dim = rec.get("model"), rec.get("dim")
+    if got_model != model or got_dim is None or int(got_dim) != int(dim):
+        return (
+            f"embedding space mismatch: workspace vectors are {got_model}/{got_dim}, "
+            f"query embedder is {model}/{dim}"
+        )
+    return None
+
+
+async def _read_workspace_meta(driver: Any, workspace: str) -> Any:
+    """READ-ONLY lookup of the workspace's embedding binding. Never MERGEs: the
+    gateway must not bind a workspace's embedding space (that is the ingest's job,
+    via lightrag_init.assert_workspace_embedding)."""
+    async with driver.session(default_access_mode="READ") as s:
+        result = await s.run(
+            "MATCH (m:WorkspaceMeta {workspace: $workspace}) "
+            "RETURN m.embedding_model AS model, m.embedding_dim AS dim",
+            workspace=workspace,
+        )
+        rec = await result.single()
+    return None if rec is None else {"model": rec["model"], "dim": rec["dim"]}
+
+
+async def _check_semantic_embedding_space() -> None:
+    """Startup: when the Aura vector backend is selected, refuse semantic /query if
+    the query embedder does not match the workspace's stamped embedding space.
+
+    Disables ONLY /query (503 with the reason). The typed routes do not use
+    embeddings and stay up — a wrong embedder must not take the panel down, and must
+    never serve neighbours from a foreign embedding space either.
+    """
+    global _SEMANTIC_DISABLED_REASON
+    _SEMANTIC_DISABLED_REASON = None
+    if _resolve_vector_storage(os.environ) != "ScopedNeo4JVectorStorage":
+        return
+    workspace = os.environ.get("WORKSPACE", "unified_diet_kg")
+    model = os.environ.get("EMBEDDING_MODEL", "")
+    dim = int(os.environ.get("EMBEDDING_DIM", "1024"))
+    try:
+        rec = await _read_workspace_meta(_get_driver(), workspace)
+    except Exception as e:  # noqa: BLE001 - surface as a disabled reason, never crash boot
+        _SEMANTIC_DISABLED_REASON = f"could not read WorkspaceMeta: {type(e).__name__}"
+    else:
+        _SEMANTIC_DISABLED_REASON = _workspace_embedding_problem(rec, model, dim)
+    if _SEMANTIC_DISABLED_REASON:
+        logger.error("semantic /query DISABLED: %s", _SEMANTIC_DISABLED_REASON)
+    else:
+        logger.info("semantic /query enabled: workspace %s matches %s/%s", workspace, model, dim)
 
 
 async def _build_scoped_rag() -> Any:
@@ -298,6 +388,9 @@ async def _build_scoped_rag() -> Any:
     # Infisical /mcp/kg/. Default ``nano`` preserves prior behaviour.
     _apply_zilliz_env_shim(os.environ)
     vector_storage = _resolve_vector_storage(os.environ)
+    adapter_func = _adapter_embedding_func(
+        os.environ.get("EMBEDDING_BINDING", ""), workspace, embedding_model, embedding_dim
+    )
     if vector_storage == "MilvusVectorDBStorage":
         # Zilliz serverless RPC-perms workaround; see helper docstring.
         _patch_lightrag_milvus_for_zilliz_serverless()
@@ -315,7 +408,8 @@ async def _build_scoped_rag() -> Any:
         llm_model_func=llm_func,
         llm_model_name=llm_model,
         llm_model_kwargs=llm_kwargs,
-        embedding_func=EmbeddingFunc(
+        embedding_func=adapter_func
+        or EmbeddingFunc(
             embedding_dim=embedding_dim,
             max_token_size=8192,
             func=embed_func,
@@ -419,6 +513,7 @@ async def _startup() -> None:
     # Decoupled from LightRAG's internal driver so endpoint correctness
     # doesn't depend on LightRAG's storage internals.
     await _init_neo4j_driver()
+    await _check_semantic_embedding_space()
     logger.info("scoped_server booted (config=%s)", _config_name)
 
 
@@ -894,6 +989,11 @@ async def bilingual_term(request: BilingualTermRequest) -> dict[str, Any]:
 
 @app.post("/query")
 async def query(request: QueryRequest) -> dict[str, Any]:
+    if _SEMANTIC_DISABLED_REASON:
+        raise HTTPException(
+            status_code=503,
+            detail=f"semantic query is disabled: {_SEMANTIC_DISABLED_REASON}",
+        )
     if request.mode not in VALID_MODES:
         raise HTTPException(
             status_code=400,

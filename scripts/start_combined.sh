@@ -3,6 +3,7 @@
 # (FastMCP streamable-http on $PORT). Runs as PID 1 in the Railway container.
 #
 # Lifecycle:
+#   0. Write the Google ADC credential file (#104, scripts/write_adc.sh).
 #   1. Start scoped_server in background.
 #   2. Wait for it to become healthy on :9621/health.
 #   3. Start MCP gateway in foreground bound to $PORT.
@@ -22,6 +23,10 @@ cleanup() {
   fi
 }
 trap cleanup EXIT INT TERM
+
+# --- 0. Google ADC credential file (#104) ---
+# shellcheck source=write_adc.sh
+source "$(dirname "$0")/write_adc.sh"
 
 # ─── 1. Start scoped_server ──────────────────────────────────────────────
 echo "[start_combined] starting scoped_server on :${INTERNAL_PORT}" >&2
