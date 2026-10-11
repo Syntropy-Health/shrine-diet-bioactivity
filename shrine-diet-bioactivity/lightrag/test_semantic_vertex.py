@@ -14,7 +14,7 @@ import re
 import stat
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock
 
 import pytest
@@ -338,8 +338,8 @@ class _FakeLightRAG:
     """Records constructor kwargs; initialize_storages may be told to fail when the
     Aura vector storage is selected (e.g. an index-dimension mismatch)."""
 
-    calls: list[dict[str, Any]] = []
-    fail_on_neo4j_vectors = False
+    calls: ClassVar[list[dict[str, Any]]] = []
+    fail_on_neo4j_vectors: ClassVar[bool] = False
 
     def __init__(self, **kwargs):
         type(self).calls.append(kwargs)
