@@ -41,6 +41,9 @@ def test_deployed_and_enabled_passes() -> None:
         ({"config": "deployed", "semantic": "disabled", "semantic_reason": "embedding space mismatch: x"}, "embedding space mismatch"),
         ({"config": "deployed", "semantic": "off"}, "semantic=off"),
         ({"config": "deployed"}, "semantic="),
+        # Field-collapse regression: an empty semantic must not let the next field
+        # shift into its slot (reviewer MEASURED a false green on this input).
+        ({"config": "deployed", "semantic": "", "semantic_reason": "enabled"}, "semantic="),
     ],
 )
 def test_anything_else_fails_and_names_what_it_saw(scoped, expect) -> None:
@@ -83,5 +86,13 @@ def test_workflow_runs_the_semantic_gate_after_the_health_probe() -> None:
     # answer /health with config=local (root CLAUDE.md: health-200 is not evidence
     # the new process is live), so one read would be a false red.
     assert "for i in" in run and "sleep" in run
+    # The whole retry budget must fit inside the step timeout, or the final
+    # ::error:: naming what the plane reported is lost when the step is killed.
+    import re
+
+    tries = int(re.search(r"seq 1 (\d+)", run).group(1))
+    curl_max = int(re.search(r"curl [^\n]*-m (\d+)", run).group(1))
+    sleep_s = int(re.search(r"sleep (\d+)", run).group(1))
+    assert tries * (curl_max + sleep_s) < gate["timeout-minutes"] * 60
     # The domain reaches bash through env, never by ${{ }} interpolation.
     assert "${{" not in run

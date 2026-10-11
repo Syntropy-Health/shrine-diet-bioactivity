@@ -380,8 +380,8 @@ jobs:
           HEALTH_BASE: ${{ steps.health_check.outputs.url }}
         run: |
           last="semantic gate: no /health response"
-          for i in $(seq 1 30); do
-            body=$(curl -fsS -m 10 "$HEALTH_BASE/health" 2>/dev/null || true)
+          for i in $(seq 1 20); do
+            body=$(curl -fsS -m 5 "$HEALTH_BASE/health" 2>/dev/null || true)
             if out=$(printf '%s' "$body" | scripts/ci/assert_semantic_health.sh); then
               echo "$out"
               exit 0

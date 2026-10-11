@@ -7,25 +7,24 @@
 # Why a runtime check: a Railway service variable overrides the image's
 # `ENV SHRINE_CONFIG=deployed` (measured 2026-10-11: kg-mcp test had
 # SHRINE_CONFIG=local), and no unit test on the Dockerfile can see that.
+#
+# jq makes the decision; bash never splits fields (splitting on whitespace let an
+# empty field shift the next one into its slot — a measured false green).
 set -uo pipefail
 
 body="$(cat)"
-if ! printf '%s' "$body" | jq -e . >/dev/null 2>&1; then
-  echo "semantic gate: /health body is not JSON"
-  exit 1
-fi
-
-read -r cfg sem reason < <(
-  printf '%s' "$body" | jq -r '[
-    (.scoped_server.config // "<missing>"),
-    (.scoped_server.semantic // "<missing>"),
-    (.scoped_server.semantic_reason // "-")
-  ] | map(gsub("\\s+"; "_")) | join(" ")'
-)
-
-if [[ "$cfg" == "deployed" && "$sem" == "enabled" ]]; then
+if printf '%s' "$body" | jq -e '
+    (.scoped_server | type == "object")
+    and .scoped_server.config == "deployed"
+    and .scoped_server.semantic == "enabled"
+  ' >/dev/null 2>&1; then
   echo "semantic gate: OK (config=deployed, semantic=enabled)"
   exit 0
 fi
-echo "semantic gate: FAIL (config=$cfg, semantic=$sem, reason=${reason//_/ })"
+seen="$(printf '%s' "$body" | jq -r '
+    if (.scoped_server | type) == "object" then
+      "config=\(.scoped_server.config // "<missing>"), semantic=\(.scoped_server.semantic // "<missing>"), reason=\(.scoped_server.semantic_reason // "-")"
+    else "no scoped_server object in /health" end
+  ' 2>/dev/null | tr -s '[:space:]' ' ')"
+echo "semantic gate: FAIL (${seen:-/health body is not JSON})"
 exit 1
