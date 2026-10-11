@@ -39,6 +39,8 @@ Production MCP server over the unified diet ⇄ food ⇄ compound ⇄ symptom �
 
 The Railway container is restartable; it holds zero data. All state is in Aura. NCBI enrichment writes flow through the scoped server back to Aura.
 
+**Do not set `SHRINE_CONFIG` as a Railway service variable.** The image's `Dockerfile` `ENV SHRINE_CONFIG` is the single source of truth for which `lightrag/config_<name>.env` profile the scoped server loads. A Railway variable silently overrides it, and nothing fails: the server just boots on the wrong embedder and vector backend. This happened on 2026-10-11 (kg-mcp test carried `SHRINE_CONFIG=local`; #104). Check the active profile with `GET /health` → `scoped_server.config`.
+
 ## Authentication
 
 Every `/mcp*` request requires `Authorization: Bearer <token>`. `/health` is the only public path (Railway healthcheck reaches it without a token).
