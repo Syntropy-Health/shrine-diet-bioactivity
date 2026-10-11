@@ -157,6 +157,9 @@ def client(monkeypatch, tmp_path):
     async def _fake_init_driver():
         ss._neo4j_driver = MagicMock(close=AsyncMock())
 
+    # Pin a profile that does not exist so booting never loads config_local.env
+    # (override=True) into the real os.environ and leaks into later tests.
+    monkeypatch.setenv("SHRINE_CONFIG", "no_such_profile_for_tests")
     monkeypatch.setattr(ss, "_preflight_scope_check", lambda: None)
     monkeypatch.setattr(ss, "_build_scoped_rag", _fake_build)
     monkeypatch.setattr(ss, "_init_neo4j_driver", _fake_init_driver)
@@ -326,3 +329,279 @@ def test_boot_runs_the_workspace_check_and_gates_query(monkeypatch, tmp_path, me
         resp = c.post("/query", json={"query": "curcumin targets", "mode": "local", "scope_filter": ["shared"]})
         assert resp.status_code == want, resp.text
     ss._SEMANTIC_DISABLED_REASON = None
+
+
+# ─── QG round 2: a semantic precondition failure must never take down the typed routes ─
+
+
+class _FakeLightRAG:
+    """Records constructor kwargs; initialize_storages may be told to fail when the
+    Aura vector storage is selected (e.g. an index-dimension mismatch)."""
+
+    calls: list[dict[str, Any]] = []
+    fail_on_neo4j_vectors = False
+
+    def __init__(self, **kwargs):
+        type(self).calls.append(kwargs)
+        self.kwargs = kwargs
+
+    async def initialize_storages(self):
+        if type(self).fail_on_neo4j_vectors and self.kwargs.get("vector_storage") == "ScopedNeo4JVectorStorage":
+            raise RuntimeError("vector index dim mismatch (test)")
+
+    async def finalize_storages(self):
+        return None
+
+
+@pytest.fixture
+def fake_lightrag(monkeypatch):
+    import lightrag
+
+    _FakeLightRAG.calls = []
+    _FakeLightRAG.fail_on_neo4j_vectors = False
+    monkeypatch.setattr(lightrag, "LightRAG", _FakeLightRAG)
+    return _FakeLightRAG
+
+
+def _semantic_env(monkeypatch, tmp_path, **over):
+    creds = tmp_path / "adc.json"
+    creds.write_text("{}")
+    env = {
+        "SHRINE_CONFIG": "no_such_profile_for_tests",
+        "KG_VECTOR_BACKEND": "neo4j",
+        "WORKSPACE": "unified_diet_kg",
+        "EMBEDDING_BINDING": "vertex",
+        "EMBEDDING_MODEL": "gemini-embedding-001",
+        "EMBEDDING_DIM": "1024",
+        "GOOGLE_CLOUD_PROJECT": "test-project",
+        "GOOGLE_APPLICATION_CREDENTIALS": str(creds),
+    }
+    env.update(over)
+    for k, v in env.items():
+        if v is None:
+            monkeypatch.delenv(k, raising=False)
+        else:
+            monkeypatch.setenv(k, v)
+
+
+def test_build_wires_the_adapter_embedder_and_aura_vectors(monkeypatch, tmp_path, fake_lightrag) -> None:
+    import asyncio
+
+    import scoped_server as ss
+
+    _semantic_env(monkeypatch, tmp_path)
+    seen = []
+    sentinel = object()
+
+    def rec(binding, workspace, model, dim):
+        seen.append((binding, workspace, model, dim))
+        return sentinel
+
+    monkeypatch.setattr(ss, "_adapter_embedding_func", rec)
+    monkeypatch.setattr(ss, "_SEMANTIC_DISABLED_REASON", None)
+    asyncio.run(ss._build_scoped_rag())
+    kw = fake_lightrag.calls[-1]
+    assert kw["embedding_func"] is sentinel
+    assert kw["vector_storage"] == "ScopedNeo4JVectorStorage"
+    assert seen == [("vertex", "unified_diet_kg", "gemini-embedding-001", 1024)]
+    from lightrag.kg import STORAGE_IMPLEMENTATIONS
+
+    assert "ScopedNeo4JVectorStorage" in STORAGE_IMPLEMENTATIONS["VECTOR_STORAGE"]["implementations"]
+
+
+def test_build_with_semantic_disabled_never_touches_the_aura_vectors(monkeypatch, tmp_path, fake_lightrag) -> None:
+    import asyncio
+
+    import scoped_server as ss
+
+    _semantic_env(monkeypatch, tmp_path)
+    called = []
+    monkeypatch.setattr(ss, "_adapter_embedding_func", lambda *a: called.append(a))
+    monkeypatch.setattr(ss, "_SEMANTIC_DISABLED_REASON", "embedding space mismatch: test")
+    asyncio.run(ss._build_scoped_rag())
+    assert fake_lightrag.calls[-1]["vector_storage"] == "NanoVectorDBStorage"
+    assert called == []
+
+
+def _boot(monkeypatch, tmp_path, *, meta: Any = None, read_exc: Exception | None = None):
+    from unittest.mock import AsyncMock
+
+    from fastapi.testclient import TestClient
+
+    import scoped_server as ss
+    from audit_log import AuditLog
+
+    async def _fake_init_driver():
+        ss._neo4j_driver = MagicMock(close=AsyncMock())
+
+    reads = []
+
+    async def _fake_read(driver, workspace):
+        reads.append(workspace)
+        if read_exc is not None:
+            raise read_exc
+        return meta
+
+    async def _ping():
+        return True
+
+    monkeypatch.setattr(ss, "_preflight_scope_check", lambda: None)
+    monkeypatch.setattr(ss, "_init_neo4j_driver", _fake_init_driver)
+    monkeypatch.setattr(ss, "_read_workspace_meta", _fake_read)
+    monkeypatch.setattr(ss, "_ping_driver", _ping)
+    monkeypatch.setattr(ss, "_adapter_embedding_func", lambda *a: None)
+    monkeypatch.setattr(ss, "_audit", AuditLog(db_path=tmp_path / "audit.db"))
+    return TestClient(ss.app), reads
+
+
+GOOD_META = {"model": "gemini-embedding-001", "dim": 1024}
+
+
+def test_vector_init_failure_degrades_to_503_instead_of_crashing_boot(monkeypatch, tmp_path, fake_lightrag) -> None:
+    import scoped_server as ss
+
+    _semantic_env(monkeypatch, tmp_path)
+    fake_lightrag.fail_on_neo4j_vectors = True
+    client, _ = _boot(monkeypatch, tmp_path, meta=GOOD_META)
+    with client as c:
+        assert c.get("/health").status_code == 200
+        r = c.post("/query", json={"query": "q", "mode": "local", "scope_filter": ["shared"]})
+        assert r.status_code == 503
+        assert "vector storage failed to initialise" in r.json()["detail"]
+    # Retried without the Aura vectors, so the typed routes have a live rag.
+    assert [k["vector_storage"] for k in fake_lightrag.calls] == ["ScopedNeo4JVectorStorage", "NanoVectorDBStorage"]
+    ss._SEMANTIC_DISABLED_REASON = None
+
+
+def test_workspace_read_error_disables_query_without_leaking_the_message(monkeypatch, tmp_path, fake_lightrag) -> None:
+    import scoped_server as ss
+
+    _semantic_env(monkeypatch, tmp_path)
+    client, _ = _boot(monkeypatch, tmp_path, read_exc=RuntimeError("neo4j+s://user:hunter2@host unreachable"))
+    with client as c:
+        r = c.post("/query", json={"query": "q", "mode": "local", "scope_filter": ["shared"]})
+        assert r.status_code == 503
+        assert "could not read WorkspaceMeta: RuntimeError" in r.json()["detail"]
+        assert "hunter2" not in r.text
+        assert "hunter2" not in c.get("/health").text
+    assert fake_lightrag.calls[-1]["vector_storage"] == "NanoVectorDBStorage"
+    ss._SEMANTIC_DISABLED_REASON = None
+
+
+def test_nano_backend_skips_the_semantic_checks(monkeypatch, tmp_path, fake_lightrag) -> None:
+    import scoped_server as ss
+
+    _semantic_env(monkeypatch, tmp_path, KG_VECTOR_BACKEND="nano", GOOGLE_CLOUD_PROJECT=None)
+    client, reads = _boot(monkeypatch, tmp_path, meta=None)
+    with client as c:
+        assert c.get("/health").json()["semantic"] == "off"
+    assert reads == []
+    assert ss._SEMANTIC_DISABLED_REASON is None
+
+
+@pytest.mark.parametrize(
+    "over,expect",
+    [
+        ({"GOOGLE_CLOUD_PROJECT": None}, "GOOGLE_CLOUD_PROJECT"),
+        ({"GOOGLE_APPLICATION_CREDENTIALS": "/nonexistent/adc.json"}, "credentials"),
+        ({"EMBEDDING_BINDING": "local"}, "not reachable from the deployed gateway"),
+    ],
+)
+def test_embedder_preconditions_disable_semantic_with_a_named_reason(
+    monkeypatch, tmp_path, fake_lightrag, over, expect
+) -> None:
+    import scoped_server as ss
+
+    _semantic_env(monkeypatch, tmp_path, **over)
+    client, _ = _boot(monkeypatch, tmp_path, meta=GOOD_META)
+    with client as c:
+        h = c.get("/health").json()
+        assert h["status"] == "ok"
+        assert h["semantic"] == "disabled"
+        assert expect in h["semantic_reason"]
+    assert fake_lightrag.calls[-1]["vector_storage"] == "NanoVectorDBStorage"
+    ss._SEMANTIC_DISABLED_REASON = None
+
+
+def test_health_reports_semantic_enabled_when_everything_matches(monkeypatch, tmp_path, fake_lightrag) -> None:
+    import scoped_server as ss
+
+    _semantic_env(monkeypatch, tmp_path)
+    client, _ = _boot(monkeypatch, tmp_path, meta=GOOD_META)
+    with client as c:
+        h = c.get("/health").json()
+        assert (h["status"], h["semantic"], h["semantic_reason"]) == ("ok", "enabled", None)
+    assert fake_lightrag.calls[-1]["vector_storage"] == "ScopedNeo4JVectorStorage"
+    ss._SEMANTIC_DISABLED_REASON = None
+
+
+def test_malformed_workspace_dim_is_a_reason_not_a_crash() -> None:
+    import scoped_server as ss
+
+    problem = ss._workspace_embedding_problem({"model": "gemini-embedding-001", "dim": "not-a-number"}, "gemini-embedding-001", 1024)
+    assert problem is not None and "not-a-number" in problem
+
+
+# ─── boot script + image wiring (static) ──────────────────────────────────
+
+
+def _code_lines(path: Path) -> list[str]:
+    return [ln.strip() for ln in path.read_text().splitlines() if ln.strip() and not ln.strip().startswith("#")]
+
+
+def test_boot_script_sources_adc_before_uvicorn_and_hides_it_from_the_gateway() -> None:
+    lines = _code_lines(REPO_ROOT / "scripts" / "start_combined.sh")
+    src = next(i for i, ln in enumerate(lines) if ln.startswith("source ") and "write_adc.sh" in ln)
+    uvi = next(i for i, ln in enumerate(lines) if ln.startswith("uvicorn scoped_server:app"))
+    gw = next(i for i, ln in enumerate(lines) if ln.startswith("exec python -m kg_mcp.server"))
+    unset = next(i for i, ln in enumerate(lines) if ln == "unset GOOGLE_APPLICATION_CREDENTIALS")
+    assert src < uvi < unset < gw
+    dockerfile = _code_lines(REPO_ROOT / "Dockerfile")
+    assert "COPY scripts/write_adc.sh /app/write_adc.sh" in dockerfile
+    assert "COPY scripts/start_combined.sh /app/start_combined.sh" in dockerfile
+
+
+def test_deployed_profile_pins_destructive_index_recreate_off() -> None:
+    env = _env_file("config_deployed.env")
+    # Empty overrides any inherited =1 (override=True); the storage treats "" as off.
+    assert env.get("VECTOR_INDEX_ALLOW_RECREATE", None) == ""
+
+
+def test_loading_the_deployed_profile_keeps_railway_values(monkeypatch) -> None:
+    import scoped_server as ss
+
+    saved = dict(os.environ)
+    try:
+        for k, v in {
+            "SHRINE_CONFIG": "deployed",
+            "NEO4J_URI": "neo4j+s://fake-host:7687",
+            "NEO4J_USERNAME": "fake-user",
+            "NEO4J_PASSWORD": "fake-pass",
+            "OPENROUTER_API_KEY": "fake-or-key",
+            "GOOGLE_CLOUD_PROJECT": "fake-project",
+            "VECTOR_INDEX_ALLOW_RECREATE": "1",
+        }.items():
+            os.environ[k] = v
+        os.environ.pop("NEO4J_DATABASE", None)
+        assert ss._load_config() == "deployed"
+        assert os.environ["NEO4J_URI"] == "neo4j+s://fake-host:7687"
+        assert os.environ["GOOGLE_CLOUD_PROJECT"] == "fake-project"
+        assert os.environ["LLM_BINDING_API_KEY"] == "fake-or-key"
+        assert os.environ["NEO4J_DATABASE"] == "neo4j"
+        assert os.environ["EMBEDDING_BINDING"] == "vertex"
+        assert os.environ["VECTOR_INDEX_ALLOW_RECREATE"] == ""
+        assert ss._resolve_vector_storage(os.environ) == "ScopedNeo4JVectorStorage"
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
+
+def test_adc_json_is_dropped_even_when_a_preset_path_wins(tmp_path) -> None:
+    preset = tmp_path / "preset.json"
+    preset.write_text("{}")
+    r = _run_adc(
+        {"GOOGLE_APPLICATION_CREDENTIALS": str(preset), "GOOGLE_APPLICATION_CREDENTIALS_JSON": SECRET}, tmp_path
+    )
+    assert r.returncode == 0, r.stderr
+    assert "JSON_LEFT=\n" in r.stdout + "\n"
+    assert not list(tmp_path.glob("adc.*"))

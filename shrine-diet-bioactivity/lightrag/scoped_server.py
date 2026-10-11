@@ -216,7 +216,11 @@ def _workspace_embedding_problem(rec: Any, model: str, dim: int) -> str | None:
     if rec is None:
         return f"no WorkspaceMeta for this workspace; query embedder is {model}/{dim}"
     got_model, got_dim = rec.get("model"), rec.get("dim")
-    if got_model != model or got_dim is None or int(got_dim) != int(dim):
+    try:
+        dim_matches = got_dim is not None and int(got_dim) == int(dim)
+    except (TypeError, ValueError):
+        dim_matches = False
+    if got_model != model or not dim_matches:
         return (
             f"embedding space mismatch: workspace vectors are {got_model}/{got_dim}, "
             f"query embedder is {model}/{dim}"
@@ -238,13 +242,15 @@ async def _read_workspace_meta(driver: Any, workspace: str) -> Any:
     return None if rec is None else {"model": rec["model"], "dim": rec["dim"]}
 
 
-async def _check_semantic_embedding_space() -> None:
-    """Startup: when the Aura vector backend is selected, refuse semantic /query if
-    the query embedder does not match the workspace's stamped embedding space.
+async def _check_semantic_preconditions() -> None:
+    """Startup, BEFORE the rag is built: decide whether semantic /query may use the
+    Aura vectors. When it may not, _build_scoped_rag falls back to the local vector
+    store, so nothing on the semantic path can crash boot or touch the Aura index.
 
-    Disables ONLY /query (503 with the reason). The typed routes do not use
-    embeddings and stay up — a wrong embedder must not take the panel down, and must
-    never serve neighbours from a foreign embedding space either.
+    Disables ONLY /query (503 with the reason, also reported on /health). The
+    typed routes do not use embeddings and stay up: a misconfigured embedder must
+    not take the panel down, and must never serve neighbours from a foreign space.
+    Reasons carry names and exception TYPES only, never exception messages.
     """
     global _SEMANTIC_DISABLED_REASON
     _SEMANTIC_DISABLED_REASON = None
@@ -253,16 +259,44 @@ async def _check_semantic_embedding_space() -> None:
     workspace = os.environ.get("WORKSPACE", "unified_diet_kg")
     model = os.environ.get("EMBEDDING_MODEL", "")
     dim = int(os.environ.get("EMBEDDING_DIM", "1024"))
-    try:
-        rec = await _read_workspace_meta(_get_driver(), workspace)
-    except Exception as e:  # noqa: BLE001 - surface as a disabled reason, never crash boot
-        _SEMANTIC_DISABLED_REASON = f"could not read WorkspaceMeta: {type(e).__name__}"
-    else:
-        _SEMANTIC_DISABLED_REASON = _workspace_embedding_problem(rec, model, dim)
-    if _SEMANTIC_DISABLED_REASON:
-        logger.error("semantic /query DISABLED: %s", _SEMANTIC_DISABLED_REASON)
+    reason = _embedder_problem(os.environ.get("EMBEDDING_BINDING", ""), workspace)
+    if reason is None:
+        try:
+            rec = await _read_workspace_meta(_get_driver(), workspace)
+            reason = _workspace_embedding_problem(rec, model, dim)
+        except Exception as e:  # noqa: BLE001 - a reason, never a crash
+            reason = f"could not read WorkspaceMeta: {type(e).__name__}"
+    _SEMANTIC_DISABLED_REASON = reason
+    if reason:
+        logger.error("semantic /query DISABLED: %s", reason)
     else:
         logger.info("semantic /query enabled: workspace %s matches %s/%s", workspace, model, dim)
+
+
+def _embedder_problem(binding: str, workspace: str) -> str | None:
+    """Why the configured query embedder cannot run here, or None. Checked up front
+    so a missing project, credential or package becomes a reason, not a boot crash
+    or a 500 at first query."""
+    binding = (binding or "").strip().lower()
+    if binding not in _GEMINI_ADAPTER_BINDINGS:
+        return None
+    import embedder_adapters as ea
+
+    if workspace in ea.PRODUCTION_WORKSPACES and binding not in ea.HOSTED_BINDINGS:
+        return f"embedder binding {binding!r} is not reachable from the deployed gateway"
+    if binding == "vertex":
+        # No default project is assumed: a fallback would silently target a real
+        # GCP project (root CLAUDE.md: never default a real external resource).
+        if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+            return "GOOGLE_CLOUD_PROJECT is not set (no default project is assumed)"
+        creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+        if not creds or not os.path.isfile(creds) or not os.access(creds, os.R_OK):
+            return "service-account credentials not found (GOOGLE_APPLICATION_CREDENTIALS unset or unreadable)"
+        try:
+            import google.genai  # noqa: F401
+        except ImportError:
+            return "google-genai is not installed"
+    return None
 
 
 async def _build_scoped_rag() -> Any:
@@ -388,8 +422,16 @@ async def _build_scoped_rag() -> Any:
     # Infisical /mcp/kg/. Default ``nano`` preserves prior behaviour.
     _apply_zilliz_env_shim(os.environ)
     vector_storage = _resolve_vector_storage(os.environ)
-    adapter_func = _adapter_embedding_func(
-        os.environ.get("EMBEDDING_BINDING", ""), workspace, embedding_model, embedding_dim
+    if vector_storage == "ScopedNeo4JVectorStorage" and _SEMANTIC_DISABLED_REASON:
+        # Semantic /query is off: never open (or create, or drop) the Aura vector
+        # index from this process. The typed routes still get a working rag.
+        vector_storage = "NanoVectorDBStorage"
+    adapter_func = (
+        None
+        if vector_storage != "ScopedNeo4JVectorStorage"
+        else _adapter_embedding_func(
+            os.environ.get("EMBEDDING_BINDING", ""), workspace, embedding_model, embedding_dim
+        )
     )
     if vector_storage == "MilvusVectorDBStorage":
         # Zilliz serverless RPC-perms workaround; see helper docstring.
@@ -490,6 +532,9 @@ class QueryRequest(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     config: str
+    # #104: "enabled" | "disabled" | "off" (local vector store, no semantic check)
+    semantic: str = "off"
+    semantic_reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -505,15 +550,25 @@ _config_name: str = "unknown"
 
 @app.on_event("startup")
 async def _startup() -> None:
-    global _rag, _config_name
+    global _rag, _config_name, _SEMANTIC_DISABLED_REASON
     _config_name = _load_config()
     _preflight_scope_check()
-    _rag = await _build_scoped_rag()
     # Build a dedicated async Neo4j driver for typed endpoints (DI source).
     # Decoupled from LightRAG's internal driver so endpoint correctness
     # doesn't depend on LightRAG's storage internals.
     await _init_neo4j_driver()
-    await _check_semantic_embedding_space()
+    await _check_semantic_preconditions()
+    try:
+        _rag = await _build_scoped_rag()
+    except (Exception, SystemExit) as e:
+        if _SEMANTIC_DISABLED_REASON or _resolve_vector_storage(os.environ) != "ScopedNeo4JVectorStorage":
+            raise
+        # The Aura vector storage or the embedder failed to come up (e.g. an index
+        # dimension mismatch): disable semantic /query and rebuild without it, so
+        # the typed routes stay up.
+        _SEMANTIC_DISABLED_REASON = f"vector storage failed to initialise: {type(e).__name__}"
+        logger.error("semantic /query DISABLED: %s", _SEMANTIC_DISABLED_REASON)
+        _rag = await _build_scoped_rag()
     logger.info("scoped_server booted (config=%s)", _config_name)
 
 
@@ -589,7 +644,13 @@ async def health() -> HealthResponse:
     """Health check — proxies Aura liveness so green ⇒ end-to-end reachable."""
     if not await _ping_driver():
         raise HTTPException(status_code=503, detail="Neo4j driver not healthy")
-    return HealthResponse(status="ok", config=_config_name)
+    if _resolve_vector_storage(os.environ) != "ScopedNeo4JVectorStorage":
+        semantic = "off"
+    else:
+        semantic = "disabled" if _SEMANTIC_DISABLED_REASON else "enabled"
+    return HealthResponse(
+        status="ok", config=_config_name, semantic=semantic, semantic_reason=_SEMANTIC_DISABLED_REASON
+    )
 
 
 # ---------------------------------------------------------------------------
