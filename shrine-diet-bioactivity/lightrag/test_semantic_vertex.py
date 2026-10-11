@@ -227,6 +227,7 @@ def test_the_image_boots_the_deployed_profile_and_ships_the_genai_client() -> No
 
 # ─── ADC credential file at boot ───────────────────────────────────────────
 
+# synthetic fixture: not a real key (fake 3-char body), shaped like a service-account JSON
 SECRET = '{"type":"service_account","private_key":"-----BEGIN PRIVATE KEY-----\\nZZZ\\n-----END PRIVATE KEY-----\\n","client_email":"kg@x.iam.gserviceaccount.com"}'
 
 
