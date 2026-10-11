@@ -61,6 +61,11 @@ export MCP_HOST="0.0.0.0"
 export MCP_PORT="$EXTERNAL_PORT"
 export MCP_TRANSPORT="${MCP_TRANSPORT:-streamable-http}"
 
+# The gateway does not use Google credentials: only scoped_server (already
+# started above, with the path in its env) embeds. Keep the key path out of the
+# internet-facing process.
+unset GOOGLE_APPLICATION_CREDENTIALS
+
 cd /app
 echo "[start_combined] starting MCP gateway (transport=$MCP_TRANSPORT) on :${EXTERNAL_PORT}" >&2
 exec python -m kg_mcp.server

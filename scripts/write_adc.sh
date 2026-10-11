@@ -5,9 +5,10 @@
 # GOOGLE_APPLICATION_CREDENTIALS at it, and drop the raw JSON from the environment
 # so child processes and crash dumps do not carry the key twice.
 #
-# Never echoes the value. A preset GOOGLE_APPLICATION_CREDENTIALS wins (local dev,
-# gcloud ADC). With neither set this is a no-op and the Vertex embedder fails loudly
-# at first use, which scoped_server surfaces as a disabled semantic /query.
+# Never echoes the value. A preset GOOGLE_APPLICATION_CREDENTIALS wins (local dev).
+# With neither set this is a no-op; scoped_server then finds no readable credential
+# file at boot and disables semantic /query (503, reason on /health) while the typed
+# routes stay up. start_combined.sh unsets the path before starting the gateway.
 if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS_JSON:-}" && -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]]; then
   _adc_file="$(umask 077 && mktemp "${TMPDIR:-/tmp}/adc.XXXXXX")"
   printf '%s' "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > "$_adc_file"
