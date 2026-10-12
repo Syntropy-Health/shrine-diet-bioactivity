@@ -16,6 +16,11 @@ on:
     paths:
       - 'mcp/**'
       - 'shrine-diet-bioactivity/lightrag/tests/**'
+      # The scoped server and its contract tests live at the lightrag root (#121):
+      - 'shrine-diet-bioactivity/lightrag/*.py'
+      - 'shrine-diet-bioactivity/lightrag/*.env'
+      - 'shrine-diet-bioactivity/lightrag/requirements.txt'
+      - 'scripts/ci/**'
       - '.github/workflows/mcp-ci.yml'
       - 'scripts/test_coverage_ratio.py'
   push:
@@ -26,6 +31,43 @@ permissions:
   contents: read
 
 jobs:
+  # #121: the scoped server's /query + /health contract (synthesis failures are a
+  # 502, never a 200 "None"; retrieval-only is labelled; the location split). These
+  # tests sit at the lightrag root, where no job ran them before.
+  scoped-server-contract:
+    name: Scoped server contract (synthesis / health / bindings)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'  # the image's Python (Dockerfile)
+          cache: 'pip'
+
+      - name: Install the scoped server's requirements
+        run: pip install -r shrine-diet-bioactivity/lightrag/requirements.txt pytest httpx
+
+      - name: Contract tests (hermetic — no network, no Neo4j, no Vertex)
+        # The lightrag/ directory has an __init__.py, so pytest run from inside it
+        # imports the LOCAL dir as `lightrag` and shadows the installed framework.
+        # Link the files into a differently-named dir and run from there.
+        run: |
+          H="$RUNNER_TEMP/scoped"
+          mkdir -p "$H"
+          for f in "$GITHUB_WORKSPACE"/shrine-diet-bioactivity/lightrag/*.py \
+                   "$GITHUB_WORKSPACE"/shrine-diet-bioactivity/lightrag/*.env \
+                   "$GITHUB_WORKSPACE"/shrine-diet-bioactivity/lightrag/*.txt; do
+            ln -s "$f" "$H/"
+          done
+          cd "$H"
+          python -m pytest -q -p no:cacheprovider -m unit \
+            test_llm_synthesis.py test_semantic_vertex.py test_make_llm_func.py
+
   functional-integration:
     name: Functional + Integration (KG MCP gateway)
     runs-on: ubuntu-latest

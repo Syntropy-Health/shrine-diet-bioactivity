@@ -1,5 +1,6 @@
 """#104 runtime pin: after a deploy, the gateway's /health must report that the
-scoped server loaded the DEPLOYED profile and that semantic /query is enabled.
+scoped server loaded the DEPLOYED profile, that semantic /query is enabled, and
+(#121) that answer synthesis works (``llm == "ok"``).
 
 The unit test on the Dockerfile line cannot see a Railway service variable that
 overrides SHRINE_CONFIG (measured 2026-10-11: kg-mcp test had SHRINE_CONFIG=local),
@@ -30,8 +31,9 @@ def _health(**scoped) -> str:
 
 
 def test_deployed_and_enabled_passes() -> None:
-    r = _run(_health(config="deployed", semantic="enabled", semantic_reason=None))
+    r = _run(_health(config="deployed", semantic="enabled", semantic_reason=None, llm="ok"))
     assert r.returncode == 0, r.stdout + r.stderr
+    assert "llm=ok" in r.stdout
 
 
 @pytest.mark.parametrize(
@@ -44,6 +46,17 @@ def test_deployed_and_enabled_passes() -> None:
         # Field-collapse regression: an empty semantic must not let the next field
         # shift into its slot (reviewer MEASURED a false green on this input).
         ({"config": "deployed", "semantic": "", "semantic_reason": "enabled"}, "semantic="),
+        # #121 / #14271: retrieval works but the LLM cannot synthesize. This is the
+        # plane that answered kg_query with a 200 "None"; it must grade RED.
+        (
+            {"config": "deployed", "semantic": "enabled", "llm": "failing", "llm_reason": "ClientError"},
+            "llm=failing, llm_reason=ClientError",
+        ),
+        # Retrieval-only is an explicit fallback, not a synthesizing plane (#14009 item 2).
+        ({"config": "deployed", "semantic": "enabled", "llm": "disabled"}, "llm=disabled"),
+        ({"config": "deployed", "semantic": "enabled", "llm": "untested"}, "llm=untested"),
+        # A pre-#121 container (no llm field) still answering during a rolling deploy.
+        ({"config": "deployed", "semantic": "enabled"}, "llm=<missing>"),
     ],
 )
 def test_anything_else_fails_and_names_what_it_saw(scoped, expect) -> None:
@@ -96,3 +109,16 @@ def test_workflow_runs_the_semantic_gate_after_the_health_probe() -> None:
     assert tries * (curl_max + sleep_s) < gate["timeout-minutes"] * 60
     # The domain reaches bash through env, never by ${{ }} interpolation.
     assert "${{" not in run
+
+
+def test_ci_runs_the_scoped_server_contract_tests() -> None:
+    """#121 review F18: the synthesis-contract tests sit at the lightrag root, which
+    no CI job used to run, so a regression in scoped_server.py shipped untested."""
+    ci = yaml.safe_load((REPO_ROOT / ".github/workflows/mcp-ci.yml").read_text())
+    on = ci.get("on", ci.get(True))
+    paths = on["pull_request"]["paths"]
+    assert "shrine-diet-bioactivity/lightrag/*.py" in paths
+    assert "scripts/ci/**" in paths
+    run = "\n".join(s.get("run", "") for s in ci["jobs"]["scoped-server-contract"]["steps"])
+    for f in ("test_llm_synthesis.py", "test_semantic_vertex.py"):
+        assert f in run

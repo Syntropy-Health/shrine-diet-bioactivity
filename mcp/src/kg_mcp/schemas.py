@@ -21,7 +21,16 @@ class KgQueryInput(BaseModel):
 
 class KgQueryOutput(BaseModel):
     answer: str
-    references: list[str] = Field(default_factory=list, description="entity_ids cited in answer")
+    # #121: "synthesized" (LLM answer over retrieved context), "retrieval_only"
+    # (LLM_BINDING=none: `answer` is the retrieved context, NOT an answer) or
+    # "no_context" (nothing in scope was retrieved). "unknown" = an older scoped server.
+    answer_mode: Literal["synthesized", "retrieval_only", "no_context", "unknown"] = "unknown"
+    references: list[str] = Field(
+        default_factory=list, description="entity_ids in the retrieved context the answer was built from"
+    )
+    retrieval: dict[str, int] = Field(
+        default_factory=dict, description="counts of retrieved entities / relationships / chunks"
+    )
     scope_filter: list[str] = Field(default_factory=lambda: ["shared"])
     bt_span_id: str | None = Field(default=None, description="Braintrust span UUID for provenance; null when tracing is disabled")
 

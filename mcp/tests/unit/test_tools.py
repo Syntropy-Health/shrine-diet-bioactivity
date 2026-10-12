@@ -63,6 +63,36 @@ async def test_kg_query_maps_response_to_output(fake_client):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["synthesized", "retrieval_only", "no_context"])
+async def test_kg_query_relays_answer_mode_and_retrieval_counts(fake_client, mode):
+    # #121: a retrieval-only body must stay visibly distinct from an answer.
+    fake_client.query.return_value = {
+        "response": "x",
+        "answer_mode": mode,
+        "references": ["Curcumin"],
+        "retrieval": {"entities": 3, "relationships": 2, "chunks": 20},
+    }
+    out = await kg_query(fake_client, KgQueryInput(question="curcumin targets"))
+    assert out.answer_mode == mode
+    assert out.retrieval == {"entities": 3, "relationships": 2, "chunks": 20}
+
+
+@pytest.mark.asyncio
+async def test_kg_query_from_an_older_scoped_server_reports_unknown_mode(fake_client):
+    fake_client.query.return_value = {"response": "x"}
+    out = await kg_query(fake_client, KgQueryInput(question="q"))
+    assert out.answer_mode == "unknown"
+    assert out.retrieval == {}
+
+
+@pytest.mark.asyncio
+async def test_kg_query_degrades_an_unrecognised_answer_mode_to_unknown(fake_client):
+    fake_client.query.return_value = {"response": "x", "answer_mode": "future_mode"}
+    out = await kg_query(fake_client, KgQueryInput(question="q"))
+    assert out.answer_mode == "unknown" and out.answer == "x"
+
+
+@pytest.mark.asyncio
 async def test_kg_query_passes_mode_and_top_k(fake_client):
     fake_client.query.return_value = {"response": ""}
     await kg_query(fake_client, KgQueryInput(question="x", mode="local", top_k=5))

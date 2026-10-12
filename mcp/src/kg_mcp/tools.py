@@ -39,6 +39,15 @@ DEFAULT_SCOPE_FILTER: tuple[str, ...] = ("shared",)
 
 # ─── Layer A — General Q&A ────────────────────────────────────────────────
 
+_ANSWER_MODES = {"synthesized", "retrieval_only", "no_context"}
+
+
+def _answer_mode(value: Any) -> str:
+    """A mode this gateway doesn't know (a newer scoped server) degrades to
+    "unknown" rather than failing the whole tool call on a valid 200."""
+    return value if value in _ANSWER_MODES else "unknown"
+
+
 
 async def kg_query(client: ScopedServerClient, args: KgQueryInput) -> KgQueryOutput:
     """Natural-language Q&A. Default fallback when no role-prior fits."""
@@ -52,7 +61,9 @@ async def kg_query(client: ScopedServerClient, args: KgQueryInput) -> KgQueryOut
             raw = await client.query(args.question, mode=args.mode, top_k=args.top_k)
             result = KgQueryOutput(
                 answer=raw.get("response", ""),
+                answer_mode=_answer_mode(raw.get("answer_mode")),
                 references=list(raw.get("references", [])),
+                retrieval=dict(raw.get("retrieval") or {}),
                 scope_filter=list(raw.get("scope_filter", ["shared"])),
                 bt_span_id=span_id(span),
             )
@@ -64,6 +75,7 @@ async def kg_query(client: ScopedServerClient, args: KgQueryInput) -> KgQueryOut
                     "top_k": args.top_k,
                     "answer_length": len(result.answer),
                     "reference_count": len(result.references),
+                    "answer_mode": result.answer_mode,
                 },
             )
             span.log(

@@ -183,7 +183,7 @@ Every tool returns Pydantic-validated structured output. Schemas in [`src/kg_mcp
 
 | Tool | Input | Output | When to use |
 |---|---|---|---|
-| `kg_query` | `question: str`, `mode: Literal["mix","hybrid","local","global","naive"]="mix"`, `top_k: int=40` | `{answer, references, scope_filter}` | Open-ended natural-language exploration. Default fallback when no Layer-B tool fits. ⚠️ See Limitations §1. |
+| `kg_query` | `question: str`, `mode: Literal["mix","hybrid","local","global","naive"]="mix"`, `top_k: int=40` | `{answer, answer_mode, references, retrieval, scope_filter}` — `answer_mode` is `synthesized`, `retrieval_only` (`answer` is retrieved context, NOT an answer) or `no_context`; `references` are entity_ids in the retrieved context | Open-ended natural-language exploration. Default fallback when no Layer-B tool fits. ⚠️ See Limitations §1. |
 
 ### Layer B — Role-priored deterministic traversals (6 tools)
 
@@ -281,7 +281,7 @@ Per-source provenance, license, and refresh procedure: [`shrine-diet-bioactivity
 
 ## Limitations (read before using in production)
 
-1. **Layer A (`kg_query`) is degraded.** Returns `"None"` or `"[no-context]"` on representative queries. Root cause is orthogonal to data quality (vector index dim mismatch + free-tier LLM rate limits) — tracked as [issue #5](https://github.com/Syntropy-Health/shrine-diet-bioactivity/issues/5). **Use Layer B (typed traversals) as the primary retrieval path**; Layer A is a documented fallback only.
+1. **Layer A (`kg_query`) depends on the answer LLM.** Since #121 a synthesis failure is an error naming the cause (`llm_unavailable: <type>`, upstream 502), never an answer of `"None"`; an embedder outage is `retrieval_unavailable`, not "nothing in scope". The deployed LLM is Gemini on Vertex; `/health` reports `scoped_server.llm` and the deploy gate requires `llm=ok`. **Layer B (typed traversals) does not use the LLM** and remains the deterministic retrieval path.
 2. **HDI lookup limited to the curated 50-pair panel.** Not exhaustive. `kg_hdi_check` only finds interactions explicitly in `research-journal/shared/hdi_safe_50.json` (NIH ODS / MSK About Herbs / LiverTox sources). Negative results are not safety guarantees.
 3. **`kg_node_neighborhood` 400s on free-text labels.** Tracked as [issue #6](https://github.com/Syntropy-Health/shrine-diet-bioactivity/issues/6). Use the role-priored Layer-B tools instead.
 4. **Compound seed-resolution depth.** Phase 2 PubChem overlay covers ~30–40% of the ~7K Duke compounds (non-canonical compound names don't all resolve to PubChem CIDs). Compounds without a PubChem match still need their canonical Duke `entity_id` (typically uppercase). For known canonical names (CURCUMIN, QUERCETIN, BERBERINE) Layer B is reliable; for novel names users may need to consult `data/manifest.yaml`.

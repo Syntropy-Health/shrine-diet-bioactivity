@@ -32,12 +32,17 @@ class _FakeRag:
         self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
         self._scope_seen: list[list[str]] = []
 
-    async def aquery(self, query: str, param: Any = None) -> str:
+    async def aquery_llm(self, query: str, param: Any = None) -> dict[str, Any]:
+        # /query calls aquery_llm (#121) so it can tell a synthesis failure apart.
         from scope_context import get_scope_filter
 
         self._scope_seen.append(get_scope_filter())
-        self.calls.append(("aquery", (query,), {"param": param}))
-        return f"fake response for: {query}"
+        self.calls.append(("aquery_llm", (query,), {"param": param}))
+        return {
+            "status": "success",
+            "data": {"entities": [], "relationships": [], "chunks": []},
+            "llm_response": {"content": f"fake response for: {query}", "is_streaming": False},
+        }
 
     async def finalize_storages(self) -> None:
         return None
