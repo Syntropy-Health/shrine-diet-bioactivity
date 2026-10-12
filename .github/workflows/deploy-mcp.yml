@@ -12,7 +12,9 @@
 #   RAILWAY_TOKEN — project-scoped Railway deployment token
 # Required repo secrets:
 #   NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD — Aura connection (set in Railway dashboard, NOT here)
-#   OPENROUTER_API_KEY — for embedder + LLM (set in Railway dashboard)
+#   GOOGLE_APPLICATION_CREDENTIALS_JSON, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION —
+#     Vertex service account for the deployed embedder AND answer LLM (#104, #121;
+#     set in Railway). The LLM's own location is LLM_VERTEX_LOCATION in config_deployed.env.
 #   ZILLIZ_URI, ZILLIZ_TOKEN — Milvus vector store (set in Railway dashboard;
 #     mirrored from Infisical /mcp/kg/; required when KG_VECTOR_BACKEND=milvus)
 #   KG_VECTOR_BACKEND — "nano" (default) | "milvus" — selects the vector backend
@@ -373,7 +375,7 @@ jobs:
       # and no unit test can see that. Retries until stable: during a rolling
       # deploy the OLD container may still answer /health with config=local, so a
       # single read would be a false red. Fails the job if it never holds.
-      - name: Assert semantic profile on the live plane (runtime pin, #104)
+      - name: Assert semantic profile + answer synthesis on the live plane (runtime pin, #104/#121)
         if: steps.health_check.outcome == 'success'
         timeout-minutes: 8
         env:

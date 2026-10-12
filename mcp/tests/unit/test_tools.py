@@ -86,6 +86,13 @@ async def test_kg_query_from_an_older_scoped_server_reports_unknown_mode(fake_cl
 
 
 @pytest.mark.asyncio
+async def test_kg_query_degrades_an_unrecognised_answer_mode_to_unknown(fake_client):
+    fake_client.query.return_value = {"response": "x", "answer_mode": "future_mode"}
+    out = await kg_query(fake_client, KgQueryInput(question="q"))
+    assert out.answer_mode == "unknown" and out.answer == "x"
+
+
+@pytest.mark.asyncio
 async def test_kg_query_passes_mode_and_top_k(fake_client):
     fake_client.query.return_value = {"response": ""}
     await kg_query(fake_client, KgQueryInput(question="x", mode="local", top_k=5))

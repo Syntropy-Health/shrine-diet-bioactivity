@@ -43,14 +43,34 @@ class _FakeRag:
     calls the server's tracked llm and swallows an exception exactly like
     LightRAG.aquery_llm (status=failure, message embeds str(e), content None)."""
 
-    def __init__(self, *, no_results: bool = False, retrieval_fails: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        no_results: bool = False,
+        retrieval_fails: bool = False,
+        data_fails: bool = False,
+        embed_fails: bool = False,
+        queue_timeout: float | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> None:
         self.no_results = no_results
         self.retrieval_fails = retrieval_fails
+        self.data_fails = data_fails or retrieval_fails
+        self.embed_fails = embed_fails
+        # LightRAG runs the llm behind a worker with wait_for; on timeout the call is
+        # CANCELLED and aquery_llm's handler sees a TimeoutError — no llm exception.
+        self.queue_timeout = queue_timeout
+        self.data = data
         self.llm_calls = 0
         self.data_params: list[Any] = []
 
     def _data(self) -> dict[str, Any]:
-        return {"entities": ENTITIES, "relationships": RELS, "chunks": CHUNKS}
+        return self.data or {"entities": ENTITIES, "relationships": RELS, "chunks": CHUNKS}
+
+    async def embedding_func(self, texts: list[str]) -> Any:
+        if self.embed_fails:
+            raise PermissionError("403 vertex projects/test-project denied")
+        return [[0.0] * 4 for _ in texts]
 
     async def aquery_llm(self, query: str, param: Any = None) -> dict[str, Any]:
         import scoped_server as ss
@@ -67,8 +87,12 @@ class _FakeRag:
             if self.retrieval_fails:
                 raise ConnectionError("neo4j+s://secret-host:7687 unreachable")
             self.llm_calls += 1
-            content = await ss._llm_func(query, system_prompt="answer from context")
-        except Exception as e:  # LightRAG.aquery_llm's own handler
+            call = ss._llm_func(query, system_prompt="answer from context")
+            if self.queue_timeout is not None:
+                content = await asyncio.wait_for(call, self.queue_timeout)
+            else:
+                content = await call
+        except Exception as e:  # noqa: BLE001 - LightRAG.aquery_llm's own handler
             return {
                 "status": "failure",
                 "message": f"Query failed: {e}",
@@ -80,20 +104,32 @@ class _FakeRag:
 
     async def aquery_data(self, query: str, param: Any = None) -> dict[str, Any]:
         self.data_params.append(param)
-        if self.retrieval_fails:
+        if self.data_fails:
             raise ConnectionError("neo4j+s://secret-host:7687 unreachable")
+        if self.no_results:
+            return {"status": "failure", "data": {}, "metadata": {"failure_reason": "no_results"}}
         return {"status": "success", "data": self._data()}
 
     async def finalize_storages(self) -> None:
         return None
 
 
-def _client(monkeypatch, tmp_path, *, llm=None, rag=None, binding="openai"):
-    from fastapi.testclient import TestClient
+@pytest.fixture(autouse=True)
+def _isolate_module_state(monkeypatch):
+    """Every module global these tests touch is restored afterwards, so nothing
+    (a tracked llm, a config problem, a health state) leaks into other files."""
+    import scoped_server as ss
 
+    for name in ("_llm_func", "_LLM_BINDING", "_LLM_CONFIG_PROBLEM", "_SEMANTIC_DISABLED_REASON", "_rag"):
+        monkeypatch.setattr(ss, name, getattr(ss, name, None), raising=False)
+    monkeypatch.setattr(ss, "_LLM_STATE", {"llm": "untested", "reason": None})
+
+
+def _client(monkeypatch, tmp_path, *, llm=None, rag=None, binding="openai"):
     import llm_bindings
     import scoped_server as ss
     from audit_log import AuditLog
+    from fastapi.testclient import TestClient
 
     rag = rag or _FakeRag()
 
@@ -196,15 +232,100 @@ def test_a_failure_outside_the_llm_is_a_502_with_no_upstream_message(monkeypatch
     assert "secret-host" not in resp.text
 
 
-def test_a_stale_llm_error_from_an_earlier_request_does_not_poison_a_success(monkeypatch, tmp_path) -> None:
+def test_a_neighbours_failure_never_turns_a_good_answer_into_a_502(monkeypatch) -> None:
+    """F1: the outcome is decided by each request's OWN result. A request whose LLM
+    call fails while a neighbour's succeeds must not poison the neighbour (a shared
+    'last error' did exactly that)."""
     import llm_bindings
+    import scoped_server as ss
 
-    client, _ = _client(monkeypatch, tmp_path, llm=_ok_llm)
+    bad_failed = asyncio.Event()
+
+    async def _llm(prompt, **kw):
+        if prompt == "bad":
+            bad_failed.set()
+            raise ClientError("transient 429")
+        if prompt == "good":
+            await bad_failed.wait()  # finish only AFTER the neighbour has failed
+        return "fine"
+
+    monkeypatch.setattr(ss, "_rag", _FakeRag())
+    monkeypatch.setattr(ss, "_llm_func", llm_bindings.tracked(_llm))
+
+    async def _both():
+        good = ss.QueryRequest(query="good", mode="mix")
+        bad = ss.QueryRequest(query="bad", mode="mix")
+        return await asyncio.gather(ss._synthesized_answer(good), ss._synthesized_answer(bad))
+
+    good, bad = asyncio.run(_both())
+    assert isinstance(good, dict) and good["answer_mode"] == "synthesized"
+    assert bad.status_code == 502
+
+
+def test_an_llm_cancelled_by_lightrags_worker_timeout_is_llm_unavailable(monkeypatch, tmp_path) -> None:
+    """F2: LightRAG's worker cancels a hung llm call (wait_for), so no llm exception
+    reaches the server. The per-request probe must still name it and turn /health
+    red — not report query_failed with llm=ok."""
+    import scoped_server as ss
+
+    async def _hang(*a, **k):
+        await asyncio.sleep(5)
+
+    monkeypatch.setattr(ss, "LLM_PROBE_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(ss, "LLM_QUERY_PROBE_TIMEOUT_SECONDS", 0.05)
+    client, _ = _client(monkeypatch, tmp_path, llm=_hang, rag=_FakeRag(queue_timeout=0.01))
     with client:
-        llm_bindings._last_error = "ClientError"  # left by some previous failure
         resp = client.post("/query", json=Q)
-    assert resp.status_code == 200
-    assert resp.json()["answer_mode"] == "synthesized"
+        health = client.get("/health").json()
+    assert resp.status_code == 502
+    assert resp.json()["error"] == "llm_unavailable"
+    assert resp.json()["reason"] == "TimeoutError"
+    assert health["llm"] == "failing"
+
+
+def test_when_naive_retrieval_also_fails_the_502_says_so_without_none_or_hosts(monkeypatch, tmp_path) -> None:
+    client, _ = _client(monkeypatch, tmp_path, llm=_404_llm, rag=_FakeRag(data_fails=True))
+    with client:
+        resp = client.post("/query", json=Q)
+    body = resp.json()
+    assert resp.status_code == 502 and body["error"] == "llm_unavailable"
+    assert body["retrieval"] == {"chunks": None, "mode": "naive"}
+    assert "retrieval also failed" in body["detail"]
+    assert "None" not in body["detail"] and "secret-host" not in resp.text
+
+
+def test_an_embedder_outage_is_not_reported_as_nothing_in_scope(monkeypatch, tmp_path) -> None:
+    """F3: LightRAG swallows embedder errors as 'no results'; a 200 no_context would
+    repeat #14271's silent-failure class in retrieval."""
+    client, _ = _client(monkeypatch, tmp_path, llm=_ok_llm, rag=_FakeRag(no_results=True, embed_fails=True))
+    with client:
+        resp = client.post("/query", json=Q)
+    assert resp.status_code == 502
+    assert resp.json()["error"] == "retrieval_unavailable"
+    assert resp.json()["reason"] == "PermissionError"
+    assert "test-project" not in resp.text
+
+
+def test_an_unknown_binding_boots_and_reports_it_instead_of_crash_looping(monkeypatch, tmp_path) -> None:
+    """F4: it used to raise inside the build, where the vector fallback mislabelled
+    it and the rebuild crashed the boot."""
+    import llm_bindings
+    import scoped_server as ss
+
+    client, _ = _client(monkeypatch, tmp_path, binding="gemeni")
+
+    async def _real_build_llm_only():
+        ss._llm_func = llm_bindings.tracked(ss._gemini_or_disabled_llm(ss._LLM_BINDING))
+        return _FakeRag()
+
+    monkeypatch.setattr(ss, "_build_scoped_rag", _real_build_llm_only)
+    with client:
+        health = client.get("/health").json()
+        resp = client.post("/query", json=Q)
+    assert ss._LLM_BINDING == "invalid"
+    assert health["llm"] == "failing" and "LLM_BINDING" in health["llm_reason"]
+    assert health["semantic_reason"] is None  # not blamed on vector storage
+    assert resp.status_code == 502 and resp.json()["error"] == "llm_unavailable"
 
 
 # ─── /health synthesis state (feeds the deploy gate) ────────────────────────
@@ -300,13 +421,23 @@ def test_retrieval_only_failure_is_a_502(monkeypatch, tmp_path) -> None:
 # ─── bindings ───────────────────────────────────────────────────────────────
 
 
-def test_tracked_records_the_type_and_reraises() -> None:
+def test_tracked_reraises_provider_errors_unchanged() -> None:
     import llm_bindings
 
-    llm_bindings.clear_last_error()
     with pytest.raises(ClientError):
         asyncio.run(llm_bindings.tracked(_404_llm)("q"))
-    assert llm_bindings.last_error() == "ClientError"
+    assert not hasattr(llm_bindings, "_last_error")  # no shared state (F1)
+
+
+def test_tracked_lets_empty_structured_output_through_for_lightrag_to_recover() -> None:
+    # F9: keyword extraction (response_format set) may come back empty; LightRAG
+    # falls back to the query text. Only an empty ANSWER is an error.
+    import llm_bindings
+
+    async def _f(*a, **k):
+        return ""
+
+    assert asyncio.run(llm_bindings.tracked(_f)("kw", response_format={"type": "json_object"})) == ""
 
 
 @pytest.mark.parametrize("empty", [None, "", "  \n"])
@@ -340,7 +471,32 @@ GEMINI_ENV = {
     "GOOGLE_CLOUD_PROJECT": "test-project",
     "LLM_VERTEX_LOCATION": "global",
     "GOOGLE_CLOUD_LOCATION": "us-central1",
+    # Any readable file satisfies the precondition; this test file is one.
+    "GOOGLE_APPLICATION_CREDENTIALS": __file__,
 }
+
+
+@pytest.mark.parametrize("creds", ["", "/nonexistent/adc.json"])
+def test_gemini_requires_readable_service_account_credentials(creds) -> None:
+    import llm_bindings
+
+    problem = llm_bindings.gemini_problem({**GEMINI_ENV, "GOOGLE_APPLICATION_CREDENTIALS": creds})
+    assert problem and "credentials" in problem
+
+
+def test_a_gemini_client_that_fails_to_construct_is_a_named_reason_not_a_crash(monkeypatch) -> None:
+    import llm_bindings
+    import scoped_server as ss
+
+    def _boom(env):
+        raise ValueError("bad location")
+
+    monkeypatch.setattr(llm_bindings, "gemini_problem", lambda env: None)
+    monkeypatch.setattr(llm_bindings, "make_gemini_llm", _boom)
+    llm = ss._gemini_or_disabled_llm("gemini")
+    assert ss._LLM_CONFIG_PROBLEM == "gemini client failed to construct: ValueError"
+    with pytest.raises(RuntimeError):
+        asyncio.run(llm("q"))
 
 
 @pytest.mark.parametrize("missing", ["LLM_MODEL", "GOOGLE_CLOUD_PROJECT", "LLM_VERTEX_LOCATION"])
@@ -387,10 +543,9 @@ def test_location_split_llm_uses_its_own_location_and_the_embedder_keeps_its_own
     bundled gemini.py reads GOOGLE_CLOUD_LOCATION for every client; a 'cleanup'
     onto it would move the embedder off the region the Aura vectors were built in
     — or leave the LLM in a region where the 3.x models 404."""
-    from google import genai
-
     import embedder_adapters as ea
     import llm_bindings
+    from google import genai
 
     clients: list[dict[str, Any]] = []
 
@@ -410,10 +565,10 @@ def test_location_split_llm_uses_its_own_location_and_the_embedder_keeps_its_own
 
 
 def test_build_selects_gemini_and_wraps_it(monkeypatch, tmp_path) -> None:
-    import lightrag
-
     import llm_bindings
     import scoped_server as ss
+
+    import lightrag
 
     built: list[dict[str, Any]] = []
 
@@ -445,9 +600,9 @@ def test_build_selects_gemini_and_wraps_it(monkeypatch, tmp_path) -> None:
 
 
 def test_build_with_a_misconfigured_gemini_boots_and_reports_the_reason(monkeypatch, tmp_path) -> None:
-    import lightrag
-
     import scoped_server as ss
+
+    import lightrag
 
     class _LR:
         def __init__(self, **kw):
@@ -486,7 +641,7 @@ def _deployed() -> tuple[dict[str, str], str]:
 
 
 def test_deployed_profile_synthesizes_with_gemini_in_global() -> None:
-    env, text = _deployed()
+    env, _ = _deployed()
     assert env["LLM_BINDING"] == "gemini"
     assert env["LLM_MODEL"] == "gemini-3.5-flash-lite"
     assert env["LLM_VERTEX_LOCATION"] == "global"
@@ -534,3 +689,28 @@ def test_gemini_maps_lightrag_json_requests_to_json_mime_type() -> None:
     asyncio.run(llm("plain prompt"))
     assert seen[0].response_mime_type == "application/json"
     assert seen[1] is None
+
+
+def test_retrieval_only_caps_items_and_clips_each_one(monkeypatch, tmp_path) -> None:
+    # Fixtures larger than the caps, so a dropped slice or clip fails.
+    many = {
+        "entities": [{"entity_name": f"E{i}", "entity_type": "Compound", "description": "x" * 900} for i in range(25)],
+        "relationships": [],
+        "chunks": [{"content": f"c{i}"} for i in range(25)],
+    }
+    client, _ = _client(monkeypatch, tmp_path, rag=_FakeRag(data=many), binding="none")
+    with client:
+        body = client.post("/query", json=Q).json()
+    lines = body["response"].splitlines()
+    assert sum(1 for line in lines if line.startswith("- [chunk]")) == 20
+    assert len(body["references"]) == 20
+    assert max(len(line) for line in lines) < 600  # 500-char clip + label
+    assert body["retrieval"]["chunks"] == 25  # counts report what was retrieved
+
+
+def test_retrieval_only_with_nothing_retrieved_is_no_context(monkeypatch, tmp_path) -> None:
+    client, _ = _client(monkeypatch, tmp_path, rag=_FakeRag(no_results=True), binding="none")
+    with client:
+        resp = client.post("/query", json=Q)
+    assert resp.status_code == 200
+    assert resp.json()["answer_mode"] == "no_context"

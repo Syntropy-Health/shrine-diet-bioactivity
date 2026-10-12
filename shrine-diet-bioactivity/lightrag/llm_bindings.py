@@ -14,9 +14,11 @@
   openai   OpenAI-compatible endpoint (OpenRouter / local); built in scoped_server.
   ollama   Local pipeline development; built in scoped_server.
 
-Every binding is wrapped by :func:`tracked`, which turns an empty completion into
-an error and records the failing exception TYPE, so /query can answer 502
-``llm_unavailable`` with a reason instead of a 200 whose answer is ``"None"``.
+Every binding is wrapped by :func:`tracked`, which turns an empty answer into an
+error. /query decides each request from its OWN result and, on failure, names the
+reason with a direct probe — there is deliberately no shared "last error" (a
+process-global one let one request's failure turn a neighbour's good answer into a
+502; review of #121).
 """
 from __future__ import annotations
 
@@ -38,35 +40,18 @@ class LlmDisabledError(RuntimeError):
     """LLM_BINDING=none: something asked for a completion."""
 
 
-# Exception TYPE of the most recent failed completion, or None. Process-global on
-# purpose: LightRAG runs LLM calls in its own worker tasks, so a ContextVar set
-# there never reaches the request. Diagnostic only, used for the 502 reason and
-# for /health; under concurrent failures it may name a neighbouring call's type.
-_last_error: str | None = None
-
-
-def last_error() -> str | None:
-    return _last_error
-
-
-def clear_last_error() -> None:
-    global _last_error
-    _last_error = None
-
-
 def tracked(func: LlmFunc) -> LlmFunc:
-    """Wrap an llm_model_func: record failures by type, refuse empty completions."""
+    """Wrap an llm_model_func so an empty ANSWER is an error, not a blank 200.
+
+    Structured calls (``response_format`` set — LightRAG's keyword extraction) pass
+    through untouched: LightRAG tolerates empty keyword output by falling back to
+    the query text, and failing it here would turn that recovery into a 502.
+    """
 
     @functools.wraps(func)
     async def _call(*args: Any, **kwargs: Any) -> Any:
-        global _last_error
-        try:
-            out = await func(*args, **kwargs)
-        except Exception as e:
-            _last_error = type(e).__name__
-            raise
-        if out is None or (isinstance(out, str) and not out.strip()):
-            _last_error = EmptyCompletionError.__name__
+        out = await func(*args, **kwargs)
+        if kwargs.get("response_format") is None and (out is None or (isinstance(out, str) and not out.strip())):
             raise EmptyCompletionError("LLM returned an empty completion")
         return out
 
@@ -88,6 +73,11 @@ def gemini_problem(env: dict[str, str] | Any = None) -> str | None:
     if missing:
         # No defaults: each names a real external resource (root CLAUDE.md).
         return f"gemini LLM binding needs {', '.join(missing)} (no defaults are assumed)"
+    # Same precondition as the Vertex embedder (scoped_server._embedder_problem): a
+    # missing service account is a named reason at boot, not an auth error at query.
+    creds = env.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+    if not creds or not os.path.isfile(creds) or not os.access(creds, os.R_OK):
+        return "service-account credentials not found (GOOGLE_APPLICATION_CREDENTIALS unset or unreadable)"
     try:
         import google.genai  # noqa: F401
     except ImportError:

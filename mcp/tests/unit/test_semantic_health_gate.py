@@ -109,3 +109,16 @@ def test_workflow_runs_the_semantic_gate_after_the_health_probe() -> None:
     assert tries * (curl_max + sleep_s) < gate["timeout-minutes"] * 60
     # The domain reaches bash through env, never by ${{ }} interpolation.
     assert "${{" not in run
+
+
+def test_ci_runs_the_scoped_server_contract_tests() -> None:
+    """#121 review F18: the synthesis-contract tests sit at the lightrag root, which
+    no CI job used to run, so a regression in scoped_server.py shipped untested."""
+    ci = yaml.safe_load((REPO_ROOT / ".github/workflows/mcp-ci.yml").read_text())
+    on = ci.get("on", ci.get(True))
+    paths = on["pull_request"]["paths"]
+    assert "shrine-diet-bioactivity/lightrag/*.py" in paths
+    assert "scripts/ci/**" in paths
+    run = "\n".join(s.get("run", "") for s in ci["jobs"]["scoped-server-contract"]["steps"])
+    for f in ("test_llm_synthesis.py", "test_semantic_vertex.py"):
+        assert f in run
