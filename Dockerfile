@@ -65,13 +65,14 @@ ENV PATH=/home/app/.local/bin:$PATH \
 COPY shrine-diet-bioactivity/lightrag/ /app/lightrag/
 COPY mcp/src/kg_mcp/ /app/kg_mcp/
 COPY scripts/start_combined.sh /app/start_combined.sh
+COPY scripts/write_adc.sh /app/write_adc.sh
 RUN chmod +x /app/start_combined.sh && chown -R app:app /app
 
 # Internal scoped_server port (not exposed); MCP gateway binds to $PORT.
 ENV INTERNAL_LIGHTRAG_PORT=9621 \
     LIGHTRAG_URL=http://127.0.0.1:9621 \
     PORT=8080 \
-    SHRINE_CONFIG=local
+    SHRINE_CONFIG=deployed
 
 USER app
 

@@ -367,6 +367,31 @@ jobs:
           echo "::error::Health check did not pass within 5 minutes"
           exit 1
 
+      # RUNTIME PIN (#104): the plane must report the DEPLOYED profile with
+      # semantic /query enabled. A Railway service variable can override the
+      # image's SHRINE_CONFIG (measured 2026-10-11: test had SHRINE_CONFIG=local)
+      # and no unit test can see that. Retries until stable: during a rolling
+      # deploy the OLD container may still answer /health with config=local, so a
+      # single read would be a false red. Fails the job if it never holds.
+      - name: Assert semantic profile on the live plane (runtime pin, #104)
+        if: steps.health_check.outcome == 'success'
+        timeout-minutes: 8
+        env:
+          HEALTH_BASE: ${{ steps.health_check.outputs.url }}
+        run: |
+          last="semantic gate: no /health response"
+          for i in $(seq 1 20); do
+            body=$(curl -fsS -m 5 "$HEALTH_BASE/health" 2>/dev/null || true)
+            if out=$(printf '%s' "$body" | scripts/ci/assert_semantic_health.sh); then
+              echo "$out"
+              exit 0
+            fi
+            last="$out"
+            sleep 10
+          done
+          echo "::error::$last"
+          exit 1
+
       # DIAGNOSTIC — print the crashed container's OWN logs BEFORE the teardown
       # below deletes the deployment, so a boot crash is readable from the run
       # log without a Railway dashboard login (which needs principal/devex).
