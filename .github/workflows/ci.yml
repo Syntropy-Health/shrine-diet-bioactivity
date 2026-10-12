@@ -81,7 +81,7 @@ jobs:
             shrine-diet-bioactivity/data
             shrine-diet-bioactivity/data_local_temp
             shrine-diet-bioactivity/data_local
-          key: data-fixtures-v1-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/scripts/decompress-datasets.ts', 'shrine-diet-bioactivity/scripts/build-herbal-db.ts', 'shrine-diet-bioactivity/scripts/load-symmap.ts', 'shrine-diet-bioactivity/scripts/load-herb2.ts', 'shrine-diet-bioactivity/scripts/build-symptom-crosswalk.ts', 'shrine-diet-bioactivity/scripts/migrate-kg-expansion.ts', 'shrine-diet-bioactivity/scripts/migrate-multi-source.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
+          key: data-fixtures-v1-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/src/herb2-download.ts', 'shrine-diet-bioactivity/scripts/decompress-datasets.ts', 'shrine-diet-bioactivity/scripts/build-herbal-db.ts', 'shrine-diet-bioactivity/scripts/load-symmap.ts', 'shrine-diet-bioactivity/scripts/load-herb2.ts', 'shrine-diet-bioactivity/scripts/build-symptom-crosswalk.ts', 'shrine-diet-bioactivity/scripts/migrate-kg-expansion.ts', 'shrine-diet-bioactivity/scripts/migrate-multi-source.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
           # Exact key only. A prefix fallback restored an OLDER full cache, and the
           # download scripts skip files that already exist, so a changed source URL
           # would silently rebuild from stale downloads (#125 review).
@@ -98,7 +98,7 @@ jobs:
         with:
           path: |
             shrine-diet-bioactivity/data
-          key: data-fixtures-v1-downloads-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
+          key: data-fixtures-v1-downloads-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/src/herb2-download.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
 
       # hit       = the full fixtures (downloads + built DB) restored: nothing to do.
       # downloads = only the downloads layer restored (exact key): rebuild the DB.
@@ -163,7 +163,7 @@ jobs:
         with:
           path: |
             shrine-diet-bioactivity/data
-          key: data-fixtures-v1-downloads-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
+          key: data-fixtures-v1-downloads-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/src/herb2-download.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
 
       - name: Decompress Duke + FooDB archives
         if: steps.fixtures.outputs.state != 'hit'
@@ -205,7 +205,7 @@ jobs:
             shrine-diet-bioactivity/data
             shrine-diet-bioactivity/data_local_temp
             shrine-diet-bioactivity/data_local
-          key: data-fixtures-v1-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/scripts/decompress-datasets.ts', 'shrine-diet-bioactivity/scripts/build-herbal-db.ts', 'shrine-diet-bioactivity/scripts/load-symmap.ts', 'shrine-diet-bioactivity/scripts/load-herb2.ts', 'shrine-diet-bioactivity/scripts/build-symptom-crosswalk.ts', 'shrine-diet-bioactivity/scripts/migrate-kg-expansion.ts', 'shrine-diet-bioactivity/scripts/migrate-multi-source.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
+          key: data-fixtures-v1-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/src/herb2-download.ts', 'shrine-diet-bioactivity/scripts/decompress-datasets.ts', 'shrine-diet-bioactivity/scripts/build-herbal-db.ts', 'shrine-diet-bioactivity/scripts/load-symmap.ts', 'shrine-diet-bioactivity/scripts/load-herb2.ts', 'shrine-diet-bioactivity/scripts/build-symptom-crosswalk.ts', 'shrine-diet-bioactivity/scripts/migrate-kg-expansion.ts', 'shrine-diet-bioactivity/scripts/migrate-multi-source.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
 
       # --- VERIFICATION (static checks + tests) -------------------------------
 

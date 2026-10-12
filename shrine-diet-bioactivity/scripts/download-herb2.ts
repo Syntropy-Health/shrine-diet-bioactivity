@@ -22,7 +22,13 @@ import { mkdirSync, existsSync, readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { loadDataSources } from '../src/config.js';
-import { collectDetails, writeJsonAtomic } from '../src/herb2-download.js';
+import {
+  assertCompleteHerbList,
+  assertDetailShape,
+  collectDetails,
+  inInputOrder,
+  writeJsonAtomic,
+} from '../src/herb2-download.js';
 
 const _dir = typeof __dirname !== 'undefined'
   ? __dirname
@@ -35,6 +41,8 @@ const PAGE_SIZE = 100;
 const CONCURRENT = 5; // parallel detail_api requests
 const REQUEST_DELAY_MS = 100; // polite delay between batch requests
 const DETAIL_ATTEMPTS = 3; // a herb that still fails is reported, never cached as empty
+const RETRY_DELAYS_MS = [5_000, 30_000]; // before rounds 2 and 3
+const REQUEST_TIMEOUT_MS = 60_000; // a hung request becomes a retryable error
 
 type HerbRow = {
   herb_id: string;
@@ -67,6 +75,7 @@ async function post(funcName: string, body: Record<string, unknown>): Promise<un
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: payload,
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} for func_name=${funcName}`);
@@ -100,7 +109,9 @@ async function fetchAllHerbs(): Promise<HerbRow[]> {
       total_num: number;
       browse_data: unknown[][];
     };
-    if (!data || !data.browse_data) break;
+    // A missing page is a failure, not the end of the list: break-ing here wrote a
+    // partial list as complete (it is then skipped and cached forever).
+    if (!data || !data.browse_data) throw new Error(`browse_api page ${page} returned no browse_data`);
     if (page === 1) {
       totalNum = data.total_num;
       console.log(`Total herbs: ${totalNum}`);
@@ -114,6 +125,7 @@ async function fetchAllHerbs(): Promise<HerbRow[]> {
     page += 1;
     await delay(REQUEST_DELAY_MS);
   }
+  assertCompleteHerbList(herbs.length, totalNum);
   return herbs;
 }
 
@@ -126,7 +138,7 @@ async function fetchHerbDetail(herbId: string): Promise<HerbDetail> {
     herb_disease?: unknown[][];
     drug_paper_disease?: unknown[][];
   };
-  if (!data) return { herb_disease: [], drug_paper_disease: [] };
+  assertDetailShape(herbId, data);
 
   const experimentalRows: DiseaseRow[] = [];
   const clinicalRows: DiseaseRow[] = [];
@@ -189,6 +201,7 @@ async function main(): Promise<void> {
       concurrency: CONCURRENT,
       attempts: DETAIL_ATTEMPTS,
       throttle: { every: 100, ms: REQUEST_DELAY_MS },
+      retryDelaysMs: RETRY_DELAYS_MS,
       onProgress: (done, total) => {
         if (done % 100 === 0) console.log(`  detail progress: ${done}/${total}`);
       },
@@ -202,7 +215,7 @@ async function main(): Promise<void> {
       );
       process.exit(1);
     }
-    details = Object.fromEntries(detailMap);
+    details = inInputOrder(herbIds, detailMap);
     writeJsonAtomic(detailsFile, details);
     console.log(`Saved details for ${Object.keys(details).length} herbs → ${detailsFile}`);
   }
