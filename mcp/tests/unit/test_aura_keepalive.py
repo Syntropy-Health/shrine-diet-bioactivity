@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -91,11 +92,11 @@ class _Driver:
 
 
 def _world(nodes=(199840, 199840), rels=(221009, 221009), meta=True, prev=None) -> dict[str, Any]:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     return {
         "nodes": list(nodes), "rels": list(rels), "meta": meta, "prev": prev,
-        "now": datetime(2026, 10, 12, 12, 0, tzinfo=timezone.utc), "cypher": [], "session_kwargs": [],
+        "now": datetime(2026, 10, 12, 12, 0, tzinfo=UTC), "cypher": [], "session_kwargs": [],
     }
 
 
@@ -115,7 +116,7 @@ def test_keepalive_never_creates_merges_or_deletes() -> None:
     w = _world()
     mod.keepalive(_Driver(w), workspace="unified_diet_kg")
     for c in w["cypher"]:
-        assert not re.search(r"\b(CREATE|MERGE|DELETE|DETACH|REMOVE)\b", c, re.I), c
+        assert not re.search(r"\b(CREATE|MERGE|DELETE|DETACH|REMOVE)\b", c, re.IGNORECASE), c
 
 
 def test_missing_workspace_meta_is_a_failure_not_a_silent_noop() -> None:
@@ -176,11 +177,11 @@ def test_uses_the_mirrored_aura_secrets_and_fails_loudly_without_them(wf) -> Non
 
 
 def test_a_recent_previous_keepalive_passes() -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     mod = _load()
     out = mod.keepalive(
-        _Driver(_world(prev=datetime(2026, 10, 11, 12, 0, tzinfo=timezone.utc))), workspace="unified_diet_kg"
+        _Driver(_world(prev=datetime(2026, 10, 11, 12, 0, tzinfo=UTC))), workspace="unified_diet_kg"
     )
     assert out["gap_hours"] == pytest.approx(24.0)
 
@@ -192,10 +193,10 @@ def test_first_ever_keepalive_has_no_gap_and_passes() -> None:
 
 
 def test_a_gap_over_48h_still_writes_but_fails_loud() -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     mod = _load()
-    w = _world(prev=datetime(2026, 10, 9, 0, 0, tzinfo=timezone.utc))  # 84 h earlier
+    w = _world(prev=datetime(2026, 10, 9, 0, 0, tzinfo=UTC))  # 84 h earlier
     with pytest.raises(mod.KeepAliveError, match="last successful keep-alive"):
         mod.keepalive(_Driver(w), workspace="unified_diet_kg")
     # The write still happened first: a missed day must not also cost the instance.

@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 FREE_NODE_CAP = 200_000
@@ -54,7 +54,7 @@ def _as_utc(value: Any) -> datetime | None:
     if hasattr(value, "to_native"):  # neo4j.time.DateTime
         value = value.to_native()
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
 
 
