@@ -1,0 +1,126 @@
+# #116 — run the #113 live write-integrity suite against a REAL Neo4j in CI.
+#
+# test_scope_write_integrity_live.py is the only suite that proves the graph
+# write-path scope guarantees (stamped batch writes, in-transaction cross-scope
+# refusal, the uniqueness-constraint race) against a real database; the
+# fake-driver suites let real regressions through. Until now it ran only by hand.
+#
+# SAFETY: the database is a throwaway service container on loopback. The suite
+# itself refuses any non-loopback URI and uses a random workspace label per test.
+# No Aura credential is ever made available to this job.
+#
+# A green here must mean the suite RAN: the module skips (exit 0) when the URI
+# env var is unset, so the URI is set unconditionally, the job waits for bolt and
+# fails if the container never comes up, and the result must show passes with no
+# skips.
+
+name: LightRAG live write-integrity
+
+on:
+  pull_request:
+    branches: [main, test, "phase*/**"]
+    paths:
+      - 'shrine-diet-bioactivity/lightrag/**'
+      - 'shrine-diet-bioactivity/Makefile'
+      - '.github/workflows/lightrag-live-write.yml'
+  push:
+    branches: [main, test]
+    paths:
+      - 'shrine-diet-bioactivity/lightrag/**'
+      - 'shrine-diet-bioactivity/Makefile'
+      - '.github/workflows/lightrag-live-write.yml'
+  workflow_dispatch:
+  # Weekly: the neo4j driver (requirements: >=5.26) and the 5.26 image tag both
+  # float, and no file change in this repo would re-run the suite on that drift.
+  schedule:
+    - cron: '23 7 * * 2'
+
+permissions:
+  contents: read
+
+jobs:
+  live-write-integrity:
+    name: Live write-integrity (Neo4j service container)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      neo4j:
+        image: neo4j:5.26-community
+        ports:
+          - 127.0.0.1:17687:7687
+        env:
+          # Throwaway, loopback-only test database. Not a secret: it exists for
+          # the length of this job and is unreachable from outside the runner.
+          NEO4J_AUTH: neo4j/ci-live-write-${{ github.run_id }}-${{ github.run_attempt }}
+          NEO4J_PLUGINS: '["apoc"]'
+    env:
+      SCOPED_WRITE_TEST_NEO4J_URI: bolt://127.0.0.1:17687
+      SCOPED_WRITE_TEST_NEO4J_USERNAME: neo4j
+      SCOPED_WRITE_TEST_NEO4J_PASSWORD: ci-live-write-${{ github.run_id }}-${{ github.run_attempt }}
+    defaults:
+      run:
+        working-directory: shrine-diet-bioactivity
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: shrine-diet-bioactivity/lightrag/requirements.txt
+
+      - name: Install lightrag requirements + pytest
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r lightrag/requirements.txt pytest
+
+      - name: Wait for the Neo4j service (bolt RETURN 1)
+        run: |
+          for i in $(seq 1 60); do
+            if python - <<'PY'
+          import os, sys
+          from neo4j import GraphDatabase
+          try:
+              d = GraphDatabase.driver(
+                  os.environ["SCOPED_WRITE_TEST_NEO4J_URI"],
+                  auth=(os.environ["SCOPED_WRITE_TEST_NEO4J_USERNAME"], os.environ["SCOPED_WRITE_TEST_NEO4J_PASSWORD"]),
+                  connection_timeout=5,  # a half-open bolt port must not eat the retry budget
+              )
+              with d.session() as s:
+                  assert s.run("RETURN 1 AS x").single()["x"] == 1
+              d.close()
+          except Exception:
+              sys.exit(1)
+          PY
+            then
+              echo "neo4j ready after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::Neo4j service container never answered RETURN 1 — refusing to report a pass without a database"
+          exit 1
+
+      - name: Run the live write-integrity suite
+        env:
+          MIN_LIVE_PASSED: '14'  # MEASURED 2026-10-12: 14 tests in test_scope_write_integrity_live.py
+        run: |
+          set -o pipefail
+          make lightrag-test-scope-write-live 2>&1 | tee "$RUNNER_TEMP/live-write.log"
+          # A skipped module exits 0, so green requires real passes and nothing
+          # that hides a test: no skip, xfail/xpass, deselection or collection error.
+          passed=$(grep -Eo '[0-9]+ passed' "$RUNNER_TEMP/live-write.log" | tail -1 | grep -Eo '[0-9]+' || true)
+          if [ -z "$passed" ]; then
+            echo "::error::no passing tests reported"
+            exit 1
+          fi
+          if grep -Eqi 'skipped|no tests ran|xfail|xpass|deselected|[0-9]+ errors?\b' "$RUNNER_TEMP/live-write.log"; then
+            echo "::error::the live suite skipped, xfailed, deselected or errored part of itself — that is not a pass"
+            exit 1
+          fi
+          # A test that silently stops being collected (renamed, lost its test_
+          # prefix) still reports N-1 passed. Raise this when tests are added.
+          if [ "$passed" -lt "$MIN_LIVE_PASSED" ]; then
+            echo "::error::only $passed live tests passed (expected >= $MIN_LIVE_PASSED) — a test stopped being collected"
+            exit 1
+          fi

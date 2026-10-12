@@ -23,6 +23,7 @@ on:
       - 'scripts/ci/**'
       # Pins on the TS CI workflow live in mcp/tests (test_ci_fixtures_cache.py, #125):
       - '.github/workflows/ci.yml'
+      - '.github/workflows/lightrag-live-write.yml'  # pinned by test_live_write_workflow.py (#116)
       - '.github/workflows/mcp-ci.yml'
       - 'scripts/test_coverage_ratio.py'
   push:
