@@ -98,3 +98,17 @@ async def test_kg_node_neighborhood_takes_seed_depth_max_nodes():
     assert "seed" in props
     assert "max_depth" in props
     assert "max_nodes" in props
+
+
+@pytest.mark.asyncio
+async def test_every_tool_is_advertised_read_only():
+    """#117: the KG is read-only shared data. A pinned name set alone lets a write
+    tool in as long as EXPECTED_TOOLS is edited with it; the annotation cannot."""
+    tools = await server.list_tools()
+    assert tools
+    not_read_only = [
+        t.name
+        for t in tools
+        if not (t.annotations and t.annotations.readOnlyHint is True and t.annotations.destructiveHint is False)
+    ]
+    assert not_read_only == []
