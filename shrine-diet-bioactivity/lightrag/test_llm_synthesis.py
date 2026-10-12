@@ -515,3 +515,22 @@ def test_aquery_llm_raising_outright_is_a_502_with_no_message(monkeypatch, tmp_p
     assert resp.status_code == 502
     assert resp.json()["error"] == "query_failed"
     assert "secret-host" not in resp.text
+
+
+def test_gemini_maps_lightrag_json_requests_to_json_mime_type() -> None:
+    # LightRAG's keyword extraction calls llm(prompt, response_format={"type": "json_object"}).
+    import llm_bindings
+
+    seen: list[Any] = []
+
+    async def _gen(*, model, contents, config):
+        seen.append(config)
+        return MagicMock(text='{"high_level_keywords": [], "low_level_keywords": []}')
+
+    client = MagicMock()
+    client.aio.models.generate_content = _gen
+    llm = llm_bindings.make_gemini_llm(GEMINI_ENV, client=client)
+    asyncio.run(llm("kw prompt", response_format={"type": "json_object"}))
+    asyncio.run(llm("plain prompt"))
+    assert seen[0].response_mime_type == "application/json"
+    assert seen[1] is None

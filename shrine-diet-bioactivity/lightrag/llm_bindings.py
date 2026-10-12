@@ -124,11 +124,18 @@ def make_gemini_llm(env: dict[str, str] | Any = None, client: Any = None) -> Llm
         prompt: str,
         system_prompt: str | None = None,
         history_messages: list[dict[str, Any]] | None = None,
-        **_ignored: Any,  # LightRAG passes OpenAI-shaped kwargs (stream, enable_cot, ...)
+        response_format: Any = None,
+        **_ignored: Any,  # other OpenAI-shaped kwargs LightRAG passes (stream, enable_cot, ...)
     ) -> str:
         from google.genai import types
 
-        config = types.GenerateContentConfig(system_instruction=system_prompt) if system_prompt else None
+        cfg: dict[str, Any] = {}
+        if system_prompt:
+            cfg["system_instruction"] = system_prompt
+        # Keyword extraction asks for {"type": "json_object"}; Gemini's equivalent.
+        if isinstance(response_format, dict) and response_format.get("type") in ("json_object", "json_schema"):
+            cfg["response_mime_type"] = "application/json"
+        config = types.GenerateContentConfig(**cfg) if cfg else None
         resp = await client.aio.models.generate_content(
             model=model, contents=_contents(prompt, history_messages), config=config
         )
