@@ -28,7 +28,7 @@ const MAX_SLUG_LEN = 60;
 
 /**
  * Convert a Clerk `organization.id` into a tenant slug accepted by
- * the shrine-diet-bioactivity MCP server.
+ * the shrine-health-bioactivity MCP server.
  *
  * @throws Error when the result does not match the tenant slug regex.
  */

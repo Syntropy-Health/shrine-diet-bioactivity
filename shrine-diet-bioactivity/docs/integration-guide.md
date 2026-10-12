@@ -148,7 +148,7 @@ TypeScript reference: [`src/clerkOrgMapping.ts`](../src/clerkOrgMapping.ts) —
 ships with the server. Two exports:
 
 ```ts
-import { slugifyClerkOrgId, slugifyClerkOrgIdSafe } from 'shrine-diet-bioactivity';
+import { slugifyClerkOrgId, slugifyClerkOrgIdSafe } from 'shrine-health-bioactivity';
 
 slugifyClerkOrgId('org_2abc123XYZ');            // → '2abc123xyz'
 slugifyClerkOrgId('org_CLINIC_MAYFIELD_01');    // → 'clinic-mayfield-01'

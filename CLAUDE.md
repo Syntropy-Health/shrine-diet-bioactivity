@@ -4,6 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
+> **Naming (2026-10).** The repo is **`Syntropy-Health/shrine-health-bioactivity`** (renamed from
+> `shrine-diet-bioactivity`; the old GitHub URL redirects, but do not write it anywhere). Two things
+> deliberately keep the old name:
+> - the nested **`shrine-diet-bioactivity/`** application directory — renaming it moves every CI path,
+>   the Dockerfile and the fixtures-cache keys, so it is a separate change;
+> - **external resource names** that live outside this repo: the Infisical path
+>   `/research/shrine-diet-bioactivity` and the Braintrust project `shrine-diet-bioactivity`. Renaming
+>   those here would point at resources that do not exist (root CLAUDE.md: never write a value that
+>   names a real external resource unless it IS that resource).
+> - **contracts other code depends on**: the `.mcp.json` server key (it sets the agent tool prefix
+>   `mcp__shrine-diet-bioactivity__*` that permission allowlists match), the `adapter` value in the TS
+>   adapter's health response (`src/tools.ts`), and the old npm `bin` name (kept as an alias);
+> - **historical records** (plans, run logs, research journal prose) keep the name they were written
+>   under; only their GitHub URLs were updated.
+> - Known remainder: `docs/shrine-bioactivity-graph-design-v2.pdf` (rendered binary) still shows the
+>   old URL until it is next regenerated.
+
+
 Open Diet Data builds a **unified diet knowledge graph** spanning macronutrients, foods, herbs, phytochemical compounds, molecular targets, and diseases. It aggregates 7+ authoritative datasets into a semantic KG powered by LightRAG (Neo4j graph + vector embeddings), queryable by LLM agents via a FastMCP gateway (`mcp/`) and a scoped FastAPI wrapper.
 
 Data foundation for the [Diet Insight Engine](https://github.com/Syntropy-Health/diet-insight-engine) Symptom-Diet Optimizer (SDO). Part of the [Syntropy Health](https://github.com/Syntropy-Health) ecosystem.
@@ -161,4 +179,4 @@ History: the literal was committed to this PUBLIC repo 2026-05-26 and rotated
 badge: old key -> 401 stable across 6 samples, `NONE` control -> 401, new key
 authenticates.
 
-**Rotating any of these:** update Infisical first, then `printf '%s' "$VAL" | gh secret set NAME --repo Syntropy-Health/shrine-diet-bioactivity --body -` to re-mirror, then update Railway dashboard. Never let the three stores drift.
+**Rotating any of these:** update Infisical first, then `printf '%s' "$VAL" | gh secret set NAME --repo Syntropy-Health/shrine-health-bioactivity --body -` to re-mirror, then update Railway dashboard. Never let the three stores drift.

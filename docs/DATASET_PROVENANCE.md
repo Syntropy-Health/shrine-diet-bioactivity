@@ -1,4 +1,4 @@
-# Dataset Provenance — shrine-diet-bioactivity KG
+# Dataset Provenance — shrine-health-bioactivity KG
 
 _Last updated 2026-05-01. Single-page summary tying every Aura node and edge to its upstream source, license, ingest pipeline, and refresh cadence._
 

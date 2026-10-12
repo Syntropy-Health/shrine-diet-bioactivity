@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile for the shrine-diet-bioactivity KG MCP service.
+# Multi-stage Dockerfile for the shrine-health-bioactivity KG MCP service.
 #
 # Combines scoped_server (FastAPI :9621, internal) + MCP gateway (FastMCP HTTP
 # transport on $PORT, public) into a single Railway service. See

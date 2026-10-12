@@ -210,7 +210,7 @@ What the KG is **not** good at, framed by who's asking:
 | Clinical pharmacist | Dose-response or pharmacokinetic reasoning. The HDI-Safe-50 panel is curated qualitative interaction risk, not a PK/PD model. Always cross-reference with a pharmacy-grade interaction checker. |
 | Nutrition researcher | Effect sizes, RCT-grade evidence weighting. Edges are positive-association only — absence of an edge is not evidence of absence. |
 | TCM researcher | One-to-one canonical mappings between TCM symptoms and modern conditions. The bridges are *associative* (this herb is used for both), not *equivalent*. |
-| SDO developer | Open-ended natural-language Q&A via `kg_query` until [#7 Phase A](https://github.com/Syntropy-Health/shrine-diet-bioactivity/issues/7) lands. Use Layer-B typed tools. |
+| SDO developer | Open-ended natural-language Q&A via `kg_query` until [#7 Phase A](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/7) lands. Use Layer-B typed tools. |
 | Hypothesis generator | Drug-drug interactions or synthetic chemistry — out of scope by design (drugs aren't diet). |
 | Systematic reviewer | Negative results, retracted papers, study quality scoring. The KG curates upstream assertions; quality assessment stays in your review protocol. |
 
@@ -218,9 +218,9 @@ What the KG is **not** good at, framed by who's asking:
 
 Tracked as GitHub issues; each has a design + acceptance criteria.
 
-- [#7 Hybrid KG: ingest upstream paper sources](https://github.com/Syntropy-Health/shrine-diet-bioactivity/issues/7) — paragraph-level provenance + restored hybrid-RAG retrieval
-- [#5 `kg_query` Layer A degradation](https://github.com/Syntropy-Health/shrine-diet-bioactivity/issues/5) — closed by #7 Phase A
-- [#6 `kg_node_neighborhood` 400](https://github.com/Syntropy-Health/shrine-diet-bioactivity/issues/6) — replacement with custom `/neighborhood` Cypher endpoint
+- [#7 Hybrid KG: ingest upstream paper sources](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/7) — paragraph-level provenance + restored hybrid-RAG retrieval
+- [#5 `kg_query` Layer A degradation](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/5) — closed by #7 Phase A
+- [#6 `kg_node_neighborhood` 400](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/6) — replacement with custom `/neighborhood` Cypher endpoint
 
 ## See also
 

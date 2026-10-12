@@ -1,4 +1,6 @@
-# shrine-diet-bioactivity
+# shrine-health-bioactivity — TypeScript thin-adapter MCP
+
+(This directory keeps its pre-rename name `shrine-diet-bioactivity/`; see the root README.)
 
 **Thin MCP adapter over the scoped LightRAG wrapper.** Owns tenancy +
 audit only; carries zero retrieval logic of its own. All knowledge —
@@ -87,7 +89,7 @@ Env:
 ```json
 {
   "mcpServers": {
-    "shrine-diet-bioactivity": {
+    "shrine-health-bioactivity": {
       "type": "stdio",
       "command": "node",
       "args": ["/path/to/shrine-diet-bioactivity/build/index.js"],

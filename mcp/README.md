@@ -45,7 +45,7 @@ The Railway container is restartable; it holds zero data. All state is in Aura. 
 
 Every `/mcp*` request requires `Authorization: Bearer <token>`. `/health` is the only public path (Railway healthcheck reaches it without a token).
 
-> **Direction:** internal API key issuance is moving to [Unkey](https://unkey.com) — see [#10](https://github.com/Syntropy-Health/shrine-open-diet/issues/10). The two paths below are interim; the static-key path is **deprecated** and will be removed once Unkey wiring lands.
+> **Direction:** internal API key issuance is moving to [Unkey](https://unkey.com) — see [#10](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/10). The two paths below are interim; the static-key path is **deprecated** and will be removed once Unkey wiring lands.
 
 ### Canonical — Syntropy-Journals admin token (recommended)
 
@@ -63,7 +63,7 @@ export ADMIN_API_TOKEN=sj_<id>_<secret>
 
 Token format is `sj_<id>_<secret>` — id-prefixed bearer with a 30-day default expiry. Issuance procedure: [`apps/Syntropy-Journals/scripts/issue_admin_token.py`](../../Syntropy-Journals/scripts/issue_admin_token.py).
 
-> **In-flight:** the kg-mcp gateway does **not yet validate `sj_*` tokens directly** — that requires a cross-service validator (Unkey, or an HTTP `/api/auth/validate-token` endpoint exposed by Syntropy-Journals). Tracked in [#10](https://github.com/Syntropy-Health/shrine-open-diet/issues/10). Until that ships, `sj_*` tokens are accepted only by Syntropy-Journals endpoints, not kg-mcp's.
+> **In-flight:** the kg-mcp gateway does **not yet validate `sj_*` tokens directly** — that requires a cross-service validator (Unkey, or an HTTP `/api/auth/validate-token` endpoint exposed by Syntropy-Journals). Tracked in [#10](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/10). Until that ships, `sj_*` tokens are accepted only by Syntropy-Journals endpoints, not kg-mcp's.
 
 ### Canonical — Clerk admin sign-in (currently working for kg-mcp)
 
@@ -81,7 +81,7 @@ Kept until the Unkey migration completes; do not use for new integrations.
 
 - Stored in Infisical → `SyntropyHealth App` / `prod` / `MCP_API_KEY`
 - Constant-time compared with the server-side env var
-- Will be removed once [#10](https://github.com/Syntropy-Health/shrine-open-diet/issues/10) lands
+- Will be removed once [#10](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/10) lands
 
 Full auth contract + rotation procedure: [`mcp-auth-contract.md`](../../../.claude/projects/-home-mo-projects-SyntropyHealth/memory/mcp-auth-contract.md) (admin-only memory doc).
 
@@ -283,7 +283,7 @@ Per-source provenance, license, and refresh procedure: [`shrine-diet-bioactivity
 
 1. **Layer A (`kg_query`) depends on the answer LLM.** Since #121 a synthesis failure is an error naming the cause (`llm_unavailable: <type>`, upstream 502), never an answer of `"None"`; an embedder outage is `retrieval_unavailable`, not "nothing in scope". The deployed LLM is Gemini on Vertex; `/health` reports `scoped_server.llm` and the deploy gate requires `llm=ok`. **Layer B (typed traversals) does not use the LLM** and remains the deterministic retrieval path.
 2. **HDI lookup limited to the curated 50-pair panel.** Not exhaustive. `kg_hdi_check` only finds interactions explicitly in `research-journal/shared/hdi_safe_50.json` (NIH ODS / MSK About Herbs / LiverTox sources). Negative results are not safety guarantees.
-3. **`kg_node_neighborhood` 400s on free-text labels.** Tracked as [issue #6](https://github.com/Syntropy-Health/shrine-diet-bioactivity/issues/6). Use the role-priored Layer-B tools instead.
+3. **`kg_node_neighborhood` 400s on free-text labels.** Tracked as [issue #6](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/6). Use the role-priored Layer-B tools instead.
 4. **Compound seed-resolution depth.** Phase 2 PubChem overlay covers ~30–40% of the ~7K Duke compounds (non-canonical compound names don't all resolve to PubChem CIDs). Compounds without a PubChem match still need their canonical Duke `entity_id` (typically uppercase). For known canonical names (CURCUMIN, QUERCETIN, BERBERINE) Layer B is reliable; for novel names users may need to consult `data/manifest.yaml`.
 5. **Nutrition enrichment is sparse.** Only 647 of 962 FooDB-aware Foods carry `nutrition_100g` (algorithmic plateau in fuzzy-bridge — not an NCBI-solvable gap).
 6. **English / Latin / 中文 / Pinyin only.** Other languages not modeled.
@@ -357,4 +357,4 @@ This package always:
 - **Design**: [`research-journal/plans/2026-04-29-mcp-gateway-design.md`](../research-journal/plans/2026-04-29-mcp-gateway-design.md) — toolkit + design tensions + 4 trade-off considerations
 - **NCBI enrichment**: [`research-journal/plans/2026-05-01-ncbi-enrichment-and-entity-resolution-design.md`](../research-journal/plans/2026-05-01-ncbi-enrichment-and-entity-resolution-design.md) — current data-overlay plan
 - **Auth contract**: `~/.claude/projects/.../memory/mcp-auth-contract.md`
-- **Open issues**: [#5 (Layer A degraded)](https://github.com/Syntropy-Health/shrine-diet-bioactivity/issues/5) · [#6 (kg_node_neighborhood 400)](https://github.com/Syntropy-Health/shrine-diet-bioactivity/issues/6) · [#7 (paper-source ingestion)](https://github.com/Syntropy-Health/shrine-diet-bioactivity/issues/7)
+- **Open issues**: [#5 (Layer A degraded)](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/5) · [#6 (kg_node_neighborhood 400)](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/6) · [#7 (paper-source ingestion)](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/7)

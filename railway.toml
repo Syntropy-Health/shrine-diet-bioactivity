@@ -1,4 +1,4 @@
-# Railway service config for shrine-diet-bioactivity KG MCP gateway.
+# Railway service config for shrine-health-bioactivity KG MCP gateway.
 #
 # Build: Dockerfile at repo root.
 # Healthcheck: /health on $PORT (the MCP gateway's HTTP transport).

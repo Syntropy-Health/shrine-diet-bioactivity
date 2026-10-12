@@ -4,7 +4,7 @@
 
 **State:** parked (with 5 documented hand-off items).
 **Branch:** `pvp/20260506-013000-drug-bioactive-bridge`.
-**PR:** https://github.com/Syntropy-Health/shrine-open-diet/pull/18
+**PR:** https://github.com/Syntropy-Health/shrine-health-bioactivity/pull/18
 
 ## Phase summary
 

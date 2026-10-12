@@ -1,4 +1,6 @@
-# shrine-diet-bioactivity
+# shrine-health-bioactivity
+
+> Renamed from `shrine-diet-bioactivity` (2026-10). What deliberately keeps the old name, and why: see the naming note in [`CLAUDE.md`](CLAUDE.md#project-overview).
 
 A **unified diet knowledge graph** spanning macronutrients, foods, herbs, phytochemical compounds, molecular targets, and diseases. Aggregates 7+ authoritative open datasets into a semantic KG powered by LightRAG (Neo4j graph + vector embeddings), queryable by LLM agents via a Python MCP gateway and a TypeScript thin-adapter.
 

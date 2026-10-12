@@ -19,7 +19,7 @@
 ## 9.2 Reproducibility
 
 All numbers in this paper are reproducible from the public repository at
-`https://github.com/Syntropy-Health/shrine-diet-bioactivity`. The full 40 × 7
+`https://github.com/Syntropy-Health/shrine-health-bioactivity`. The full 40 × 7
 prediction matrix, per-system summary with the Cite-Faith / Fabricate columns,
 and the herb–drug-interaction ablation are committed under
 `research-journal/shared/results/`; Appendix A.6 gives re-render commands,
@@ -44,4 +44,4 @@ remedy is not to abandon grounding but to *verify* it: measure
 citation-faithfulness, enforce it against the retrieved set, and treat unchecked
 citation as the safety liability it is. We release the benchmark, the auditing
 instrumentation, and the full result matrix at
-`https://github.com/Syntropy-Health/shrine-diet-bioactivity`.
+`https://github.com/Syntropy-Health/shrine-health-bioactivity`.

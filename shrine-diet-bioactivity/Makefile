@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────
-# shrine-diet-bioactivity — Phytochemical Knowledge Graph (Python + TypeScript thin adapter)
+# shrine-health-bioactivity — Phytochemical Knowledge Graph (Python + TypeScript thin adapter)
 # ─────────────────────────────────────────────────────────────
 #
 # Usage:
