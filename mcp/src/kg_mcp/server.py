@@ -17,6 +17,7 @@ from typing import AsyncIterator, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import ToolAnnotations
 
 from . import analytics
 from . import tools as t
@@ -107,7 +108,13 @@ async def _http_health(_request):
 # ─── Layer A — General Q&A ────────────────────────────────────────────────
 
 
-@server.tool()
+# Every tool reads the shared, read-only KG ([PRINCIPAL-RULED 2026-10-03]: no
+# tenant writes). Advertised to MCP clients so they can auto-approve; pinned in
+# test_server_registration.py so a write tool cannot be added silently (#117).
+READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
+
+
+@server.tool(annotations=READ_ONLY)
 async def kg_query(
     question: str,
     mode: Literal["mix", "hybrid", "local", "global", "naive"] = "mix",
@@ -126,25 +133,25 @@ async def kg_query(
 # ─── Layer B — Role-priored deterministic traversals ─────────────────────
 
 
-@server.tool()
+@server.tool(annotations=READ_ONLY)
 async def kg_diet_to_compounds(seed: str, top_k: int = 20) -> TraversalOutput:
     """Food → bioactives. Seed with a Food name (e.g. 'Garlic'). Used by the Dietitian role."""
     return await t.kg_diet_to_compounds(_client(), TraversalInput(seed=seed, top_k=top_k))
 
 
-@server.tool()
+@server.tool(annotations=READ_ONLY)
 async def kg_compound_to_targets(seed: str, top_k: int = 20) -> TraversalOutput:
     """Compound → Target. Seed with a compound name (e.g. 'Curcumin'). Pharmacologist's primary tool."""
     return await t.kg_compound_to_targets(_client(), TraversalInput(seed=seed, top_k=top_k))
 
 
-@server.tool()
+@server.tool(annotations=READ_ONLY)
 async def kg_compound_to_diseases(seed: str, top_k: int = 20) -> TraversalOutput:
     """Compound → Target → Disease (depth-2 chain). Provenance path for HDI Recall claims."""
     return await t.kg_compound_to_diseases(_client(), TraversalInput(seed=seed, top_k=top_k))
 
 
-@server.tool()
+@server.tool(annotations=READ_ONLY)
 async def kg_compound_evidence(seed: str, top_k: int = 20) -> TraversalOutput:
     """Compound → BioactivityEvidence → Target (ChEMBL evidence layer, shrine-diet #108).
 
@@ -156,19 +163,19 @@ async def kg_compound_evidence(seed: str, top_k: int = 20) -> TraversalOutput:
     return await t.kg_compound_evidence(_client(), TraversalInput(seed=seed, top_k=top_k))
 
 
-@server.tool()
+@server.tool(annotations=READ_ONLY)
 async def kg_herb_to_diseases(seed: str, top_k: int = 20) -> TraversalOutput:
     """Herb → Disease. Backed by CMAUP plant-disease + HERB 2.0 evidence-tiered links."""
     return await t.kg_herb_to_diseases(_client(), TraversalInput(seed=seed, top_k=top_k))
 
 
-@server.tool()
+@server.tool(annotations=READ_ONLY)
 async def kg_herb_to_symptoms(seed: str, top_k: int = 20) -> TraversalOutput:
     """Herb → Symptom. TCM and Dietitian. Backed by Duke bioactivity + SymMap TCM."""
     return await t.kg_herb_to_symptoms(_client(), TraversalInput(seed=seed, top_k=top_k))
 
 
-@server.tool()
+@server.tool(annotations=READ_ONLY)
 async def kg_compound_to_symptoms(seed: str, top_k: int = 20) -> TraversalOutput:
     """Compound → Herb → Symptom (composite). Path for compound-mechanism→clinical-symptom queries."""
     return await t.kg_compound_to_symptoms(_client(), TraversalInput(seed=seed, top_k=top_k))
@@ -177,19 +184,19 @@ async def kg_compound_to_symptoms(seed: str, top_k: int = 20) -> TraversalOutput
 # ─── Layer C — Lookup primitives ──────────────────────────────────────────
 
 
-@server.tool()
+@server.tool(annotations=READ_ONLY)
 async def kg_hdi_check(drug: str, herb: str) -> HDICheckOutput:
     """Direct lookup against HDI-Safe-50 panel. Returns severity/mechanism/evidence_tier or `found=False`."""
     return await t.kg_hdi_check(_client(), HDICheckInput(drug=drug, herb=herb))
 
 
-@server.tool()
+@server.tool(annotations=READ_ONLY)
 async def kg_bilingual_term(term: str) -> BilingualTermOutput:
     """SymMap bilingual canonicalization. Term in any of EN/CN/Pinyin → all three."""
     return await t.kg_bilingual_term(_client(), BilingualTermInput(term=term))
 
 
-@server.tool()
+@server.tool(annotations=READ_ONLY)
 async def kg_node_neighborhood(
     seed: str, max_depth: int = 2, max_nodes: int = 200
 ) -> NodeNeighborhoodOutput:
