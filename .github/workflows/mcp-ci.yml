@@ -21,6 +21,8 @@ on:
       - 'shrine-diet-bioactivity/lightrag/*.env'
       - 'shrine-diet-bioactivity/lightrag/requirements.txt'
       - 'scripts/ci/**'
+      # Pins on the TS CI workflow live in mcp/tests (test_ci_fixtures_cache.py, #125):
+      - '.github/workflows/ci.yml'
       - '.github/workflows/mcp-ci.yml'
       - 'scripts/test_coverage_ratio.py'
   push:
