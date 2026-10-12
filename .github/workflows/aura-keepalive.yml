@@ -10,6 +10,10 @@
 # visible a full day before the pause. A red run here means the keep-alive did
 # NOT provably happen — read the summary.
 #
+# Scheduled runs fire ONLY from the default branch (main): a workflow_dispatch on
+# a feature branch is not evidence the schedule works. After it lands, confirm the
+# first SCHEDULED run fired.
+#
 # Note: GitHub disables scheduled workflows in a repo with no activity for 60
 # days. If that ever happens this job stops silently; re-enable it in the
 # Actions tab.
@@ -41,7 +45,8 @@ jobs:
           python-version: '3.11'
 
       - name: Install the neo4j driver
-        run: python -m pip install neo4j
+        # Pinned: this step runs with the Aura credentials in its environment.
+        run: python -m pip install 'neo4j>=5.26,<6'
 
       - name: Require Aura secrets
         env:

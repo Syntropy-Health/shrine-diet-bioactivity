@@ -201,3 +201,27 @@ def test_a_gap_over_48h_still_writes_but_fails_loud() -> None:
         mod.keepalive(_Driver(w), workspace="unified_diet_kg")
     # The write still happened first: a missed day must not also cost the instance.
     assert sum("SET m.keepalive_at" in c for c in w["cypher"]) == 1
+
+
+def test_driver_construction_failure_is_red_with_type_only_no_host(monkeypatch, capsys) -> None:
+    import neo4j
+
+    mod = _load()
+    monkeypatch.setenv("NEO4J_URI", "neo4j+s://secret-host.databases.neo4j.io")
+    monkeypatch.setenv("NEO4J_USERNAME", "u")
+    monkeypatch.setenv("NEO4J_PASSWORD", "p")
+
+    def boom(*a, **k):
+        raise ValueError("cannot resolve secret-host.databases.neo4j.io")
+
+    monkeypatch.setattr(neo4j.GraphDatabase, "driver", boom)
+    assert mod.main() == 1
+    out = capsys.readouterr()
+    assert "ValueError" in out.out
+    assert "secret-host" not in out.out + out.err
+
+
+def test_summary_reports_relationship_headroom() -> None:
+    mod = _load()
+    out = mod.keepalive(_Driver(_world()), workspace="unified_diet_kg")
+    assert out["rel_headroom"] == 400000 - 221009

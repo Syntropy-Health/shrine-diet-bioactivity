@@ -11,12 +11,16 @@ Evidence, not claims (CTO #14245):
   * node AND relationship counts are read before and after; any delta FAILS;
   * a missing WorkspaceMeta node (a MATCH that finds nothing writes nothing) FAILS
     instead of reporting a keep-alive that Aura never saw;
-  * if the previous successful keep-alive is older than 48 h, the write still
+  * if the previous keep-alive WRITE is older than 48 h, the write still
     happens (a missed day must not also cost the instance) and then the run FAILS
     so the gap is visible before the 72 h pause;
   * over the Free cap FAILS.
 
-Never prints credentials. Exit 0 only when every assertion holds.
+  * a size-delta red can also come from an ingest running at the same moment;
+    the write still landed (the write is the activity Aura needs).
+
+Never prints credentials or the Aura host (driver construction and logging
+are inside the error handler; only exception TYPES are printed). Exit 0 only when every assertion holds.
 
 Usage (env NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD; optional NEO4J_DATABASE,
 WORKSPACE):  python scripts/ci/aura_keepalive.py
@@ -30,6 +34,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 FREE_NODE_CAP = 200_000
+FREE_REL_CAP = 400_000  # reported as headroom only; the job asserts no growth
 MAX_GAP_HOURS = 48.0
 
 _KEEPALIVE = (
@@ -94,10 +99,11 @@ def keepalive(driver: Any, *, workspace: str, database: str | None = None) -> di
         "rels_before": rels_before,
         "rels_after": rels_after,
         "headroom": FREE_NODE_CAP - nodes_after,
+        "rel_headroom": FREE_REL_CAP - rels_after,
     }
     if gap_hours is not None and gap_hours > MAX_GAP_HOURS:
         raise KeepAliveError(
-            f"last successful keep-alive was {gap_hours} h before this one (> {MAX_GAP_HOURS} h): "
+            f"last successful keep-alive write was {gap_hours} h before this one (> {MAX_GAP_HOURS} h): "
             "a scheduled run was missed; Aura pauses at 72 h. This run DID write. "
             + json.dumps(out)
         )
@@ -109,12 +115,18 @@ def main() -> int:
     if missing:
         print(f"::error::aura keep-alive: missing env {missing} — refusing to report a keep-alive that never ran")
         return 1
-    from neo4j import GraphDatabase
+    import logging
 
-    driver = GraphDatabase.driver(
-        os.environ["NEO4J_URI"], auth=(os.environ["NEO4J_USERNAME"], os.environ["NEO4J_PASSWORD"])
-    )
+    # The driver logs connection problems with the host in the message; this job's
+    # log is public, so keep driver logging off and report exception types only.
+    logging.getLogger("neo4j").setLevel(logging.CRITICAL)
+    driver = None
     try:
+        from neo4j import GraphDatabase
+
+        driver = GraphDatabase.driver(
+            os.environ["NEO4J_URI"], auth=(os.environ["NEO4J_USERNAME"], os.environ["NEO4J_PASSWORD"])
+        )
         out = keepalive(
             driver,
             workspace=os.environ.get("WORKSPACE", "unified_diet_kg"),
@@ -127,7 +139,8 @@ def main() -> int:
         print(f"::error::aura keep-alive FAILED: could not run against Aura ({type(e).__name__})")
         return 1
     finally:
-        driver.close()
+        if driver is not None:
+            driver.close()
     print("aura keep-alive OK " + json.dumps(out))
     return 0
 
