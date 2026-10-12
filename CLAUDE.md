@@ -13,6 +13,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 >   `/research/shrine-diet-bioactivity` and the Braintrust project `shrine-diet-bioactivity`. Renaming
 >   those here would point at resources that do not exist (root CLAUDE.md: never write a value that
 >   names a real external resource unless it IS that resource).
+> - **contracts other code depends on**: the `.mcp.json` server key (it sets the agent tool prefix
+>   `mcp__shrine-diet-bioactivity__*` that permission allowlists match), the `adapter` value in the TS
+>   adapter's health response (`src/tools.ts`), and the old npm `bin` name (kept as an alias);
+> - **historical records** (plans, run logs, research journal prose) keep the name they were written
+>   under; only their GitHub URLs were updated.
+> - Known remainder: `docs/shrine-bioactivity-graph-design-v2.pdf` (rendered binary) still shows the
+>   old URL until it is next regenerated.
 
 
 Open Diet Data builds a **unified diet knowledge graph** spanning macronutrients, foods, herbs, phytochemical compounds, molecular targets, and diseases. It aggregates 7+ authoritative datasets into a semantic KG powered by LightRAG (Neo4j graph + vector embeddings), queryable by LLM agents via a FastMCP gateway (`mcp/`) and a scoped FastAPI wrapper.

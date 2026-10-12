@@ -9,7 +9,9 @@ import { describe, expect, it } from 'vitest';
 // that job runs on EVERY PR (mcp-ci is paths-filtered).
 
 const ROOT = resolve(__dirname, '../../..');
-const OLD_SLUG = ['Syntropy-Health', 'shrine-diet-bioactivity'].join('/'); // not a literal match itself
+// Every former repo slug (built from parts so this file is not itself a match).
+// Compared case-insensitively: GitHub URLs are.
+const OLD_SLUGS = ['shrine-diet-bioactivity', 'shrine-open-diet'].map((n) => ['syntropy-health', n].join('/'));
 // Binary snapshot that cannot be regenerated here (a rendered design doc).
 const KNOWN_BINARY = new Set(['docs/shrine-bioactivity-graph-design-v2.pdf']);
 
@@ -20,7 +22,7 @@ function trackedFiles(): string[] {
 }
 
 describe('repo identity after the rename', () => {
-  it('no tracked text file carries the old GitHub repo slug', () => {
+  it('no tracked text file carries a former GitHub repo slug (any case)', () => {
     const offenders: string[] = [];
     for (const rel of trackedFiles()) {
       if (KNOWN_BINARY.has(rel)) continue;
@@ -31,7 +33,8 @@ describe('repo identity after the rename', () => {
         continue; // submodule gitlinks / unreadable entries
       }
       if (buf.includes(0)) continue; // binary
-      if (buf.toString('utf8').includes(OLD_SLUG)) offenders.push(rel);
+      const text = buf.toString('utf8').toLowerCase();
+      if (OLD_SLUGS.some((slug) => text.includes(slug))) offenders.push(rel);
     }
     expect(offenders).toEqual([]);
   });
@@ -42,5 +45,10 @@ describe('repo identity after the rename', () => {
     expect(pkg.bin['shrine-health-bioactivity']).toBe('./build/index.js');
     // Existing MCP client configs invoke the old command name.
     expect(pkg.bin['shrine-diet-bioactivity']).toBe('./build/index.js');
+  });
+
+  it('the MCP server announces the new name', () => {
+    const src = readFileSync(join(ROOT, 'shrine-diet-bioactivity/src/index.ts'), 'utf8');
+    expect(src).toMatch(/name: 'shrine-health-bioactivity'/);
   });
 });

@@ -6,7 +6,7 @@
 
 ## Context
 
-The shrine-diet-bioactivity unified KG currently uses LightRAG's default
+The shrine-health-bioactivity unified KG currently uses LightRAG's default
 `NanoVectorDBStorage` — a single-process, file-backed vector store at
 `rag_storage_local/`. This produced two incidents in the v1 eval re-run:
 

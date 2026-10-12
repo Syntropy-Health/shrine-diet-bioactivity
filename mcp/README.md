@@ -45,7 +45,7 @@ The Railway container is restartable; it holds zero data. All state is in Aura. 
 
 Every `/mcp*` request requires `Authorization: Bearer <token>`. `/health` is the only public path (Railway healthcheck reaches it without a token).
 
-> **Direction:** internal API key issuance is moving to [Unkey](https://unkey.com) — see [#10](https://github.com/Syntropy-Health/shrine-open-diet/issues/10). The two paths below are interim; the static-key path is **deprecated** and will be removed once Unkey wiring lands.
+> **Direction:** internal API key issuance is moving to [Unkey](https://unkey.com) — see [#10](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/10). The two paths below are interim; the static-key path is **deprecated** and will be removed once Unkey wiring lands.
 
 ### Canonical — Syntropy-Journals admin token (recommended)
 
@@ -63,7 +63,7 @@ export ADMIN_API_TOKEN=sj_<id>_<secret>
 
 Token format is `sj_<id>_<secret>` — id-prefixed bearer with a 30-day default expiry. Issuance procedure: [`apps/Syntropy-Journals/scripts/issue_admin_token.py`](../../Syntropy-Journals/scripts/issue_admin_token.py).
 
-> **In-flight:** the kg-mcp gateway does **not yet validate `sj_*` tokens directly** — that requires a cross-service validator (Unkey, or an HTTP `/api/auth/validate-token` endpoint exposed by Syntropy-Journals). Tracked in [#10](https://github.com/Syntropy-Health/shrine-open-diet/issues/10). Until that ships, `sj_*` tokens are accepted only by Syntropy-Journals endpoints, not kg-mcp's.
+> **In-flight:** the kg-mcp gateway does **not yet validate `sj_*` tokens directly** — that requires a cross-service validator (Unkey, or an HTTP `/api/auth/validate-token` endpoint exposed by Syntropy-Journals). Tracked in [#10](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/10). Until that ships, `sj_*` tokens are accepted only by Syntropy-Journals endpoints, not kg-mcp's.
 
 ### Canonical — Clerk admin sign-in (currently working for kg-mcp)
 
@@ -81,7 +81,7 @@ Kept until the Unkey migration completes; do not use for new integrations.
 
 - Stored in Infisical → `SyntropyHealth App` / `prod` / `MCP_API_KEY`
 - Constant-time compared with the server-side env var
-- Will be removed once [#10](https://github.com/Syntropy-Health/shrine-open-diet/issues/10) lands
+- Will be removed once [#10](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/10) lands
 
 Full auth contract + rotation procedure: [`mcp-auth-contract.md`](../../../.claude/projects/-home-mo-projects-SyntropyHealth/memory/mcp-auth-contract.md) (admin-only memory doc).
 

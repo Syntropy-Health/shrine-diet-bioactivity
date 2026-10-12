@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * shrine-diet-bioactivity — thin-adapter MCP over the scoped LightRAG
+ * shrine-health-bioactivity — thin-adapter MCP over the scoped LightRAG
  * wrapper.  All 5 tools are read-only, domain-agnostic pass-throughs; clinical /
  * culinary reasoning lives in the agent layer.
  *
@@ -43,7 +43,7 @@ Tools:
 class ShrineDietBioactivityMcp {
   private readonly server = new McpServer(
     {
-      name: 'shrine-diet-bioactivity',
+      name: 'shrine-health-bioactivity',
       version: '2.0.0',
       description: SERVER_DESCRIPTION,
     },
@@ -91,7 +91,7 @@ async function main(): Promise<void> {
   const server = new ShrineDietBioactivityMcp(transport, { client, audit });
   await server.connect();
   process.stderr.write(
-    `shrine-diet-bioactivity MCP running on stdio → ${baseUrl} (audit: ${auditPath})\n`,
+    `shrine-health-bioactivity MCP running on stdio → ${baseUrl} (audit: ${auditPath})\n`,
   );
 }
 
