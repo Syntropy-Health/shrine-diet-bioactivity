@@ -69,3 +69,47 @@ def test_runs_the_make_target_and_refuses_a_green_without_passes(wf) -> None:
     assert "pipefail" in run
     # Green requires real passes and no skips: a skipped module exits 0.
     assert "passed" in run and "skipped" in run and "no tests ran" in run
+
+
+def _suite_step(wf: dict) -> dict:
+    return next(s for s in _job(wf)["steps"] if "lightrag-test-scope-write-live" in s.get("run", ""))
+
+
+def test_nothing_can_turn_a_red_suite_green(wf) -> None:
+    job = _job(wf)
+    assert "continue-on-error" not in job and "if" not in job
+    for step in job["steps"]:
+        assert "continue-on-error" not in step, step.get("name")
+        assert "if" not in step, step.get("name")
+
+
+def test_the_checks_judge_the_make_output_in_order(wf) -> None:
+    run = _suite_step(wf)["run"]
+    i_make = run.index("make lightrag-test-scope-write-live")
+    i_passed = run.index("passed=")
+    i_hide = run.index("xfail|xpass|deselected")
+    i_min = run.index("MIN_LIVE_PASSED")
+    assert i_make < i_passed < i_hide < i_min
+
+
+def test_partial_hiding_and_dropped_tests_are_red(wf) -> None:
+    run = _suite_step(wf)["run"]
+    for word in ("skipped", "no tests ran", "xfail", "xpass", "deselected"):
+        assert word in run, word
+    assert int(_suite_step(wf)["env"]["MIN_LIVE_PASSED"]) >= 14
+
+
+def test_triggers_cover_the_makefile_push_schedule_and_its_own_pin(wf) -> None:
+    on = _on(wf)
+    for trig in ("pull_request", "push"):
+        assert "shrine-diet-bioactivity/Makefile" in on[trig]["paths"], trig
+    assert on["schedule"]
+    mcp_ci = yaml.safe_load((REPO_ROOT / ".github/workflows/mcp-ci.yml").read_text())
+    mcp_on = mcp_ci.get("on", mcp_ci.get(True))
+    assert ".github/workflows/lightrag-live-write.yml" in mcp_on["pull_request"]["paths"]
+
+
+def test_the_test_db_password_matches_the_container_auth(wf) -> None:
+    job = _job(wf)
+    auth = job["services"]["neo4j"]["env"]["NEO4J_AUTH"]
+    assert auth == f"neo4j/{job['env']['SCOPED_WRITE_TEST_NEO4J_PASSWORD']}"

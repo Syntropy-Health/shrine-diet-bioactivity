@@ -30,6 +30,10 @@ on:
       - 'shrine-diet-bioactivity/Makefile'
       - '.github/workflows/lightrag-live-write.yml'
   workflow_dispatch:
+  # Weekly: the neo4j driver (requirements: >=5.26) and the 5.26 image tag both
+  # float, and no file change in this repo would re-run the suite on that drift.
+  schedule:
+    - cron: '23 7 * * 2'
 
 permissions:
   contents: read
@@ -80,6 +84,7 @@ jobs:
               d = GraphDatabase.driver(
                   os.environ["SCOPED_WRITE_TEST_NEO4J_URI"],
                   auth=(os.environ["SCOPED_WRITE_TEST_NEO4J_USERNAME"], os.environ["SCOPED_WRITE_TEST_NEO4J_PASSWORD"]),
+                  connection_timeout=5,  # a half-open bolt port must not eat the retry budget
               )
               with d.session() as s:
                   assert s.run("RETURN 1 AS x").single()["x"] == 1
@@ -97,15 +102,25 @@ jobs:
           exit 1
 
       - name: Run the live write-integrity suite
+        env:
+          MIN_LIVE_PASSED: '14'  # MEASURED 2026-10-12: 14 tests in test_scope_write_integrity_live.py
         run: |
           set -o pipefail
           make lightrag-test-scope-write-live 2>&1 | tee "$RUNNER_TEMP/live-write.log"
-          # A skipped module exits 0, so green requires real passes and no skips.
-          if ! grep -Eq '[0-9]+ passed' "$RUNNER_TEMP/live-write.log"; then
+          # A skipped module exits 0, so green requires real passes and nothing
+          # that hides a test: no skip, xfail/xpass, deselection or collection error.
+          passed=$(grep -Eo '[0-9]+ passed' "$RUNNER_TEMP/live-write.log" | tail -1 | grep -Eo '[0-9]+' || true)
+          if [ -z "$passed" ]; then
             echo "::error::no passing tests reported"
             exit 1
           fi
-          if grep -Eqi 'skipped|no tests ran' "$RUNNER_TEMP/live-write.log"; then
-            echo "::error::the live suite skipped or collected nothing — a skip is not a pass"
+          if grep -Eqi 'skipped|no tests ran|xfail|xpass|deselected|[0-9]+ errors?\b' "$RUNNER_TEMP/live-write.log"; then
+            echo "::error::the live suite skipped, xfailed, deselected or errored part of itself — that is not a pass"
+            exit 1
+          fi
+          # A test that silently stops being collected (renamed, lost its test_
+          # prefix) still reports N-1 passed. Raise this when tests are added.
+          if [ "$passed" -lt "$MIN_LIVE_PASSED" ]; then
+            echo "::error::only $passed live tests passed (expected >= $MIN_LIVE_PASSED) — a test stopped being collected"
             exit 1
           fi
