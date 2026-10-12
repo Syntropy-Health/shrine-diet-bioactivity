@@ -1,4 +1,14 @@
-# shrine-diet-bioactivity
+# shrine-health-bioactivity
+
+> **Naming (2026-10).** The repo is **`Syntropy-Health/shrine-health-bioactivity`** (renamed from
+> `shrine-diet-bioactivity`; the old GitHub URL redirects, but do not write it anywhere). Two things
+> deliberately keep the old name:
+> - the nested **`shrine-diet-bioactivity/`** application directory — renaming it moves every CI path,
+>   the Dockerfile and the fixtures-cache keys, so it is a separate change;
+> - **external resource names** that live outside this repo: the Infisical path
+>   `/research/shrine-diet-bioactivity` and the Braintrust project `shrine-diet-bioactivity`. Renaming
+>   those here would point at resources that do not exist (root CLAUDE.md: never write a value that
+>   names a real external resource unless it IS that resource).
 
 A **unified diet knowledge graph** spanning macronutrients, foods, herbs, phytochemical compounds, molecular targets, and diseases. Aggregates 7+ authoritative open datasets into a semantic KG powered by LightRAG (Neo4j graph + vector embeddings), queryable by LLM agents via a Python MCP gateway and a TypeScript thin-adapter.
 

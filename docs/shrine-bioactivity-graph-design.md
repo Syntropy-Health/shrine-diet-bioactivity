@@ -47,7 +47,7 @@ This repo has been renamed before and the last one was never finished — `shrin
 
 Beyond files, the rename touches the monorepo submodule gitlink, the Railway app, the Infisical path `/research/shrine-diet-bioactivity`, mirrored GitHub Actions secrets, and the deployed hostname. GitHub redirects the old repo URL, so the rename itself is low-risk; the risk is the *partial* rename, which the `shrine-open-diet` row shows already happened once.
 
-Issue [#8](https://github.com/Syntropy-Health/shrine-diet-bioactivity/issues/8) already proposes renaming the nested Python package (52 files). Landing both in one sweep is cheaper than two migrations, and it is the moment to retire `herbal_botanicals.db` for a name describing the 37 tables it actually holds.
+Issue [#8](https://github.com/Syntropy-Health/shrine-health-bioactivity/issues/8) already proposes renaming the nested Python package (52 files). Landing both in one sweep is cheaper than two migrations, and it is the moment to retire `herbal_botanicals.db` for a name describing the 37 tables it actually holds.
 
 ---
 

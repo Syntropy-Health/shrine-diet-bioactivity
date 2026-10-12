@@ -195,7 +195,7 @@
 
 - [ ] **T14.12 — MOVE §9.2 Reproducibility detail → A.6** (-180w body, +200w appendix)
   - Cut detailed Reproducibility bullets from `09-future-work-conclusion.md`
-  - Body §9.2 keeps: "We release code and a reference results dir at https://github.com/Syntropy-Health/shrine-diet-bioactivity (commit pin in App. A.6); full reproducibility instructions in App. A.6."
+  - Body §9.2 keeps: "We release code and a reference results dir at https://github.com/Syntropy-Health/shrine-health-bioactivity (commit pin in App. A.6); full reproducibility instructions in App. A.6."
   - Append the §9.2 Plan C insertion (T14.18) to App. A.6 instead
 
 ### C3. Add 3 new related-work citations (writing-lens)

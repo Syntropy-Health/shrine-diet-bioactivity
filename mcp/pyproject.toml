@@ -1,7 +1,7 @@
 [project]
 name = "kg-mcp"
 version = "0.1.0"
-description = "MCP gateway over the shrine-diet-bioactivity LightRAG KG"
+description = "MCP gateway over the shrine-health-bioactivity LightRAG KG"
 requires-python = ">=3.10"
 # Note: integration tests use the private `_mcp_server` attr (mcp.shared.memory
 # pattern); pinned <2.0 to hedge against breaking SDK rename.

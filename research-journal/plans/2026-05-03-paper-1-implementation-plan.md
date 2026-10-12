@@ -1843,7 +1843,7 @@ separation under deliberate constrained inference (free-tier 30B
 Nemotron). DietResearchBench-Clinical v1 (40 scenarios, 6-metric panel)
 is released as a v1 reference resource; v2 expansion to n=200 with
 two-annotator gold is in progress as a companion paper. Code and
-benchmark are released at https://github.com/Syntropy-Health/shrine-diet-bioactivity.
+benchmark are released at https://github.com/Syntropy-Health/shrine-health-bioactivity.
 ```
 
 Target: ~150 words.

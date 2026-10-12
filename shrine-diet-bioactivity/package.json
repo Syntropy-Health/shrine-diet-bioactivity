@@ -1,9 +1,10 @@
 {
-  "name": "shrine-diet-bioactivity",
+  "name": "shrine-health-bioactivity",
   "version": "2.0.0",
   "main": "index.js",
   "type": "module",
   "bin": {
+    "shrine-health-bioactivity": "./build/index.js",
     "shrine-diet-bioactivity": "./build/index.js"
   },
   "scripts": {
