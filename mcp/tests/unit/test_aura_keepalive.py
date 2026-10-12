@@ -204,8 +204,14 @@ def test_a_gap_over_48h_still_writes_but_fails_loud() -> None:
 
 
 def test_driver_construction_failure_is_red_with_type_only_no_host(monkeypatch, capsys) -> None:
-    import neo4j
+    # Driver-free: the gateway unit env does not install neo4j (CTO #14264), so a
+    # fake module is injected; main() imports it lazily inside its error handler.
+    import sys
+    import types
 
+    neo4j = types.ModuleType("neo4j")
+    neo4j.GraphDatabase = type("GraphDatabase", (), {"driver": None})
+    monkeypatch.setitem(sys.modules, "neo4j", neo4j)
     mod = _load()
     monkeypatch.setenv("NEO4J_URI", "neo4j+s://secret-host.databases.neo4j.io")
     monkeypatch.setenv("NEO4J_USERNAME", "u")
