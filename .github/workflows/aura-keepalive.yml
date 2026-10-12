@@ -1,0 +1,85 @@
+# Aura Free keep-alive [PRINCIPAL-DIRECTED 2026-10-12].
+#
+# Aura Free pauses after 72 h of inactivity and DELETES an instance that stays
+# paused for 30 days (it was paused once already: 2026-10-10, NXDOMAIN outage,
+# #13947). This job keeps it awake with a property-only write on the existing
+# WorkspaceMeta node — the graph sits at the Free node cap, so nothing may grow.
+#
+# Twice a day because GitHub can delay or drop scheduled runs; the script also
+# fails if the previous successful keep-alive is > 48 h old, so a missed run is
+# visible a full day before the pause. A red run here means the keep-alive did
+# NOT provably happen — read the summary.
+#
+# Scheduled runs fire ONLY from the default branch (main): a workflow_dispatch on
+# a feature branch is not evidence the schedule works. After it lands, confirm the
+# first SCHEDULED run fired.
+#
+# Note: GitHub disables scheduled workflows in a repo with no activity for 60
+# days. If that ever happens this job stops silently; re-enable it in the
+# Actions tab.
+
+name: Aura keep-alive
+
+on:
+  schedule:
+    - cron: '17 5,17 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aura-keepalive
+  cancel-in-progress: false
+
+jobs:
+  keepalive:
+    name: Aura Free keep-alive (property-only write, size asserted)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install the neo4j driver
+        # Pinned: this step runs with the Aura credentials in its environment.
+        run: python -m pip install 'neo4j>=5.26,<6'
+
+      - name: Require Aura secrets
+        env:
+          NEO4J_URI: ${{ secrets.NEO4J_URI }}
+          NEO4J_USERNAME: ${{ secrets.NEO4J_USERNAME }}
+          NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
+        run: |
+          MISSING=()
+          [ -z "$NEO4J_URI" ]      && MISSING+=("NEO4J_URI")
+          [ -z "$NEO4J_USERNAME" ] && MISSING+=("NEO4J_USERNAME")
+          [ -z "$NEO4J_PASSWORD" ] && MISSING+=("NEO4J_PASSWORD")
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "::error::Aura keep-alive secrets missing: ${MISSING[*]} — refusing to report a keep-alive that never ran"
+            exit 1
+          fi
+
+      - name: Keep-alive write (counts asserted unchanged)
+        env:
+          NEO4J_URI: ${{ secrets.NEO4J_URI }}
+          NEO4J_USERNAME: ${{ secrets.NEO4J_USERNAME }}
+          NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
+          WORKSPACE: unified_diet_kg
+        run: |
+          # Never let bash -e abort before the summary is written: a red run must
+          # still say WHY in the job summary.
+          set +e
+          python scripts/ci/aura_keepalive.py | tee "$RUNNER_TEMP/keepalive.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "## Aura keep-alive"
+            echo '```'
+            cat "$RUNNER_TEMP/keepalive.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
