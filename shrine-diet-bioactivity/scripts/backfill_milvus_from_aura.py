@@ -31,8 +31,8 @@ resumes cleanly from the last batch.
 Usage::
 
     cd shrine-diet-bioactivity
-    infisical run --env=prod --path=/mcp/kg/ -- \\
-    infisical run --env=prod --path=/research/shrine-diet-bioactivity/ -- \\
+    infisical run --projectId=589d1e3b-5798-48ea-97c0-2d58086a375b --env=prod --path=/mcp/kg/ -- \\
+    infisical run --projectId=589d1e3b-5798-48ea-97c0-2d58086a375b --env=prod --path=/research/shrine-diet-bioactivity/ -- \\
         python scripts/backfill_milvus_from_aura.py \\
             [--entities-only] [--relationships-only] \\
             [--compound-degree-top 30000] \\

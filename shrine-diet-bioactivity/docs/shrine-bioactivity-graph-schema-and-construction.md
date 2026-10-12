@@ -44,7 +44,7 @@ via `download-sources → decompress → build-herbal-db → migrate-kg → migr
   gcloud) — **Voyage AI is dismissed entirely** (we already have Google/Vertex access; no free-tier
   rate limit to work around).
 - **Aura connection (2026-09-05, RESOLVED):** instance `b7dbceab` "shrine-bioactivity-base". Working Bolt
-  creds are **non-default** and must be read from the canonical `687cab01 /research/shrine-diet-bioactivity`:
+  creds are **non-default** and must be read from the canonical `589d1e3b /research/shrine-diet-bioactivity` (formerly `687cab01`, merged in and retired 2026-10):
   `NEO4J_USERNAME=b7dbceab` and `NEO4J_DATABASE=b7dbceab` (NOT the Aura default `neo4j`), password unchanged.
   (Fixed a latent `687cab01` bug: `NEO4J_DATABASE` was `neo4j`, masked by default-home-db routing.)
 - **Bioactivity subgraph EXECUTED on Aura (2026-09-05), additive-guarded, both writes:**
