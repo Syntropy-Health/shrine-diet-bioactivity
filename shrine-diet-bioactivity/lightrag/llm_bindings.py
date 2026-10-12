@@ -1,0 +1,144 @@
+"""Answer-synthesis LLM bindings for the scoped server (#121, CTO #14273).
+
+``LLM_BINDING`` selects how /query turns retrieved context into an answer:
+
+  gemini   Gemini on Vertex AI via google-genai, using the gateway's existing service
+           account [PRINCIPAL-RULED 2026-10-12]. ``LLM_VERTEX_LOCATION`` is
+           separate from ``GOOGLE_CLOUD_LOCATION`` (the embedder's): the Gemini 3.x
+           models are served from ``global`` only (MEASURED 2026-10-12: 404 in
+           us-central1), and the embedder must not move with them. That is also why
+           LightRAG's bundled ``lightrag.llm.gemini`` is not used — it reads
+           ``GOOGLE_CLOUD_LOCATION`` for every client.
+  none     No synthesis. /query returns retrieved context + references marked
+           ``answer_mode: retrieval_only`` — visibly not an answer.
+  openai   OpenAI-compatible endpoint (OpenRouter / local); built in scoped_server.
+  ollama   Local pipeline development; built in scoped_server.
+
+Every binding is wrapped by :func:`tracked`, which turns an empty completion into
+an error and records the failing exception TYPE, so /query can answer 502
+``llm_unavailable`` with a reason instead of a 200 whose answer is ``"None"``.
+"""
+from __future__ import annotations
+
+import functools
+import os
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+LLM_BINDINGS = frozenset({"openai", "ollama", "gemini", "none"})
+
+LlmFunc = Callable[..., Awaitable[Any]]
+
+
+class EmptyCompletionError(RuntimeError):
+    """The LLM call returned without error but with no text."""
+
+
+class LlmDisabledError(RuntimeError):
+    """LLM_BINDING=none: something asked for a completion."""
+
+
+# Exception TYPE of the most recent failed completion, or None. Process-global on
+# purpose: LightRAG runs LLM calls in its own worker tasks, so a ContextVar set
+# there never reaches the request. Diagnostic only, used for the 502 reason and
+# for /health; under concurrent failures it may name a neighbouring call's type.
+_last_error: str | None = None
+
+
+def last_error() -> str | None:
+    return _last_error
+
+
+def clear_last_error() -> None:
+    global _last_error
+    _last_error = None
+
+
+def tracked(func: LlmFunc) -> LlmFunc:
+    """Wrap an llm_model_func: record failures by type, refuse empty completions."""
+
+    @functools.wraps(func)
+    async def _call(*args: Any, **kwargs: Any) -> Any:
+        global _last_error
+        try:
+            out = await func(*args, **kwargs)
+        except Exception as e:
+            _last_error = type(e).__name__
+            raise
+        if out is None or (isinstance(out, str) and not out.strip()):
+            _last_error = EmptyCompletionError.__name__
+            raise EmptyCompletionError("LLM returned an empty completion")
+        return out
+
+    return _call
+
+
+def resolve_binding(env: dict[str, str] | Any = None) -> str:
+    env = os.environ if env is None else env
+    binding = (env.get("LLM_BINDING") or "openai").strip().lower()
+    if binding not in LLM_BINDINGS:
+        raise ValueError(f"LLM_BINDING must be one of {sorted(LLM_BINDINGS)}, got {binding!r}")
+    return binding
+
+
+def gemini_problem(env: dict[str, str] | Any = None) -> str | None:
+    """Why the gemini binding cannot run here, or None. Names only, never values."""
+    env = os.environ if env is None else env
+    missing = [k for k in ("LLM_MODEL", "GOOGLE_CLOUD_PROJECT", "LLM_VERTEX_LOCATION") if not env.get(k)]
+    if missing:
+        # No defaults: each names a real external resource (root CLAUDE.md).
+        return f"gemini LLM binding needs {', '.join(missing)} (no defaults are assumed)"
+    try:
+        import google.genai  # noqa: F401
+    except ImportError:
+        return "google-genai is not installed"
+    return None
+
+
+def _contents(prompt: str, history: list[dict[str, Any]] | None) -> list[Any]:
+    from google.genai import types
+
+    out = []
+    for m in history or []:
+        role = "model" if m.get("role") == "assistant" else "user"
+        out.append(types.Content(role=role, parts=[types.Part(text=str(m.get("content", "")))]))
+    out.append(types.Content(role="user", parts=[types.Part(text=prompt)]))
+    return out
+
+
+def make_gemini_llm(env: dict[str, str] | Any = None, client: Any = None) -> LlmFunc:
+    """Async llm_model_func over Vertex Gemini. ``client`` is injectable for tests."""
+    env = os.environ if env is None else env
+    problem = gemini_problem(env)
+    if problem:
+        raise RuntimeError(problem)
+    model = env["LLM_MODEL"]
+    if client is None:
+        from google import genai
+
+        client = genai.Client(
+            vertexai=True, project=env["GOOGLE_CLOUD_PROJECT"], location=env["LLM_VERTEX_LOCATION"]
+        )
+
+    async def _llm(
+        prompt: str,
+        system_prompt: str | None = None,
+        history_messages: list[dict[str, Any]] | None = None,
+        **_ignored: Any,  # LightRAG passes OpenAI-shaped kwargs (stream, enable_cot, ...)
+    ) -> str:
+        from google.genai import types
+
+        config = types.GenerateContentConfig(system_instruction=system_prompt) if system_prompt else None
+        resp = await client.aio.models.generate_content(
+            model=model, contents=_contents(prompt, history_messages), config=config
+        )
+        return resp.text or ""
+
+    return _llm
+
+
+def make_disabled_llm() -> LlmFunc:
+    async def _llm(*_a: Any, **_k: Any) -> str:
+        raise LlmDisabledError("LLM_BINDING=none: answer synthesis is disabled")
+
+    return _llm

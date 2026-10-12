@@ -52,7 +52,9 @@ async def kg_query(client: ScopedServerClient, args: KgQueryInput) -> KgQueryOut
             raw = await client.query(args.question, mode=args.mode, top_k=args.top_k)
             result = KgQueryOutput(
                 answer=raw.get("response", ""),
+                answer_mode=raw.get("answer_mode", "unknown"),
                 references=list(raw.get("references", [])),
+                retrieval=dict(raw.get("retrieval") or {}),
                 scope_filter=list(raw.get("scope_filter", ["shared"])),
                 bt_span_id=span_id(span),
             )
@@ -64,6 +66,7 @@ async def kg_query(client: ScopedServerClient, args: KgQueryInput) -> KgQueryOut
                     "top_k": args.top_k,
                     "answer_length": len(result.answer),
                     "reference_count": len(result.references),
+                    "answer_mode": result.answer_mode,
                 },
             )
             span.log(

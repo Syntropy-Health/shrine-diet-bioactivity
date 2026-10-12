@@ -43,8 +43,10 @@ from typing import Any, Iterator, Literal
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+import llm_bindings
 from audit_log import AuditLog, AuditRow, default_audit_log
 from cypher_fragments import seed_match_predicate
 from scope_context import (
@@ -192,6 +194,15 @@ _GEMINI_ADAPTER_BINDINGS = frozenset({"vertex", "aistudio", "local"})
 # WorkspaceMeta check; typed routes never consult it.
 _SEMANTIC_DISABLED_REASON: str | None = None
 
+# Answer synthesis (#121, CTO #14273). _llm_func is the tracked llm_model_func the
+# rag was built with. _LLM_STATE is what /health reports: "ok" | "failing" |
+# "disabled" (LLM_BINDING=none) | "untested"; set by the boot probe and updated by
+# every /query, so a provider that starts failing turns /health red too.
+_llm_func: Any = None
+_LLM_CONFIG_PROBLEM: str | None = None
+_LLM_STATE: dict[str, str | None] = {"llm": "untested", "reason": None}
+LLM_PROBE_TIMEOUT_SECONDS = 30.0
+
 
 def _adapter_embedding_func(binding: str, workspace: str, model: str, dim: int) -> Any:
     """Return a LightRAG EmbeddingFunc from embedder_adapters, or None for bindings
@@ -299,6 +310,104 @@ def _embedder_problem(binding: str, workspace: str) -> str | None:
     return None
 
 
+def _openai_compat_embed(llm_host: str, api_key: str | None, embedding_model: str, embedding_dim: int) -> Any:
+    """OpenAI-compatible embed function (OpenRouter / local). Moved out of
+    _build_scoped_rag unchanged so the gemini/none LLM bindings can reuse it as the
+    nano-store fallback embedder."""
+
+    async def _embed(texts: list[str]) -> Any:
+        """Direct OpenRouter-compatible /embeddings call.
+
+        lightrag's bundled ``openai_embed`` hardcodes
+        ``encoding_format='base64'`` which OpenRouter rejects
+        (returns ``{"error":...}`` with no ``data``) → downstream
+        ``'NoneType' object is not iterable``. Float encoding
+        instead — and the entities_vdb was embedded the same way,
+        so query/store stay vector-space-consistent.
+        """
+        import httpx
+        import numpy as np
+
+        url = llm_host.rstrip("/") + "/embeddings"
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        payload = {
+            "model": embedding_model,
+            "input": texts,
+            "dimensions": embedding_dim,
+        }
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            body = resp.json()
+        data = body.get("data")
+        if not isinstance(data, list):
+            raise RuntimeError(
+                f"embeddings endpoint returned no data: {body.get('error', body)}"
+            )
+        if any("index" not in d for d in data):
+            raise RuntimeError(
+                f"embeddings response item missing 'index': {data[:2]}"
+            )
+        ordered = sorted(data, key=lambda d: d["index"])
+        return np.array([d["embedding"] for d in ordered], dtype=np.float32)
+
+    return _embed
+
+
+def _gemini_or_disabled_llm(binding: str) -> Any:
+    """llm_model_func for LLM_BINDING=gemini|none. A gemini precondition problem
+    never crashes boot: it becomes an llm that raises, so /health reports
+    llm=failing with the named reason and /query answers 502."""
+    global _LLM_CONFIG_PROBLEM
+    _LLM_CONFIG_PROBLEM = None
+    if binding == "none":
+        return llm_bindings.make_disabled_llm()
+    problem = llm_bindings.gemini_problem(os.environ)
+    if problem is None:
+        return llm_bindings.make_gemini_llm(os.environ)
+    _LLM_CONFIG_PROBLEM = problem
+    logger.error("LLM synthesis unavailable: %s", problem)
+
+    async def _misconfigured(*_a: Any, **_k: Any) -> str:
+        raise RuntimeError(problem)
+
+    return _misconfigured
+
+
+def _set_llm_state(llm: str, reason: str | None) -> None:
+    _LLM_STATE["llm"] = llm
+    _LLM_STATE["reason"] = reason
+
+
+async def _probe_llm() -> None:
+    """Boot-time synthesis probe: one tiny completion through the SAME tracked
+    llm_model_func the rag uses, so /health can say whether answers will
+    synthesize before any client asks (#14271 shipped a 200 "None" because nothing
+    did). Reasons are names / exception TYPES only."""
+    import asyncio
+
+    try:
+        binding = llm_bindings.resolve_binding(os.environ)
+    except ValueError:
+        _set_llm_state("failing", "LLM_BINDING is not a known binding")
+        return
+    if binding == "none":
+        _set_llm_state("disabled", "LLM_BINDING=none (retrieval-only)")
+        return
+    if _llm_func is None:
+        _set_llm_state("untested", None)
+        return
+    try:
+        await asyncio.wait_for(_llm_func("Reply with the single word: ok"), LLM_PROBE_TIMEOUT_SECONDS)
+    except Exception as e:  # noqa: BLE001 - a state, never a boot crash
+        _set_llm_state("failing", _LLM_CONFIG_PROBLEM or type(e).__name__)
+        logger.error("LLM synthesis probe FAILED: %s", _LLM_STATE["reason"])
+    else:
+        _set_llm_state("ok", None)
+
+
 async def _build_scoped_rag() -> Any:
     """Instantiate LightRAG with ScopedNeo4JStorage as the graph backend."""
     from lightrag import LightRAG
@@ -330,7 +439,7 @@ async def _build_scoped_rag() -> Any:
     embedding_dim = int(os.environ.get("EMBEDDING_DIM", "1024"))
     embedding_model = os.environ.get("EMBEDDING_MODEL", "nvidia/llama-nemotron-embed-vl-1b-v2:free")
     llm_model = os.environ.get("LLM_MODEL", "nvidia/nemotron-3-nano-30b-a3b:free")
-    llm_binding = os.environ.get("LLM_BINDING", "openai").lower()
+    llm_binding = llm_bindings.resolve_binding(os.environ)
     llm_host = os.environ.get("LLM_BINDING_HOST", "https://openrouter.ai/api/v1")
     api_key = (
         os.environ.get("LLM_BINDING_API_KEY")
@@ -342,43 +451,7 @@ async def _build_scoped_rag() -> Any:
     if llm_binding == "openai":
         from lightrag.llm.openai import openai_complete_if_cache
 
-        async def _embed(texts: list[str]) -> Any:
-            """Direct OpenRouter-compatible /embeddings call.
-
-            lightrag's bundled ``openai_embed`` hardcodes
-            ``encoding_format='base64'`` which OpenRouter rejects
-            (returns ``{"error":...}`` with no ``data``) → downstream
-            ``'NoneType' object is not iterable``. Float encoding
-            instead — and the entities_vdb was embedded the same way,
-            so query/store stay vector-space-consistent.
-            """
-            import httpx
-            import numpy as np
-
-            url = llm_host.rstrip("/") + "/embeddings"
-            headers = {"Content-Type": "application/json"}
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-            payload = {
-                "model": embedding_model,
-                "input": texts,
-                "dimensions": embedding_dim,
-            }
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(url, headers=headers, json=payload)
-                resp.raise_for_status()
-                body = resp.json()
-            data = body.get("data")
-            if not isinstance(data, list):
-                raise RuntimeError(
-                    f"embeddings endpoint returned no data: {body.get('error', body)}"
-                )
-            if any("index" not in d for d in data):
-                raise RuntimeError(
-                    f"embeddings response item missing 'index': {data[:2]}"
-                )
-            ordered = sorted(data, key=lambda d: d["index"])
-            return np.array([d["embedding"] for d in ordered], dtype=np.float32)
+        _embed = _openai_compat_embed(llm_host, api_key, embedding_model, embedding_dim)
 
         async def _llm(prompt: str, system_prompt: str | None = None,
                        history_messages: list[dict] | None = None, **kwargs: Any) -> str:
@@ -394,6 +467,11 @@ async def _build_scoped_rag() -> Any:
 
         llm_func = _llm
         embed_func = _embed
+    elif llm_binding in ("gemini", "none"):
+        # Synthesis off OpenAI-compat (#121). Embeddings still need a native
+        # fallback for the nano store; the deployed profile uses the Vertex adapter.
+        embed_func = _openai_compat_embed(llm_host, api_key, embedding_model, embedding_dim)
+        llm_func = _gemini_or_disabled_llm(llm_binding)
     else:
         # Ollama fallback (local pipeline dev). Imported only when needed
         # so a container without the `ollama` package still boots under openai.
@@ -408,6 +486,10 @@ async def _build_scoped_rag() -> Any:
 
         llm_func = ollama_model_complete
         embed_func = _embed_ollama
+
+    global _llm_func
+    llm_func = llm_bindings.tracked(llm_func)
+    _llm_func = llm_func
 
     # llm_model_kwargs is forwarded as **kwargs to llm_func; keep it Ollama-only.
     # OpenAI binding closures already capture base_url/api_key, so leaking a
@@ -535,6 +617,9 @@ class HealthResponse(BaseModel):
     # #104: "enabled" | "disabled" | "off" (local vector store, no semantic check)
     semantic: str = "off"
     semantic_reason: str | None = None
+    # #121: "ok" | "failing" | "disabled" | "untested"
+    llm: str = "untested"
+    llm_reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -558,6 +643,8 @@ async def _startup() -> None:
     # doesn't depend on LightRAG's storage internals.
     await _init_neo4j_driver()
     await _check_semantic_preconditions()
+    global _llm_func
+    _llm_func = None  # set by _build_scoped_rag; never probe a previous boot's client
     try:
         _rag = await _build_scoped_rag()
     except (Exception, SystemExit) as e:
@@ -569,7 +656,8 @@ async def _startup() -> None:
         _SEMANTIC_DISABLED_REASON = f"vector storage failed to initialise: {type(e).__name__}"
         logger.error("semantic /query DISABLED: %s", _SEMANTIC_DISABLED_REASON)
         _rag = await _build_scoped_rag()
-    logger.info("scoped_server booted (config=%s)", _config_name)
+    await _probe_llm()
+    logger.info("scoped_server booted (config=%s, llm=%s)", _config_name, _LLM_STATE["llm"])
 
 
 @app.on_event("shutdown")
@@ -649,7 +737,12 @@ async def health() -> HealthResponse:
     else:
         semantic = "disabled" if _SEMANTIC_DISABLED_REASON else "enabled"
     return HealthResponse(
-        status="ok", config=_config_name, semantic=semantic, semantic_reason=_SEMANTIC_DISABLED_REASON
+        status="ok",
+        config=_config_name,
+        semantic=semantic,
+        semantic_reason=_SEMANTIC_DISABLED_REASON,
+        llm=_LLM_STATE["llm"] or "untested",
+        llm_reason=_LLM_STATE["reason"],
     )
 
 
@@ -1049,7 +1142,7 @@ async def bilingual_term(request: BilingualTermRequest) -> dict[str, Any]:
 
 
 @app.post("/query")
-async def query(request: QueryRequest) -> dict[str, Any]:
+async def query(request: QueryRequest) -> Any:
     if _SEMANTIC_DISABLED_REASON:
         raise HTTPException(
             status_code=503,
@@ -1079,21 +1172,150 @@ async def query(request: QueryRequest) -> dict[str, Any]:
             "top_k": request.top_k,
         },
     ) as audit_row:
-        from lightrag import QueryParam
-
         token = set_scope_filter(request.scope_filter)
         try:
-            param = QueryParam(mode=request.mode, top_k=request.top_k)
-            result = await _rag.aquery(request.query, param=param)
+            if llm_bindings.resolve_binding(os.environ) == "none":
+                body = await _retrieval_only_answer(request)
+            else:
+                body = await _synthesized_answer(request)
         finally:
             reset_scope_filter(token)
 
-        text_result = result if isinstance(result, str) else str(result)
-        audit_row.result_count = len(text_result)
+        if isinstance(body, JSONResponse):
+            audit_row.result_count = 0
+            return body
+        audit_row.result_count = len(body["response"])
+        body["scope_filter"] = request.scope_filter
+        return body
+
+
+# Cap on how much retrieved context a retrieval-only response renders.
+_RETRIEVAL_ONLY_MAX_ITEMS = 20
+_REFERENCES_MAX = 20
+
+
+def _query_failed() -> JSONResponse:
+    """502 for a failure outside the LLM. LightRAG's messages embed str(e), which
+    can carry hosts, so only a fixed code goes on the wire."""
+    return JSONResponse(status_code=502, content={"error": "query_failed", "detail": "query_failed"})
+
+
+def _retrieval_counts(data: dict[str, Any] | None) -> dict[str, int]:
+    data = data or {}
+    return {k: len(data.get(k) or []) for k in ("entities", "relationships", "chunks")}
+
+
+def _entity_references(data: dict[str, Any] | None) -> list[str]:
+    """entity_ids in the retrieved context (deduplicated, retrieval order)."""
+    out: list[str] = []
+    for e in (data or {}).get("entities") or []:
+        name = e.get("entity_name")
+        if name and name not in out:
+            out.append(name)
+        if len(out) >= _REFERENCES_MAX:
+            break
+    return out
+
+
+async def _synthesized_answer(request: QueryRequest) -> dict[str, Any] | JSONResponse:
+    """LightRAG retrieval + LLM synthesis. A synthesis failure is a 502 with the
+    provider's exception TYPE and what retrieval found, never a 200 carrying the
+    string "None" (#14271: aquery() returns None when the LLM raises)."""
+    from lightrag import QueryParam
+
+    llm_bindings.clear_last_error()
+    try:
+        result = await _rag.aquery_llm(request.query, param=QueryParam(mode=request.mode, top_k=request.top_k))
+    except Exception as e:  # noqa: BLE001 - aquery_llm normally catches; a fixed code, never str(e)
+        logger.error("/query raised outside LightRAG's handler: %s", type(e).__name__)
+        return _query_failed()
+    result = result or {}
+    content = (result.get("llm_response") or {}).get("content")
+    data = result.get("data") or {}
+    if result.get("status") == "failure" and (result.get("metadata") or {}).get("failure_reason") == "no_results":
+        # Retrieval found nothing in scope; LightRAG's fixed fail_response, no LLM call.
         return {
-            "response": text_result,
-            "scope_filter": request.scope_filter,
+            "response": content or "",
+            "answer_mode": "no_context",
+            "references": [],
+            "retrieval": _retrieval_counts(None),
         }
+    llm_error = llm_bindings.last_error()
+    if result.get("status") == "success" and isinstance(content, str) and content.strip() and llm_error is None:
+        _set_llm_state("ok", None)
+        return {
+            "response": content,
+            "answer_mode": "synthesized",
+            "references": _entity_references(data),
+            "retrieval": _retrieval_counts(data),
+        }
+    if llm_error is None and result.get("status") != "success":
+        # Failed before or outside the LLM. LightRAG's message embeds str(e), which
+        # may carry hosts, so only a fixed code goes on the wire.
+        logger.error("/query failed outside the LLM (status=%s)", result.get("status"))
+        return _query_failed()
+    reason = llm_error or llm_bindings.EmptyCompletionError.__name__
+    _set_llm_state("failing", _LLM_CONFIG_PROBLEM or reason)
+    chunks = await _naive_chunk_count(request)
+    logger.error("/query synthesis failed: %s (naive retrieval chunks=%s)", reason, chunks)
+    return JSONResponse(
+        status_code=502,
+        content={
+            "error": "llm_unavailable",
+            "reason": reason,
+            "retrieval": {"chunks": chunks, "mode": "naive"},
+            # 'detail' is what the kg-mcp gateway relays to MCP clients.
+            "detail": f"llm_unavailable: {reason} (retrieval found {chunks} chunks)",
+        },
+    )
+
+
+async def _naive_chunk_count(request: QueryRequest) -> int | None:
+    """What vector retrieval alone finds, without the LLM (graph modes need it for
+    keyword extraction). None when retrieval itself fails."""
+    from lightrag import QueryParam
+
+    try:
+        probe = await _rag.aquery_data(request.query, param=QueryParam(mode="naive", top_k=request.top_k))
+    except Exception as e:  # noqa: BLE001 - diagnostic only
+        logger.error("naive retrieval probe failed: %s", type(e).__name__)
+        return None
+    if (probe or {}).get("status") != "success":
+        return None
+    return _retrieval_counts(probe.get("data"))["chunks"]
+
+
+async def _retrieval_only_answer(request: QueryRequest) -> dict[str, Any] | JSONResponse:
+    """LLM_BINDING=none: retrieved context + references, never presented as an
+    answer. Keywords are preset to the query so graph modes skip LLM extraction."""
+    from lightrag import QueryParam
+
+    param = QueryParam(
+        mode=request.mode, top_k=request.top_k, hl_keywords=[request.query], ll_keywords=[request.query]
+    )
+    try:
+        result = await _rag.aquery_data(request.query, param=param)
+    except Exception as e:  # noqa: BLE001 - a fixed code, never str(e)
+        logger.error("/query retrieval-only raised: %s", type(e).__name__)
+        return _query_failed()
+    result = result or {}
+    data = result.get("data") or {}
+    if result.get("status") != "success" and (result.get("metadata") or {}).get("failure_reason") != "no_results":
+        logger.error("/query retrieval-only failed (status=%s)", result.get("status"))
+        return _query_failed()
+    lines = ["RETRIEVAL-ONLY: no answer was synthesized (LLM_BINDING=none). Retrieved context:"]
+    for e in (data.get("entities") or [])[:_RETRIEVAL_ONLY_MAX_ITEMS]:
+        lines.append(f"- {e.get('entity_name')} ({e.get('entity_type')}): {e.get('description', '')}")
+    for r in (data.get("relationships") or [])[:_RETRIEVAL_ONLY_MAX_ITEMS]:
+        lines.append(f"- {r.get('src_id')} -> {r.get('tgt_id')}: {r.get('description', '')}")
+    for c in (data.get("chunks") or [])[:_RETRIEVAL_ONLY_MAX_ITEMS]:
+        lines.append(f"- [chunk] {c.get('content', '')}")
+    return {
+        "response": "\n".join(lines),
+        "answer_mode": "retrieval_only",
+        "references": _entity_references(data),
+        "retrieval": _retrieval_counts(data),
+    }
 
 
 def _extract_tenant_id(scope_filter: list[str]) -> str | None:

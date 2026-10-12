@@ -25,6 +25,15 @@ LIGHTRAG_DIR = Path(__file__).resolve().parent
 REPO_ROOT = LIGHTRAG_DIR.parent.parent
 
 
+def _synthesized(text: str) -> dict[str, Any]:
+    """aquery_llm's success shape (/query calls aquery_llm since #121)."""
+    return {
+        "status": "success",
+        "data": {"entities": [], "relationships": [], "chunks": []},
+        "llm_response": {"content": text, "is_streaming": False},
+    }
+
+
 # ─── vector backend ────────────────────────────────────────────────────────
 
 
@@ -144,7 +153,7 @@ def client(monkeypatch, tmp_path):
     from audit_log import AuditLog
 
     rag = MagicMock()
-    rag.aquery = AsyncMock(return_value="semantic answer")
+    rag.aquery_llm = AsyncMock(return_value=_synthesized("semantic answer"))
 
     async def _noop():
         return None
@@ -290,7 +299,7 @@ def _boot_with_meta(monkeypatch, tmp_path, meta: Any):
     monkeypatch.setenv("EMBEDDING_DIM", "1024")
 
     rag = MagicMock()
-    rag.aquery = AsyncMock(return_value="semantic answer")
+    rag.aquery_llm = AsyncMock(return_value=_synthesized("semantic answer"))
 
     async def _noop():
         return None
@@ -580,6 +589,7 @@ def test_loading_the_deployed_profile_keeps_railway_values(monkeypatch) -> None:
             "NEO4J_PASSWORD": "fake-pass",
             "OPENROUTER_API_KEY": "fake-or-key",
             "GOOGLE_CLOUD_PROJECT": "fake-project",
+            "GOOGLE_CLOUD_LOCATION": "us-central1",
             "VECTOR_INDEX_ALLOW_RECREATE": "1",
         }.items():
             os.environ[k] = v
@@ -587,7 +597,11 @@ def test_loading_the_deployed_profile_keeps_railway_values(monkeypatch) -> None:
         assert ss._load_config() == "deployed"
         assert os.environ["NEO4J_URI"] == "neo4j+s://fake-host:7687"
         assert os.environ["GOOGLE_CLOUD_PROJECT"] == "fake-project"
-        assert os.environ["LLM_BINDING_API_KEY"] == "fake-or-key"
+        # #121: synthesis is Gemini on Vertex in `global`; the embedder keeps the
+        # Railway-provided GOOGLE_CLOUD_LOCATION (the profile must not touch it).
+        assert os.environ["LLM_BINDING"] == "gemini"
+        assert os.environ["LLM_VERTEX_LOCATION"] == "global"
+        assert os.environ["GOOGLE_CLOUD_LOCATION"] == "us-central1"
         assert os.environ["NEO4J_DATABASE"] == "neo4j"
         assert os.environ["EMBEDDING_BINDING"] == "vertex"
         assert os.environ["VECTOR_INDEX_ALLOW_RECREATE"] == ""

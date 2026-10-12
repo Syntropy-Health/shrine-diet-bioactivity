@@ -332,3 +332,21 @@ async def test_transport_error_propagates_without_host(client):
     with pytest.raises(httpx.ConnectError) as ei:
         await client.health()
     assert "test:1234" not in str(ei.value)
+
+
+@pytest.mark.asyncio
+async def test_query_502_llm_unavailable_reaches_the_mcp_client_with_its_reason(client):
+    """#121: when synthesis fails the scoped server answers 502 with a ``detail``
+    naming llm_unavailable; the gateway must relay that, not a bare status."""
+    client._client.post = AsyncMock(
+        return_value=_http_error(
+            502,
+            "http://test:1234/query",
+            "llm_unavailable: ClientError (retrieval found 20 chunks)",
+        )
+    )
+    with pytest.raises(httpx.HTTPStatusError) as ei:
+        await client.query("curcumin targets")
+    msg = str(ei.value)
+    assert "502" in msg and "llm_unavailable: ClientError" in msg
+    assert "test:1234" not in msg
