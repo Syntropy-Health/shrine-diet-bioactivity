@@ -71,16 +71,14 @@ def test_a_schedule_reads_the_cache_inside_the_7_day_eviction_window(wf) -> None
     assert max(gaps) < 7, f"longest gap between scheduled runs is {max(gaps)} days"
 
 
-def _classify(step: dict, *, hit: str, matched: str, tmp_path: Path) -> tuple[str, str]:
-    dl_key = "data-fixtures-v1-downloads-abc123"
+def _classify(step: dict, *, hit: str, dl_hit: str, tmp_path: Path) -> tuple[str, str]:
     out, summary = tmp_path / "out", tmp_path / "summary"
     out.write_text("")
     summary.write_text("")
     env = {
         "PATH": "/usr/bin:/bin",
         "HIT": hit,
-        "MATCHED": matched,
-        "DL_KEY": dl_key,
+        "DL_HIT": dl_hit,
         "GITHUB_OUTPUT": str(out),
         "GITHUB_STEP_SUMMARY": str(summary),
     }
@@ -90,30 +88,50 @@ def _classify(step: dict, *, hit: str, matched: str, tmp_path: Path) -> tuple[st
 
 
 @pytest.mark.parametrize(
-    "hit,matched,state",
+    "hit,dl_hit,state",
     [
-        ("true", "data-fixtures-v1-full", "hit"),
-        ("false", "data-fixtures-v1-downloads-abc123", "downloads"),
-        # An older FULL cache: its downloads may be stale -> re-download.
-        ("false", "data-fixtures-v1-oldhash", "miss"),
-        ("false", "", "miss"),
+        ("true", "", "hit"),  # downloads restore skipped on a full hit
+        ("true", "true", "hit"),  # scheduled run reads both
+        ("", "true", "downloads"),
+        ("false", "true", "downloads"),
+        ("false", "false", "miss"),
         ("", "", "miss"),
     ],
 )
-def test_classifier_names_the_cache_state_and_reports_it(wf, tmp_path, hit, matched, state) -> None:
+def test_classifier_names_the_cache_state_and_reports_it(wf, tmp_path, hit, dl_hit, state) -> None:
     step = _steps(wf)["Classify fixtures cache (HIT / DOWNLOADS / MISS)"]
-    out, summary = _classify(step, hit=hit, matched=matched, tmp_path=tmp_path)
+    out, summary = _classify(step, hit=hit, dl_hit=dl_hit, tmp_path=tmp_path)
     assert out.strip() == f"state={state}"
     assert f"Data fixtures cache: {state.upper()}" in summary
 
 
-def test_classifier_compares_against_the_same_downloads_key_that_is_saved(wf) -> None:
+def _paths(step: dict) -> list[str]:
+    return [line.strip() for line in step["with"]["path"].splitlines() if line.strip()]
+
+
+def test_each_layer_is_restored_with_the_same_key_and_path_list_it_is_saved_with(wf) -> None:
+    """actions/cache matches an entry on key AND a version hashed from the path
+    list. The first cut restored the downloads layer through a restore-key on the
+    3-path restore, so it could never match (MEASURED: the entry was never read)."""
     steps = _steps(wf)
-    dl_key = steps["Classify fixtures cache (HIT / DOWNLOADS / MISS)"]["env"]["DL_KEY"]
-    assert steps["Save downloads cache"]["with"]["key"] == dl_key
-    assert dl_key in steps["Restore data fixtures cache"]["with"]["restore-keys"]
-    # And the full key restored is the full key saved.
-    assert steps["Restore data fixtures cache"]["with"]["key"] == steps["Save full fixtures cache"]["with"]["key"]
+    for restore, save in (
+        ("Restore data fixtures cache", "Save full fixtures cache"),
+        ("Restore downloads cache", "Save downloads cache"),
+    ):
+        assert steps[restore]["with"]["key"] == steps[save]["with"]["key"], restore
+        assert _paths(steps[restore]) == _paths(steps[save]), restore
+
+
+def test_no_prefix_fallback_can_restore_stale_downloads(wf) -> None:
+    # The download scripts skip files that already exist, so an older cache's
+    # files would be reused after a source change and saved under the new key.
+    for name in ("Restore data fixtures cache", "Restore downloads cache"):
+        assert "restore-keys" not in _steps(wf)[name]["with"], name
+
+
+def test_the_schedule_reads_the_downloads_entry_too(wf) -> None:
+    cond = _steps(wf)["Restore downloads cache"]["if"]
+    assert "cache-hit != 'true'" in cond and "github.event_name == 'schedule'" in cond
 
 
 def test_downloads_run_only_on_a_miss_and_builds_on_anything_but_a_hit(wf) -> None:
@@ -124,10 +142,12 @@ def test_downloads_run_only_on_a_miss_and_builds_on_anything_but_a_hit(wf) -> No
         assert steps[name]["if"] == "steps.fixtures.outputs.state != 'hit'", name
 
 
-def test_nothing_gates_on_the_raw_cache_hit_flag_any_more(wf) -> None:
-    # The raw flag is false on a downloads-only match, which re-ran every download.
-    for s in wf["jobs"]["test"]["steps"]:
-        assert "cache-hit" not in str(s.get("if", "")), s.get("name")
+def test_provisioning_steps_gate_on_the_classified_state_not_a_raw_flag(wf) -> None:
+    # A raw cache-hit flag is false on a downloads-only restore, which re-ran every
+    # download. Only the downloads RESTORE may read it (to decide whether to try).
+    steps = _steps(wf)
+    for name in DOWNLOAD_STEPS + BUILD_STEPS + ["Save downloads cache"]:
+        assert "cache-hit" not in steps[name]["if"], name
 
 
 def test_the_external_herb_download_has_a_timeout(wf) -> None:

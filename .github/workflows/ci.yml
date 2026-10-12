@@ -82,24 +82,36 @@ jobs:
             shrine-diet-bioactivity/data_local_temp
             shrine-diet-bioactivity/data_local
           key: data-fixtures-v1-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/scripts/decompress-datasets.ts', 'shrine-diet-bioactivity/scripts/build-herbal-db.ts', 'shrine-diet-bioactivity/scripts/load-symmap.ts', 'shrine-diet-bioactivity/scripts/load-herb2.ts', 'shrine-diet-bioactivity/scripts/build-symptom-crosswalk.ts', 'shrine-diet-bioactivity/scripts/migrate-kg-expansion.ts', 'shrine-diet-bioactivity/scripts/migrate-multi-source.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
-          restore-keys: |
-            data-fixtures-v1-downloads-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
-            data-fixtures-v1-
+          # Exact key only. A prefix fallback restored an OLDER full cache, and the
+          # download scripts skip files that already exist, so a changed source URL
+          # would silently rebuild from stale downloads (#125 review).
+
+      # The downloads layer is its own entry: actions/cache matches on key AND a
+      # version derived from the PATH LIST, so it must be restored with exactly the
+      # path it was saved with (a restore-key on the 3-path restore above could
+      # never match it — MEASURED: never read). The schedule restores it too, so it
+      # is not evicted while the full entry keeps getting hits.
+      - name: Restore downloads cache
+        id: dl-cache
+        if: steps.data-cache.outputs.cache-hit != 'true' || github.event_name == 'schedule'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            shrine-diet-bioactivity/data
+          key: data-fixtures-v1-downloads-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
 
       # hit       = the full fixtures (downloads + built DB) restored: nothing to do.
-      # downloads = only the downloads layer matched: skip the downloads, rebuild.
-      # miss      = nothing usable (or an older full cache whose downloads may be
-      #             stale): download + build.
+      # downloads = only the downloads layer restored (exact key): rebuild the DB.
+      # miss      = nothing restored: download + build (cold).
       - name: Classify fixtures cache (HIT / DOWNLOADS / MISS)
         id: fixtures
         env:
           HIT: ${{ steps.data-cache.outputs.cache-hit }}
-          MATCHED: ${{ steps.data-cache.outputs.cache-matched-key }}
-          DL_KEY: data-fixtures-v1-downloads-${{ hashFiles('shrine-diet-bioactivity/scripts/download-sources.ts', 'shrine-diet-bioactivity/scripts/download-symmap.ts', 'shrine-diet-bioactivity/scripts/download-herb2.ts', 'shrine-diet-bioactivity/config/data_sources.yaml') }}
+          DL_HIT: ${{ steps.dl-cache.outputs.cache-hit }}
         run: |
           if [ "$HIT" = "true" ]; then
             state=hit
-          elif [ -n "$MATCHED" ] && [ "$MATCHED" = "$DL_KEY" ]; then
+          elif [ "$DL_HIT" = "true" ]; then
             state=downloads
           else
             state=miss
@@ -108,11 +120,10 @@ jobs:
           {
             echo "### Data fixtures cache: $(echo "$state" | tr '[:lower:]' '[:upper:]')"
             echo ""
-            echo "- matched key: \`${MATCHED:-none}\`"
             case "$state" in
               hit) echo "- provisioning skipped; verification runs on the cached fixtures" ;;
               downloads) echo "- downloads restored; rebuilding the DB only" ;;
-              miss) echo "- COLD: re-downloading sources (HERB 2.0 alone has taken ~1h45m) and rebuilding" ;;
+              miss) echo "- COLD: downloading sources (HERB 2.0 alone has taken ~1h45m) and rebuilding" ;;
             esac
           } >> "$GITHUB_STEP_SUMMARY"
 
