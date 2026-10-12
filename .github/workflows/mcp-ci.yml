@@ -68,7 +68,7 @@ jobs:
           done
           cd "$H"
           python -m pytest -q -p no:cacheprovider -m unit \
-            test_llm_synthesis.py test_semantic_vertex.py test_make_llm_func.py
+            test_llm_synthesis.py test_semantic_vertex.py test_make_llm_func.py test_read_sessions.py
 
   functional-integration:
     name: Functional + Integration (KG MCP gateway)

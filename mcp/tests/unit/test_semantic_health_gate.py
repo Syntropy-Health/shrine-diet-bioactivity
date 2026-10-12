@@ -120,5 +120,5 @@ def test_ci_runs_the_scoped_server_contract_tests() -> None:
     assert "shrine-diet-bioactivity/lightrag/*.py" in paths
     assert "scripts/ci/**" in paths
     run = "\n".join(s.get("run", "") for s in ci["jobs"]["scoped-server-contract"]["steps"])
-    for f in ("test_llm_synthesis.py", "test_semantic_vertex.py"):
+    for f in ("test_llm_synthesis.py", "test_semantic_vertex.py", "test_read_sessions.py"):
         assert f in run

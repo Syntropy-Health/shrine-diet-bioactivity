@@ -740,13 +740,18 @@ async def _init_neo4j_driver() -> None:
     _neo4j_driver = AsyncGraphDatabase.driver(uri, auth=(user, pwd))
 
     # Validate immediately so a bad cred / network blocks startup.
-    async with _neo4j_driver.session() as s:
+    async with _neo4j_driver.session(default_access_mode="READ") as s:
         result = await s.run("RETURN 1 AS ok")
         record = await result.single()
         if record is None or record["ok"] != 1:
             raise RuntimeError("Aura ping failed: RETURN 1 did not return 1")
     logger.info("Neo4j driver validated (uri=%s)", uri.split("@")[-1])
 
+
+# Every Neo4j session this server opens is READ (#118). The KG is read-only shared
+# data [PRINCIPAL-RULED 2026-10-03] and Aura Free has a single, write-capable user
+# (no RBAC), so a future write query must fail at the session, not commit.
+# Pinned by test_read_sessions.py.
 
 def _get_driver() -> Any:
     """DI accessor for typed endpoints. Tests monkeypatch this; production
@@ -761,7 +766,7 @@ async def _ping_driver() -> bool:
     if _neo4j_driver is None:
         return False
     try:
-        async with _neo4j_driver.session() as s:
+        async with _neo4j_driver.session(default_access_mode="READ") as s:
             result = await s.run("RETURN 1 AS ok")
             rec = await result.single()
             return rec is not None and rec["ok"] == 1
@@ -989,7 +994,7 @@ async def traverse(request: TraverseRequest) -> dict[str, Any]:
         body=request.model_dump(),
     ) as row:
         driver = _get_driver()
-        async with driver.session() as s:
+        async with driver.session(default_access_mode="READ") as s:
             result = await s.run(
                 cypher,
                 seed=request.seed,
@@ -1103,7 +1108,7 @@ async def hdi_check(request: HDICheckRequest) -> dict[str, Any]:
         body={"drug": request.drug, "herb": request.herb},
     ) as row:
         driver = _get_driver()
-        async with driver.session() as s:
+        async with driver.session(default_access_mode="READ") as s:
             result = await s.run(
                 cypher,
                 drug=request.drug,
@@ -1164,7 +1169,7 @@ async def bilingual_term(request: BilingualTermRequest) -> dict[str, Any]:
         body={"term": request.term},
     ) as row:
         driver = _get_driver()
-        async with driver.session() as s:
+        async with driver.session(default_access_mode="READ") as s:
             result = await s.run(
                 cypher, term=request.term, scope_filter=request.scope_filter,
             )
