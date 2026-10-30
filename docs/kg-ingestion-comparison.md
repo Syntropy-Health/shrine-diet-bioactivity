@@ -2,6 +2,8 @@
 
 PoC results from the unified phytochemical knowledge graph experiment.
 
+> **Railway instance decommissioned.** MEASURED 2026-10-30: the `metro.proxy.rlwy.net:22971` proxy accepts TCP but no Neo4j answers behind it (the bolt handshake fails before auth). Connect to Aura instead, with `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` from Infisical prod `/research/shrine-diet-bioactivity`. The Railway details below are historical.
+
 ## Setup
 
 | Component | Config |
@@ -156,7 +158,7 @@ MERGE (e)-[:SAME_AS]->(c)
 ## How to View the KG
 
 ### Neo4j Desktop (Recommended)
-Connect to `bolt://metro.proxy.rlwy.net:22971` with `neo4j`/`demodemo`.
+Connect to `bolt://metro.proxy.rlwy.net:22971` with `neo4j`/`<from Infisical>`.
 
 ### CLI
 ```bash
@@ -202,8 +204,7 @@ MODEL_NAME=nvidia/nemotron-3-nano-30b-a3b:free
 EMBEDDING_MODEL=nvidia/llama-nemotron-embed-vl-1b-v2:free
 EMBEDDING_DIM=2048
 NEO4J_URI=bolt://neo4j.railway.internal:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=demodemo
+NEO4J_PASSWORD=<from Infisical>
 ```
 
 ### Local (.env)

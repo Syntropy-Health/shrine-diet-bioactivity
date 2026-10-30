@@ -135,7 +135,7 @@ await rag.ainsert_custom_kg(custom_kg)
 # SOURCE: lightrag/env.example:499-511
 NEO4J_URI=bolt://metro.proxy.rlwy.net:22971
 NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=demodemo
+NEO4J_PASSWORD=<from Infisical>
 NEO4J_DATABASE=neo4j
 ```
 
@@ -238,7 +238,7 @@ NEO4J_DATABASE=neo4j
     LIGHTRAG_DOC_STATUS_STORAGE=JsonDocStatusStorage
     NEO4J_URI=bolt://metro.proxy.rlwy.net:22971
     NEO4J_USERNAME=neo4j
-    NEO4J_PASSWORD=demodemo
+    NEO4J_PASSWORD=<from Infisical>
     WORKSPACE=unified_diet_kg
     ENTITY_TYPES='["Herb","Compound","Food","Target","Disease","Symptom","Nutrient"]'
     SUMMARY_LANGUAGE=English

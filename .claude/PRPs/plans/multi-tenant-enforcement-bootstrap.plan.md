@@ -710,7 +710,8 @@ EXPECT: Output shows `missing_nodes=0 missing_edges=0` after initial bootstrap h
 ### Preflight Check (CI gate)
 ```bash
 # Must return 0; non-zero blocks deploys
-cypher-shell -a $NEO4J_URI -u $NEO4J_USERNAME -p $NEO4J_PASSWORD \
+# cypher-shell reads NEO4J_USERNAME / NEO4J_PASSWORD from the env: never pass -p (argv).
+cypher-shell -a "$NEO4J_URI" \
   "MATCH (n:\`unified_diet_kg\`) WHERE n.scope IS NULL RETURN count(n) AS untagged"
 ```
 EXPECT: `untagged = 0`.

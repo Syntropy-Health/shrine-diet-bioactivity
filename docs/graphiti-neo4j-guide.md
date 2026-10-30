@@ -2,6 +2,8 @@
 
 How to set up, ingest, visualize, and query the phytochemical knowledge graph.
 
+> **Railway instance decommissioned.** MEASURED 2026-10-30: the `metro.proxy.rlwy.net:22971` proxy accepts TCP but no Neo4j answers behind it (the bolt handshake fails before auth). Connect to Aura instead, with `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` from Infisical prod `/research/shrine-diet-bioactivity`. The Railway details below are historical.
+
 ## Architecture
 
 ```
@@ -31,13 +33,13 @@ The project has a Neo4j instance on Railway. **Use the TCP proxy** — the domai
 |----------|-------|
 | **Bolt URI (use this)** | `bolt://metro.proxy.rlwy.net:22971` |
 | Domain URI (fallback) | `bolt://neo4j-test-2be3.up.railway.app:7687` |
-| Credentials | `neo4j` / `demodemo` |
+| Credentials | `neo4j` / `<from Infisical>` |
 
 **How to view the Neo4j KG on Railway:**
 
 Railway exposes Neo4j via TCP proxy only (no HTTP browser endpoint). To visualize:
 
-1. **Neo4j Desktop** (recommended): Add remote connection → `bolt://metro.proxy.rlwy.net:22971` → `neo4j`/`demodemo`
+1. **Neo4j Desktop** (recommended): Add remote connection → `bolt://metro.proxy.rlwy.net:22971` → `neo4j`/`<from Infisical>`
 2. **Makefile**: `make neo4j-check` shows node/edge counts, `make neo4j-stats` shows detailed breakdown
 3. **Python**: See "Quick Check" section below
 

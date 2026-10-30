@@ -16,10 +16,15 @@ PY="${LRENV_PY:-/tmp/lrenv/bin/python}"   # a venv with lightrag-hku[api]==1.5.0
 
 # Deliver the Infisical token via env (INFISICAL_TOKEN), NOT --token= on argv, so it
 # is not visible in the process table (CWE-214). The `get` calls read it from env.
-export INFISICAL_TOKEN="$(infisical login --method=universal-auth --client-id="$INFISICAL_UNIVERSAL_AUTH_CLIENT_ID" --client-secret="$INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET" --domain=https://app.infisical.com --plain --silent 2>/dev/null)"
+# `infisical login` reads INFISICAL_UNIVERSAL_AUTH_CLIENT_ID/_SECRET from env too; never
+# pass them as --client-id/--client-secret flags (same process-table exposure).
+export INFISICAL_TOKEN="$(infisical login --method=universal-auth --domain=https://app.infisical.com --plain --silent 2>/dev/null)"
+[ -n "$INFISICAL_TOKEN" ] || { echo "infisical login failed (check INFISICAL_UNIVERSAL_AUTH_CLIENT_ID/_SECRET)" >&2; exit 1; }
 APP=589d1e3b-5798-48ea-97c0-2d58086a375b; P=/research/shrine-diet-bioactivity
 g(){ infisical secrets get "$1" --projectId="$APP" --env=prod --path="$P" --domain=https://app.infisical.com --plain --silent 2>/dev/null; }
 export NEO4J_URI="$(g NEO4J_URI)" NEO4J_USERNAME="$(g NEO4J_USERNAME)" NEO4J_PASSWORD="$(g NEO4J_PASSWORD)" NEO4J_DATABASE="$(g NEO4J_DATABASE)"
+# The ingest needs none of the Infisical credentials: keep them out of its environment.
+unset INFISICAL_TOKEN INFISICAL_UNIVERSAL_AUTH_CLIENT_ID INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET
 
 # --- production semantic track (see CHECKPOINT.md) ---
 export WORKSPACE=unified_diet_kg
