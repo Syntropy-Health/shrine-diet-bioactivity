@@ -117,7 +117,7 @@ STRUCTURED DATA (zero LLM cost):
 | Scoped LightRAG wrapper | Python 3.10+, FastAPI, LightRAG, Neo4j 5.26+ |
 | Embeddings (local) | Ollama, bge-m3 (1024-dim) |
 | Embeddings (prod) | OpenAI text-embedding-3-large (3072-dim) |
-| Graph DB | Neo4j Aura (cloud) / Railway (dev) |
+| Graph DB | Neo4j Aura (cloud); a loopback Neo4j for destructive local tests |
 | Eval harness | Python (DietResearchBench), AG2 agents |
 
 ## Submodules

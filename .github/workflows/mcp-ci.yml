@@ -21,6 +21,10 @@ on:
       - 'shrine-diet-bioactivity/lightrag/*.env'
       - 'shrine-diet-bioactivity/lightrag/requirements.txt'
       - 'scripts/ci/**'
+      # Pinned by mcp/tests/unit/test_neo4j_secret_hygiene.py (CTO #17617/#17618):
+      - 'shrine-diet-bioactivity/Makefile'
+      - 'shrine-diet-bioactivity/scripts/neo4j_admin.py'
+      - '**/*.sh'
       # Pins on the TS CI workflow live in mcp/tests (test_ci_fixtures_cache.py, #125):
       - '.github/workflows/ci.yml'
       - '.github/workflows/lightrag-live-write.yml'  # pinned by test_live_write_workflow.py (#116)

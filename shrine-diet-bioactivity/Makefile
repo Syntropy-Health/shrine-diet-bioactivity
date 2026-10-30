@@ -14,10 +14,10 @@
 #   - Python 3.10+ (for LightRAG)
 #   - Ollama running on :11434 with bge-m3 model (for local LightRAG)
 #
-# Neo4j: no default instance. Export NEO4J_URI / NEO4J_USER / NEO4J_PASS first
-#   (the Aura values live in Infisical prod, /research/shrine-diet-bioactivity).
-#   The neo4j-* targets read them from the environment, never from argv.
-#   The legacy Railway proxy instance is decommissioned.
+# Neo4j: no default instance. Export NEO4J_URI / NEO4J_USERNAME / NEO4J_PASSWORD
+#   (Infisical prod /research/shrine-diet-bioactivity). The neo4j-* targets read
+#   them from the environment only; never pass them as `make VAR=...` (argv).
+#   neo4j-clear refuses any non-loopback URI. The old Railway proxy is gone.
 # ─────────────────────────────────────────────────────────────
 
 .PHONY: help setup download build migrate download-cmaup download-ttd \
@@ -30,15 +30,9 @@
         lightrag-bootstrap-scope-prod lightrag-test-scope lightrag-test-scope-write \
         lightrag-test-scope-write-live \
         lightrag-canary-test lightrag-test-integration audit-recent \
-        neo4j-check neo4j-shell neo4j-stats neo4j-status neo4j-watch neo4j-clear \
+        neo4j-env neo4j-check neo4j-shell neo4j-stats neo4j-status neo4j-watch neo4j-clear \
         embedding-check lms-models clean \
         eval-smoke eval-run eval-report eval-embed-ingest
-
-# Neo4j connection: from the environment only (no default instance or password).
-NEO4J_URI    ?=
-NEO4J_USER   ?= neo4j
-NEO4J_PASS   ?=
-export NEO4J_URI NEO4J_USER NEO4J_PASS
 
 # ─── Prototype KG subsample configuration ───────────────────
 # These MAX_* limits define the reproducible prototype KG shape.
@@ -130,87 +124,33 @@ lms-models: ## List models loaded in LM Studio
 		|| echo "❌ LM Studio not reachable at $(LMS_URL)"
 
 # ─── Neo4j ──────────────────────────────────────────────────
+# Credentials: NEO4J_URI / NEO4J_USERNAME / NEO4J_PASSWORD from the environment.
 
 neo4j-env:
-	@[ -n "$$NEO4J_URI" ] && [ -n "$$NEO4J_PASS" ] || { \
-	  echo "NEO4J_URI and NEO4J_PASS must be set in the environment (Infisical prod /research/shrine-diet-bioactivity)."; exit 1; }
+	@[ -n "$$NEO4J_URI" ] && [ -n "$$NEO4J_PASSWORD" ] || { \
+	  echo "NEO4J_URI and NEO4J_PASSWORD must be set in the environment (Infisical prod /research/shrine-diet-bioactivity)."; exit 1; }
 
 neo4j-check: neo4j-env ## Test Neo4j connection and show node/edge counts
-	@python3 -c "\
-from neo4j import GraphDatabase; import os; \
-d = GraphDatabase.driver(os.environ['NEO4J_URI'], auth=(os.environ['NEO4J_USER'], os.environ['NEO4J_PASS'])); \
-s = d.session(); \
-print('=== Neo4j KG Status ==='); \
-print('URI: $(NEO4J_URI)'); \
-[print(f\"  {r['type']}: {r['count']}\") for r in s.run('MATCH (n) RETURN labels(n) AS type, COUNT(n) AS count ORDER BY count DESC')]; \
-[print(f\"  {r['rel']}: {r['count']}\") for r in s.run('MATCH ()-[r]->() RETURN type(r) AS rel, COUNT(r) AS count ORDER BY count DESC')]; \
-total_n = s.run('MATCH (n) RETURN COUNT(n) AS c').single()['c']; \
-total_r = s.run('MATCH ()-[r]->() RETURN COUNT(r) AS c').single()['c']; \
-print(f'Total: {total_n} nodes, {total_r} relationships'); \
-s.close(); d.close()"
+	@python3 scripts/neo4j_admin.py check
 
-neo4j-shell: neo4j-env ## Open interactive Cypher shell against $NEO4J_URI
-	@echo "Connecting to $(NEO4J_URI) ..."
-	@docker run --rm -it -e NEO4J_PASSWORD="$$NEO4J_PASS" neo4j:5-community cypher-shell \
-		-a "$$NEO4J_URI" -u "$$NEO4J_USER" \
-		2>/dev/null || \
-	python3 -c "\
-from neo4j import GraphDatabase; import os; \
-d = GraphDatabase.driver(os.environ['NEO4J_URI'], auth=(os.environ['NEO4J_USER'], os.environ['NEO4J_PASS'])); \
-s = d.session(); \
-print('Connected. Enter Cypher (empty line to quit):'); \
-import sys; \
-[None for _ in iter(lambda: (q:=input('> ').strip()) or None, None) if q and [print(r.data()) for r in s.run(q)]]; \
-s.close(); d.close()"
+neo4j-shell: neo4j-env ## Open interactive Cypher shell against the NEO4J_URI database
+	@echo "Connecting to $$NEO4J_URI ..."
+	@# -e NAME (no value) copies the variable from the environment: nothing on argv.
+	@docker run --rm -it -e NEO4J_USERNAME -e NEO4J_PASSWORD neo4j:5-community \
+		cypher-shell -a "$$NEO4J_URI" 2>/dev/null || \
+	python3 scripts/neo4j_admin.py shell
 
 neo4j-stats: neo4j-env ## Show detailed KG statistics via Cypher
-	@python3 -c "\
-from neo4j import GraphDatabase; import os; \
-d = GraphDatabase.driver(os.environ['NEO4J_URI'], auth=(os.environ['NEO4J_USER'], os.environ['NEO4J_PASS'])); \
-s = d.session(); \
-print('=== Detailed KG Stats ==='); \
-for r in s.run('MATCH (n) RETURN labels(n)[0] AS label, COUNT(n) AS count ORDER BY count DESC'): print(f'  Nodes [{r[\"label\"]}]: {r[\"count\"]}'); \
-for r in s.run('MATCH ()-[r]->() RETURN type(r) AS type, COUNT(r) AS count ORDER BY count DESC'): print(f'  Edges [{r[\"type\"]}]: {r[\"count\"]}'); \
-s.close(); d.close()"
+	@python3 scripts/neo4j_admin.py stats
 
 neo4j-status: neo4j-env ## Full KG analytics — node/edge breakdown by workspace
-	@python3 -c "\
-	from neo4j import GraphDatabase; import os; \
-	d = GraphDatabase.driver(os.environ['NEO4J_URI'], auth=(os.environ['NEO4J_USER'], os.environ['NEO4J_PASS'])); \
-	s = d.session(); \
-	print('=== KG Status by Workspace ==='); \
-	for r in s.run('MATCH (n) RETURN labels(n) AS labels, COUNT(n) AS count ORDER BY count DESC'): print(f'  Nodes {r[\"labels\"]}: {r[\"count\"]}'); \
-	print(); \
-	for r in s.run('MATCH ()-[r]->() RETURN type(r) AS type, COUNT(r) AS count ORDER BY count DESC'): print(f'  Edges [{r[\"type\"]}]: {r[\"count\"]}'); \
-	total_n = s.run('MATCH (n) RETURN COUNT(n) AS c').single()['c']; \
-	total_r = s.run('MATCH ()-[r]->() RETURN COUNT(r) AS c').single()['c']; \
-	print(f'\nTotal: {total_n} nodes, {total_r} relationships'); \
-	s.close(); d.close()"
+	@python3 scripts/neo4j_admin.py status
 
 neo4j-watch: neo4j-env ## Live-monitor KG growth (polls every 30s, Ctrl+C to stop)
-	@echo "Watching KG growth at $(NEO4J_URI) — Ctrl+C to stop"
-	@while true; do \
-		python3 -c "\
-	from neo4j import GraphDatabase; import os; import datetime; \
-	d = GraphDatabase.driver(os.environ['NEO4J_URI'], auth=(os.environ['NEO4J_USER'], os.environ['NEO4J_PASS'])); \
-	s = d.session(); \
-	n = s.run('MATCH (n) RETURN COUNT(n) AS c').single()['c']; \
-	r = s.run('MATCH ()-[r]->() RETURN COUNT(r) AS c').single()['c']; \
-	print(f'{datetime.datetime.now():%H:%M:%S} — {n} nodes, {r} edges'); \
-	s.close(); d.close()" 2>/dev/null || true; \
-		sleep 30; \
-	done
+	@python3 scripts/neo4j_admin.py watch
 
-neo4j-clear: neo4j-env ## ⚠️  Delete ALL nodes and relationships in Neo4j
-	@echo "⚠️  This will delete ALL data in Neo4j at $(NEO4J_URI)"
-	@read -p "Type 'yes' to confirm: " confirm && [ "$$confirm" = "yes" ] && \
-	python3 -c "\
-from neo4j import GraphDatabase; import os; \
-d = GraphDatabase.driver(os.environ['NEO4J_URI'], auth=(os.environ['NEO4J_USER'], os.environ['NEO4J_PASS'])); \
-s = d.session(); \
-s.run('MATCH (n) DETACH DELETE n'); \
-print('✅ All nodes and relationships deleted.'); \
-s.close(); d.close()" || echo "Cancelled."
+neo4j-clear: neo4j-env ## ⚠️  Delete ALL nodes and relationships (loopback test DB only)
+	@python3 scripts/neo4j_admin.py clear
 
 # ─── Food Bridge & Nutrition Enrichment ─────────────────────
 

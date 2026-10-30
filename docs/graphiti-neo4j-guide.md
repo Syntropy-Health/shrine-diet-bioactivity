@@ -2,6 +2,8 @@
 
 How to set up, ingest, visualize, and query the phytochemical knowledge graph.
 
+> **Railway instance decommissioned.** MEASURED 2026-10-30: the `metro.proxy.rlwy.net:22971` proxy accepts TCP but no Neo4j answers behind it (the bolt handshake fails before auth). Connect to Aura instead, with `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` from Infisical prod `/research/shrine-diet-bioactivity`. The Railway details below are historical.
+
 ## Architecture
 
 ```
