@@ -45,7 +45,7 @@ We believe that indexing structured phytochemical data into a Graphiti temporal 
 - [ ] What is the embedding dimension of `text-embedding-embeddinggemma-300m-qat`? (Needed for Graphiti config)
   **PENDING**: Need LM Studio running to verify. Defaulting to 768 (GemMA-based models typically use 256 or 768). Run `make embedding-check` to verify.
 - [x] Neo4j credentials for Railway instance — need password
-  **RESOLVED**: `neo4j`/`demodemo` via TCP proxy `bolt://metro.proxy.rlwy.net:22971`. Verified connection works.
+  **RESOLVED**: `neo4j`/`<from Infisical>` via TCP proxy `bolt://metro.proxy.rlwy.net:22971`. Verified connection works.
 - [x] STITCH 5 is 200GB raw — is pre-filtering to our compound universe feasible in a single session?
   **RESOLVED**: Yes, feasible but not in this phase. Strategy: download only `9606.actions.v5.0.tsv.gz` (human interactions, ~4GB compressed). Pre-filter with a streaming script that checks each line's chemical_id against our compound_name_map (~94K compounds). Expected output: ~50K-200K rows (0.01% of 1.6B). This is a Tier 2 task — worth doing after CMAUP/CTD/TTD are validated, as it adds the largest compound-target interaction network. Implementation: stream with `zlib.createGunzip()` + `readline` (same pattern as load-ctd.ts), filter by CID prefix `CIDm` + normalizeCompoundName on STITCH's flat chemical IDs.
 - [x] DisGeNET free tier limits — is the dhimmel/disgenet community snapshot sufficient?

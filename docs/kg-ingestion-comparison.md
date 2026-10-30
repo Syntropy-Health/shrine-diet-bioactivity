@@ -156,7 +156,7 @@ MERGE (e)-[:SAME_AS]->(c)
 ## How to View the KG
 
 ### Neo4j Desktop (Recommended)
-Connect to `bolt://metro.proxy.rlwy.net:22971` with `neo4j`/`demodemo`.
+Connect to `bolt://metro.proxy.rlwy.net:22971` with `neo4j`/`<from Infisical>`.
 
 ### CLI
 ```bash
@@ -203,7 +203,7 @@ EMBEDDING_MODEL=nvidia/llama-nemotron-embed-vl-1b-v2:free
 EMBEDDING_DIM=2048
 NEO4J_URI=bolt://neo4j.railway.internal:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=demodemo
+NEO4J_PASSWORD=<from Infisical>
 ```
 
 ### Local (.env)
