@@ -136,8 +136,8 @@ neo4j-check: neo4j-env ## Test Neo4j connection and show node/edge counts
 neo4j-shell: neo4j-env ## Open interactive Cypher shell against the NEO4J_URI database
 	@echo "Connecting to $$NEO4J_URI ..."
 	@# -e NAME (no value) copies the variable from the environment: nothing on argv.
-	@docker run --rm -it -e NEO4J_USERNAME -e NEO4J_PASSWORD neo4j:5-community \
-		cypher-shell -a "$$NEO4J_URI" 2>/dev/null || \
+	@NEO4J_USERNAME="$${NEO4J_USERNAME:-neo4j}" docker run --rm -it -e NEO4J_USERNAME -e NEO4J_PASSWORD \
+		neo4j:5-community cypher-shell -a "$$NEO4J_URI" || \
 	python3 scripts/neo4j_admin.py shell
 
 neo4j-stats: neo4j-env ## Show detailed KG statistics via Cypher

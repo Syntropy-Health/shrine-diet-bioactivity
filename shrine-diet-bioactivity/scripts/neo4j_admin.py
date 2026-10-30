@@ -36,8 +36,15 @@ def _env() -> tuple[str, str, str]:
     return uri, os.environ.get("NEO4J_USERNAME") or "neo4j", password
 
 
+def _host(uri: str) -> str:
+    try:
+        return urlsplit(uri).hostname or ""
+    except ValueError:  # malformed, e.g. an unbalanced IPv6 bracket
+        return ""
+
+
 def is_loopback(uri: str) -> bool:
-    host = urlsplit(uri).hostname or ""
+    host = _host(uri)
     if host in LOOPBACK_NAMES:
         return True
     try:
@@ -123,12 +130,21 @@ def cmd_shell() -> None:
 def cmd_clear() -> None:
     uri, _, _ = _env()
     if not is_loopback(uri):
-        sys.exit(f"neo4j-clear refuses {urlsplit(uri).hostname!r}: loopback test DB only.")
-    if input(f"Type 'yes' to delete ALL data in {uri}: ").strip() != "yes":
+        sys.exit(f"neo4j-clear refuses {_host(uri)!r}: loopback test DB only.")
+    try:
+        answer = input(f"Type 'yes' to delete ALL data in {uri}: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        answer = ""
+    if answer != "yes":
         print("Cancelled.")
         return
     d, _ = _driver()
     with d, d.session() as s:
+        # A loopback port can still be a forward to a remote server; Aura and any
+        # shared instance run Enterprise, local throwaway test DBs run Community.
+        edition = s.run("CALL dbms.components() YIELD edition RETURN edition").single()["edition"]
+        if edition != "community":
+            sys.exit(f"neo4j-clear refuses a {edition!r} server: Community test DB only.")
         s.run("MATCH (n) DETACH DELETE n")
     print("All nodes and relationships deleted.")
 

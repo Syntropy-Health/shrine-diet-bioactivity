@@ -144,7 +144,47 @@ def test_clear_refuses_non_loopback(uri) -> None:
     assert SENTINEL not in proc.stdout + proc.stderr
 
 
-FLAG_ON_ARGV = re.compile(r"--client-secret|--client-id|--token=|\s-p\s+\S*NEO4J_PASS")
+def _admin_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("neo4j_admin", ADMIN)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.mark.parametrize(
+    ("uri", "expected"),
+    [
+        ("bolt://127.0.0.1:7687", True),
+        ("bolt://[::1]:7687", True),
+        ("bolt://localhost", True),
+        ("neo4j+s://LOCALHOST:7687", True),
+        ("bolt://[::1]x", False),  # malformed: refused, not a traceback
+        ("bolt://", False),
+        ("localhost:7687", False),  # no scheme: host is unknown
+    ],
+)
+def test_is_loopback(uri, expected) -> None:
+    assert _admin_module().is_loopback(uri) is expected
+
+
+def test_clear_on_loopback_reaches_the_prompt_and_cancels(tmp_path) -> None:
+    env = {"PATH": os.environ["PATH"], "NEO4J_URI": "bolt://127.0.0.1:1", "NEO4J_PASSWORD": SENTINEL}
+    for stdin in ("no\n", ""):  # an answer other than yes, and end-of-input
+        proc = subprocess.run(
+            ["python3", str(ADMIN), "clear"], env=env, input=stdin,
+            capture_output=True, text=True, timeout=30,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert "Cancelled." in proc.stdout
+        assert "Traceback" not in proc.stderr
+
+
+FLAG_ON_ARGV = re.compile(
+    r"--client-secret|--client-id|--token=|--password\b"
+    r"|-e\s+NEO4J_PASSWORD=|\s-p\s+\S*(NEO4J_PASS|PASSWORD)"
+)
 
 
 def _code_lines(path: Path):
@@ -157,6 +197,10 @@ def test_flag_regex_matches_the_old_patterns() -> None:
     # Positive control: the regex really catches what it guards against.
     assert FLAG_ON_ARGV.search('infisical login --client-secret="$X" --plain')
     assert FLAG_ON_ARGV.search("cypher-shell -a $(NEO4J_URI) -u $(NEO4J_USER) -p $(NEO4J_PASS)")
+    assert FLAG_ON_ARGV.search('docker run -e NEO4J_PASSWORD="$$NEO4J_PASS" neo4j')
+    assert FLAG_ON_ARGV.search("cypher-shell --password secret")
+    assert FLAG_ON_ARGV.search("cypher-shell -p $NEO4J_PASSWORD")
+    assert not FLAG_ON_ARGV.search("docker run -e NEO4J_USERNAME -e NEO4J_PASSWORD neo4j")
 
 
 def test_no_tracked_script_passes_credentials_as_flags() -> None:
